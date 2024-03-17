@@ -24,30 +24,6 @@ SPOOF_USER_AGENT = 'Dalvik/2.1.0 (Linux; U; Android 12; SM-G991B Build/SP1A.2108
 SPOOF_SYSTEM = 'android'
 SPOOF_APP_PLATFORM = 'android'
 
-MODELS = {
-    "000000000000000000000000c3aa0000": "Heat Pump",
-    "000000000000000000000000c0620000": "Air Conditioner",
-}
-
-# For some reason this needs to be queried separately
-HEAT_PUMP_PARAMS_SPECIAL = [
-    'hp_water_tank_temp',
-]
-
-# These values are returned by default
-HEAT_PUMP_PARAMS = [
-    'ver_old',
-    'ac_mode',
-    'ac_pwr',
-    'ac_temp',
-    'ecomode',
-    'hp_auto_wtemp',
-    'hp_fast_hotwater',
-    'hp_hotwater_temp',
-    'hp_pwr',
-    'qtmode'
-]
-
 
 class DirectiveStuData(TypedDict):
   did: str
@@ -231,11 +207,20 @@ class AuxCloudAPI:
         else:
           raise Exception(f"Failed to query device state: {data}")
 
-  async def query_device_params(self, device: dict, params: list[str] = []):
+  async def _act_device_params(
+      self,
+      device: dict,
+      act: str,
+      params: list[str] = [],
+      vals: list[str] = []
+  ):
     """
     Query device parameters. If no parameters are provided, default parameters are queried.
     https://docs-ibroadlink-com.translate.goog/public/configuration-sdk+ctc/message_table/?_x_tr_sl=auto&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp
     """
+
+    if act == "set" and len(params) != len(vals):
+      raise Exception("Params and Vals must have the same length")
 
     async with aiohttp.ClientSession() as session:
       cookie = json.loads(base64.b64decode(device['cookie'].encode()))
@@ -271,10 +256,9 @@ class AuxCloudAPI:
                   "devSession": device['devSession'],
               },
               "payload": {
-                  "act": "get",
+                  "act": act,
                   "params": params,
-                  # "prop": "stdctrl",
-                  "vals": []
+                  "vals": vals
               },
           }
       }
@@ -303,3 +287,22 @@ class AuxCloudAPI:
           return response_dict
         else:
           raise Exception(f"Failed to query device state: {data}")
+
+  async def get_device_params(
+      self,
+      device: dict,
+      values: dict
+  ):
+    params = list(values.keys())
+
+    return await self._act_device_params(device, "get", params)
+
+  async def set_device_params(
+      self,
+      device: dict,
+      values: dict
+  ):
+    params = list(values.keys())
+    vals = map(lambda val: [{"val": val, "idx": 1}], list(values.values()))
+
+    return await self._act_device_params(device, "set", params, vals)
