@@ -31,13 +31,19 @@ class DirectiveStuData(TypedDict):
   devSession: str
 
 
+class ExpiredTokenError(Exception):
+  pass
+
+
 class AuxCloudAPI:
   """
   Class for interacting with AUX cloud services.
   """
 
-  def __init__(self, region: str = 'eu'):
+  def __init__(self, email: str, password: str, region: str = 'eu'):
     self.url = "https://app-service-deu-f0e9ebbb.smarthomecs.de" if region == 'eu' else "https://app-service-usa-fd7cc04c.smarthomecs.com"
+    self.email = email
+    self.password = password
 
   def _get_headers(self, **kwargs: str):
     return {
@@ -54,7 +60,15 @@ class AuxCloudAPI:
         **kwargs
     }
 
-  async def login(self, email: str, password: str):
+  async def login(self, email: str = None, password: str = None):
+    email = email if email is not None else self.email
+    password = password if password is not None else self.password
+
+    if password is not None:
+      self.password = password
+    else:
+      password = self.password
+
     async with aiohttp.ClientSession() as session:
       currentTime = time.time()
       shaPassword = hashlib.sha1(
@@ -89,10 +103,9 @@ class AuxCloudAPI:
         if 'status' in json_data and json_data['status'] == 0:
           self.loginsession = json_data['loginsession']
           self.userid = json_data['userid']
+          return True
         else:
           raise Exception(f"Failed to login: {data}")
-
-        return json_data
 
   async def list_families(self):
     async with aiohttp.ClientSession() as session:
@@ -275,7 +288,11 @@ class AuxCloudAPI:
         data = await response.text()
         json_data = json.loads(data)
 
-        if 'event' in json_data and 'payload' in json_data['event']:
+        if (
+          'event' in json_data and
+          'payload' in json_data['event'] and
+          'data' in json_data['event']['payload']
+        ):
           response = json.loads(
               json_data['event']['payload']['data'])
           response_dict = {}
@@ -291,10 +308,8 @@ class AuxCloudAPI:
   async def get_device_params(
       self,
       device: dict,
-      values: dict
+      params: list[str] = []
   ):
-    params = list(values.keys())
-
     return await self._act_device_params(device, "get", params)
 
   async def set_device_params(
@@ -306,3 +321,9 @@ class AuxCloudAPI:
     vals = map(lambda val: [{"val": val, "idx": 1}], list(values.values()))
 
     return await self._act_device_params(device, "set", params, vals)
+
+  async def update(self):
+    """
+    Update the state of the devices.
+    """
+    family_data = await self.list_families()

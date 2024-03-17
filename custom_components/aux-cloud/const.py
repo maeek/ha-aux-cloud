@@ -1,5 +1,28 @@
+import logging
+from homeassistant.const import Platform
+
+_LOGGER = logging.getLogger(__package__)
+
+DOMAIN = "aux_cloud"
+
+DATA_AUX_CLOUD_CONFIG = "aux_cloud_config"
+DATA_HASS_CONFIG = "aux_cloud_hass_config"
+ATTR_CONFIG_ENTRY_ID = "entry_id"
+
+MANUFACTURER = "AUX"
+
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    # Platform.CLIMATE,
+    # Platform.SWITCH,
+    # Platform.NUMBER,
+    # Platform.WATER_HEATER,
+    # Platform.FAN,
+    # Platform.SENSOR
+]
+
 # TODO: Update params
-MODELS = {
+AUX_MODELS = {
     "000000000000000000000000c3aa0000": {
       "type": "heat_pump",
       "params": {
@@ -86,4 +109,9 @@ MODELS = {
       "params": [],
       "special_params": []
     },
+}
+
+AUX_MODEL_TO_NAME = {
+  "000000000000000000000000c3aa0000": "AUX Heat Pump",
+  "000000000000000000000000c0620000": "AUX Air Conditioner",
 }
