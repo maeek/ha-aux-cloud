@@ -1,11 +1,9 @@
-"""Config flow to configure ecobee."""
+"""Config flow to configure Aux Cloud."""
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.util.json import load_json_object
 from homeassistant.helpers.selector import selector
 
 from .api.aux_cloud import AuxCloudAPI
