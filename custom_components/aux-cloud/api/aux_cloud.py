@@ -6,7 +6,7 @@ import time
 from typing import TypedDict
 
 from util import encrypt_aes_cbc_zero_padding
-
+from const import AUX_MODELS
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = 'kdixkdqp54545^#*'
 PASSWORD_ENCRYPT_KEY = '4969fj#k23#'
@@ -24,6 +24,8 @@ SPOOF_USER_AGENT = 'Dalvik/2.1.0 (Linux; U; Android 12; SM-G991B Build/SP1A.2108
 SPOOF_SYSTEM = 'android'
 SPOOF_APP_PLATFORM = 'android'
 
+API_SERVER_URL_EU = "https://app-service-deu-f0e9ebbb.smarthomecs.de"
+API_SERVER_URL_USA = "https://app-service-usa-fd7cc04c.smarthomecs.com"
 
 class DirectiveStuData(TypedDict):
   did: str
@@ -41,7 +43,7 @@ class AuxCloudAPI:
   """
 
   def __init__(self, email: str, password: str, region: str = 'eu'):
-    self.url = "https://app-service-deu-f0e9ebbb.smarthomecs.de" if region == 'eu' else "https://app-service-usa-fd7cc04c.smarthomecs.com"
+    self.url = API_SERVER_URL_EU if region == 'eu' else API_SERVER_URL_USA
     self.email = email
     self.password = password
 
@@ -117,7 +119,15 @@ class AuxCloudAPI:
         json_data = json.loads(data)
 
         if 'status' in json_data and json_data['status'] == 0:
-          return json_data['data']
+          self.data = {}
+          for family in json_data['data']['familyList']:
+            self.data[family['familyid']] = {
+            'id': family['familyid'],
+            'name': family['name'],
+            'rooms': [],
+            'devices': []
+          }
+          return json_data['data']['familyList']
         else:
           raise Exception(f"Failed to get families list: {data}")
 
@@ -131,7 +141,13 @@ class AuxCloudAPI:
         json_data = json.loads(data)
 
         if 'status' in json_data and json_data['status'] == 0:
-          return json_data['data']
+          for room in json_data['data']['roomList']:
+            self.data[room['familyid']]['rooms'].append({
+              'id': room['roomid'],
+              'name': room['name']
+            })
+            
+          return json_data['data']['roomList']
         else:
           raise Exception(f"Failed to query a room: {data}")
 
@@ -148,9 +164,33 @@ class AuxCloudAPI:
 
         if 'status' in json_data and json_data['status'] == 0:
           if 'endpoints' in json_data['data']:
-            return json_data['data']['endpoints']
+            devices = json_data['data']['endpoints']
           elif 'shareFromOther' in json_data['data']:
-            return list(map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
+            devices = list(map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
+
+          for dev in devices:
+            # Check if the device is online
+            dev_state = await self.query_device_state(dev['endpointId'], dev['devSession'])
+            dev['state'] = dev_state['data'][0]['state']
+
+            # Fetch known params of the device
+            if dev['productId'] in AUX_MODELS and dev['state'] == 1:
+              dev_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['params'].keys()))
+              dev['params'] = dev_params
+
+              if len(AUX_MODELS[dev['productId']]['special_params']) != 0:
+                dev_special_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['special_params'].keys()))
+                dev['params'] = {**dev['params'], **dev_special_params}
+
+            # Fetch params from unknown device
+            elif dev['state'] == 1:
+              dev_params = await self.get_device_params(dev)
+              dev['params'] = dev_params
+
+            if not any(d['endpointId'] == dev['endpointId'] for d in self.data[familyid]['devices']):
+              self.data[familyid]['devices'].append(dev)
+
+          return devices
         else:
           raise Exception(f"Failed to query a room: {data}")
 
@@ -321,9 +361,17 @@ class AuxCloudAPI:
     vals = map(lambda val: [{"val": val, "idx": 1}], list(values.values()))
 
     return await self._act_device_params(device, "set", params, vals)
-
-  async def update(self):
-    """
-    Update the state of the devices.
-    """
+  
+  async def refresh(self):
     family_data = await self.list_families()
+    for family in family_data:
+      await self.list_rooms(family['familyid'])
+      await self.list_devices(family['familyid'])
+      await self.list_devices(family['familyid'], True)
+  
+
+  # async def update(self):
+  #   """
+  #   Update the state of the devices.
+  #   """
+  #   family_data = await self.list_families()
