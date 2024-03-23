@@ -178,6 +178,7 @@ class AuxCloudAPI:
               dev_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['params'].keys()))
               dev['params'] = dev_params
 
+              # Fetch additional params not returned with the default query
               if len(AUX_MODELS[dev['productId']]['special_params']) != 0:
                 dev_special_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['special_params'].keys()))
                 dev['params'] = {**dev['params'], **dev_special_params}
@@ -367,11 +368,4 @@ class AuxCloudAPI:
     for family in family_data:
       await self.list_rooms(family['familyid'])
       await self.list_devices(family['familyid'])
-      await self.list_devices(family['familyid'], True)
-  
-
-  # async def update(self):
-  #   """
-  #   Update the state of the devices.
-  #   """
-  #   family_data = await self.list_families()
+      await self.list_devices(family['familyid'], shared=True)
