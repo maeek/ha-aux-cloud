@@ -11,8 +11,6 @@ Unofficial integration for Aux Cloud connected appliances like air conditioners 
 - [ ] [Home Assistant] Cloud data fetcher
 - [ ] [Home Assistant] Data coordinator
 - [ ] [Home Assistant] config flow
-- [ ] [Home Assistant] config flow
-- [ ] [Home Assistant] config flow
 - [ ] [Home Assistant] climate entity
 - [ ] [Home Assistant] sensor entity
 - [ ] [Home Assistant] binary sensor entity
