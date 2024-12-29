@@ -12,6 +12,7 @@ TIMESTAMP_TOKEN_ENCRYPT_KEY = 'kdixkdqp54545^#*'
 PASSWORD_ENCRYPT_KEY = '4969fj#k23#'
 BODY_ENCRYPT_KEY = 'xgx3d*fe3478$ukx'
 
+# Body encryption iv
 AES_INITIAL_VECTOR = bytes([(b + 256) % 256 for b in [-22, -86, -86,
                                                       58, -69, 88, 98, -94, 25, 24, -75, 119, 29, 22, 21, -86]])
 
@@ -26,6 +27,7 @@ SPOOF_APP_PLATFORM = 'android'
 
 API_SERVER_URL_EU = "https://app-service-deu-f0e9ebbb.smarthomecs.de"
 API_SERVER_URL_USA = "https://app-service-usa-fd7cc04c.smarthomecs.com"
+
 
 class DirectiveStuData(TypedDict):
   did: str
@@ -42,10 +44,8 @@ class AuxCloudAPI:
   Class for interacting with AUX cloud services.
   """
 
-  def __init__(self, email: str, password: str, region: str = 'eu'):
+  def __init__(self, region: str = 'eu'):
     self.url = API_SERVER_URL_EU if region == 'eu' else API_SERVER_URL_USA
-    self.email = email
-    self.password = password
 
   def _get_headers(self, **kwargs: str):
     return {
@@ -97,6 +97,7 @@ class AuxCloudAPI:
               AES_INITIAL_VECTOR, md5, jsonPayload.encode()),
           headers=self._get_headers(
               timestamp=f'{currentTime}', token=token),
+              ssl=False
       ) as response:
 
         data = await response.text()
@@ -114,6 +115,7 @@ class AuxCloudAPI:
       async with session.post(
           f'{self.url}/appsync/group/member/getfamilylist',
           headers=self._get_headers(),
+          ssl=False
       ) as response:
         data = await response.text()
         json_data = json.loads(data)
@@ -122,11 +124,11 @@ class AuxCloudAPI:
           self.data = {}
           for family in json_data['data']['familyList']:
             self.data[family['familyid']] = {
-            'id': family['familyid'],
-            'name': family['name'],
-            'rooms': [],
-            'devices': []
-          }
+                'id': family['familyid'],
+                'name': family['name'],
+                'rooms': [],
+                'devices': []
+            }
           return json_data['data']['familyList']
         else:
           raise Exception(f"Failed to get families list: {data}")
@@ -136,6 +138,7 @@ class AuxCloudAPI:
       async with session.post(
           f'{self.url}/appsync/group/room/query',
           headers=self._get_headers(familyid=familyid),
+          ssl=False
       ) as response:
         data = await response.text()
         json_data = json.loads(data)
@@ -146,7 +149,7 @@ class AuxCloudAPI:
               'id': room['roomid'],
               'name': room['name']
             })
-            
+
           return json_data['data']['roomList']
         else:
           raise Exception(f"Failed to query a room: {data}")
@@ -158,7 +161,9 @@ class AuxCloudAPI:
           f'{self.url}/appsync/group/{device_endpoint}',
           data='{"pids":[]}' if not shared else '{"endpointId":""}',
           headers=self._get_headers(familyid=familyid),
+          ssl=False
       ) as response:
+
         data = await response.text()
         json_data = json.loads(data)
 
@@ -166,7 +171,8 @@ class AuxCloudAPI:
           if 'endpoints' in json_data['data']:
             devices = json_data['data']['endpoints']
           elif 'shareFromOther' in json_data['data']:
-            devices = list(map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
+            devices = list(
+              map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
 
           for dev in devices:
             # Check if the device is online
@@ -248,6 +254,7 @@ class AuxCloudAPI:
           f'{self.url}/device/control/v2/querystate',
           data=json.dumps(data, separators=(',', ':')),
           headers=self._get_headers(),
+          ssl=False
       ) as response:
         data = await response.text()
         json_data = json.loads(data)
@@ -325,6 +332,7 @@ class AuxCloudAPI:
           params={"license": LICENSE},
           data=json.dumps(data, separators=(',', ':')),
           headers=self._get_headers(),
+          ssl=False
       ) as response:
         data = await response.text()
         json_data = json.loads(data)
@@ -362,7 +370,7 @@ class AuxCloudAPI:
     vals = map(lambda val: [{"val": val, "idx": 1}], list(values.values()))
 
     return await self._act_device_params(device, "set", params, vals)
-  
+
   async def refresh(self):
     family_data = await self.list_families()
     for family in family_data:
