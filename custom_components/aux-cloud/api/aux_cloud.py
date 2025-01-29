@@ -324,6 +324,11 @@ class AuxCloudAPI:
           }
       }
 
+      # Special case for getting ambient mode
+      if len(params) == 1 and params[0] == 'mode':
+        data['directive']['payload']['did'] = device['endpointId']
+        data['directive']['payload']['vals'] = [[{'val': 0, 'idx': 1}]]
+
       async with session.post(
           f'{self.url}/device/control/v2/sdkcontrol',
           # Theoretically license in query param is not needed but
