@@ -1,68 +1,64 @@
 import pprint
 import asyncio
+import yaml
 
 from aux_cloud import AuxCloudAPI
+import os
+import pathlib
+
+
+def get_config_path():
+  current_dir = pathlib.Path(__file__).parent
+  custom_components_dir = current_dir.parent.parent
+  return os.path.join(custom_components_dir, 'dev', 'config.yaml')
 
 if __name__ == "__main__":
+
+  with open(get_config_path(), "r", encoding="utf-8") as f:
+    config = yaml.load(f, Loader=yaml.FullLoader)
+  email: str = config['email']
+  password: str = config['password']
+  shared: bool = config['shared']
+
   # Example usage
   async def main():
     cloud = AuxCloudAPI()
-    email = ''
-    password = ''
-    # print(
     await cloud.login(email, password)
-    # )
-    print('')
-    # print('Family data:')
-    family_data = await cloud.list_families()
-    # print(family_data)
-    # print('')
 
-    for family in family_data['familyList']:
-      # room_data = await cloud.list_rooms(family['familyid'])
-      # print('Room data:')
-      # print(room_data)
-      # print('')
-      # print('Device data:')
-      # dev_data = await cloud.list_devices(family['familyid'])
-      # print(dev_data)
-      # print('')
-      # print('Shared device data:')
-      dev_data = await cloud.list_devices(family['familyid'], True)
-      # print(dev_data)
-      print('')
+    families = await cloud.list_families()
+    for family in families:
+      print(f"FamilyId {family['familyid']}:")
+      devices = await cloud.list_devices(family['familyid'], shared)
+      if devices:
+        print(f"Devices:")
+        pprint.pprint(devices)
+        for device in devices:
 
-      # for dev in dev_data:
-      print('Device state:')
-      pprint.pprint(await cloud.query_device_state(
-          dev_data[1]['endpointId'],
-          dev_data[1]['devSession']
-      ))
-      print('')
+          state = await cloud.query_device_state(
+            device['endpointId'],
+            device['devSession']
+          )
+          print("Device state:")
+          pprint.pprint(state)
+          print(f"devSession {device['devSession']}")
+          params = await cloud.get_device_params(device)
+          print(f"Device params:")
+          pprint.pprint(params)
+          param: dict = {"pwr": 0}
+          await cloud.set_device_params(device, param)
+          param: dict = {"temp": 250}
+          await cloud.set_device_params(device, param)
+          params = await cloud.get_device_params(device)
 
-      print('Device params:')
-      pprint.pprint(await cloud.get_device_params(
-          dev_data[0],
-          [
-              # 'hp_water_tank_temp', # For some reason this needs to be queried separately
-              # Other values are returned by default
-              # 'ver_old',
-              # 'ac_mode',
-              # 'ac_pwr',
-              # 'ac_temp',
-              # 'ecomode',
-              # 'hp_auto_wtemp',
-              # 'hp_fast_hotwater',
-              # 'hp_hotwater_temp',
-              # 'hp_pwr',
-              # 'qtmode'
-          ]
-      ))
-      print('')
+          print(f"Device params after set:")
+          pprint.pprint(params)
 
-    # device_data = await cloud.query_device_state('', 25280, '')
-    # print('Device state:')
-    # print(device_data)
+        print("")
+
+
+
+  # Cleaned up by standardizing variable names, removing debugging statements,
+  # improving readability, and more.
 
   loop = asyncio.get_event_loop()
   loop.run_until_complete(main())

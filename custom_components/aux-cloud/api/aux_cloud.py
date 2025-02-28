@@ -1,6 +1,8 @@
 import base64
 import hashlib
 import json
+import pdb
+
 import aiohttp
 import time
 from typing import TypedDict
@@ -174,30 +176,31 @@ class AuxCloudAPI:
             devices = list(
               map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
 
-          for dev in devices:
-            # Check if the device is online
-            dev_state = await self.query_device_state(dev['endpointId'], dev['devSession'])
-            dev['state'] = dev_state['data'][0]['state']
+          if devices:
+              for dev in devices:
+                # Check if the device is online
+                dev_state = await self.query_device_state(dev['endpointId'], dev['devSession'])
+                dev['state'] = dev_state['data'][0]['state']
 
-            # Fetch known params of the device
-            if dev['productId'] in AUX_MODELS and dev['state'] == 1:
-              dev_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['params'].keys()))
-              dev['params'] = dev_params
+                # Fetch known params of the device
+                if dev['productId'] in AUX_MODELS and dev['state'] == 1:
+                  dev_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['params'].keys()))
+                  dev['params'] = dev_params
 
-              # Fetch additional params not returned with the default query
-              if len(AUX_MODELS[dev['productId']]['special_params']) != 0:
-                dev_special_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['special_params'].keys()))
-                dev['params'] = {**dev['params'], **dev_special_params}
+                  # Fetch additional params not returned with the default query
+                  if len(AUX_MODELS[dev['productId']]['special_params']) != 0:
+                    dev_special_params = await self.get_device_params(dev, params=list(AUX_MODELS[dev['productId']]['special_params'].keys()))
+                    dev['params'] = {**dev['params'], **dev_special_params}
 
-            # Fetch params from unknown device
-            elif dev['state'] == 1:
-              dev_params = await self.get_device_params(dev)
-              dev['params'] = dev_params
+                # Fetch params from unknown device
+                elif dev['state'] == 1:
+                  dev_params = await self.get_device_params(dev)
+                  dev['params'] = dev_params
 
-            if not any(d['endpointId'] == dev['endpointId'] for d in self.data[familyid]['devices']):
-              self.data[familyid]['devices'].append(dev)
+                if not any(d['endpointId'] == dev['endpointId'] for d in self.data[familyid]['devices']):
+                  self.data[familyid]['devices'].append(dev)
 
-          return devices
+              return devices
         else:
           raise Exception(f"Failed to query a room: {data}")
 
@@ -372,8 +375,8 @@ class AuxCloudAPI:
       values: dict
   ):
     params = list(values.keys())
-    vals = map(lambda val: [{"val": val, "idx": 1}], list(values.values()))
-
+    # vals = map(lambda val: [{"val": val, "idx": 1}], list(values.values()))
+    vals = [[{"idx": 1, "val": x}] for x in list(values.values())]
     return await self._act_device_params(device, "set", params, vals)
 
   async def refresh(self):

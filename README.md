@@ -4,6 +4,13 @@
 
 Unofficial integration for Aux Cloud connected appliances like air conditioners and heat pumps. Aux Cloud is a service based on the Broadlink platform that allows you to control your appliances from anywhere. This is a cloud alternative to [replacing wifi module in your AC](https://github.com/GrKoR/esphome_aux_ac_component), which will also allow you to control heat pumps. The implementation of API requests are based on public resources from Broadlink documentation and lots of reverse engineering.
 
+## demo
+How to use the demo script:
+1. Create file config.yaml in custom_components/dev directory
+2. Complete in folder dev config.yaml with your email and password
+3. Install dependencies from Pipfile
+4. Run script with `python demo.py`
+
 ## TODO
 
 As the project is in early stage, there are a lot of things to do. Here is a list of tasks that need to be done:
