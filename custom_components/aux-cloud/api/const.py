@@ -93,3 +93,11 @@ AUX_MODEL_TO_NAME = {
   "000000000000000000000000c3aa0000": "AUX Heat Pump",
   "000000000000000000000000c0620000": "AUX Air Conditioner",
 }
+
+POWER_OFF: dict = {"pwr": 0}
+POWER_ON: dict = {"pwr": 1}
+HEATING: dict = {"ac_mode": 1}
+COOLING: dict = {"ac_mode": 0}
+
+# TODO need to be refactored
+TEMP: dict = {"temp": 240}

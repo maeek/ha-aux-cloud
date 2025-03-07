@@ -6,6 +6,8 @@ from aux_cloud import AuxCloudAPI
 import os
 import pathlib
 
+from const import POWER_OFF, HEATING, TEMP, COOLING
+
 
 def get_config_path():
   current_dir = pathlib.Path(__file__).parent
@@ -44,10 +46,10 @@ if __name__ == "__main__":
           params = await cloud.get_device_params(device)
           print(f"Device params:")
           pprint.pprint(params)
-          param: dict = {"pwr": 0}
-          await cloud.set_device_params(device, param)
-          param: dict = {"temp": 250}
-          await cloud.set_device_params(device, param)
+          await cloud.set_device_params(device, POWER_OFF)
+          await cloud.set_device_params(device, HEATING)
+          await cloud.set_device_params(device, TEMP)
+
           params = await cloud.get_device_params(device)
 
           print(f"Device params after set:")
