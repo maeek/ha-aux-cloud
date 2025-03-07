@@ -6,7 +6,7 @@ from aux_cloud import AuxCloudAPI
 import os
 import pathlib
 
-from const import POWER_OFF, HEATING, TEMP, COOLING
+from const import POWER_OFF, HEATING, TEMP, COOLING, FAN_SPEEDS_LOW, FAN_SPEEDS_HIGH
 
 
 def get_config_path():
@@ -46,9 +46,10 @@ if __name__ == "__main__":
           params = await cloud.get_device_params(device)
           print(f"Device params:")
           pprint.pprint(params)
-          await cloud.set_device_params(device, POWER_OFF)
-          await cloud.set_device_params(device, HEATING)
-          await cloud.set_device_params(device, TEMP)
+          # await cloud.set_device_params(device, POWER_OFF)
+          # await cloud.set_device_params(device, HEATING)
+          # await cloud.set_device_params(device, TEMP)
+          await cloud.set_device_params(device, FAN_SPEEDS_HIGH)
 
           params = await cloud.get_device_params(device)
 
@@ -56,11 +57,6 @@ if __name__ == "__main__":
           pprint.pprint(params)
 
         print("")
-
-
-
-  # Cleaned up by standardizing variable names, removing debugging statements,
-  # improving readability, and more.
 
   loop = asyncio.get_event_loop()
   loop.run_until_complete(main())
