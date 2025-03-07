@@ -7,8 +7,13 @@ Unofficial integration for Aux Cloud connected appliances like air conditioners 
 ## demo
 How to use the demo script:
 1. Create file config.yaml in custom_components/dev directory
-2. Complete in folder dev config.yaml with your email and password
-3. Install dependencies from Pipfile
+2. Complete in folder dev config.yaml with your email and password, and shared value
+3. Example of config.yaml
+```yaml
+email: 'email'
+password: 'password'
+shared: False
+```
 4. Run script with `python demo.py`
 
 ## TODO
