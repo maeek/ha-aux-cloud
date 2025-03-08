@@ -1,3 +1,6 @@
 __pycache__
 
-dev
+custom_components/dev
+pipfile
+pipfile.lock
+.idea
