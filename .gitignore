@@ -3,3 +3,4 @@ __pycache__
 custom_components/dev
 pipfile
 pipfile.lock
+.idea
