@@ -1,15 +1,15 @@
 {
-  "domain": "ha-aux-cloud",
-  "name": "ha-aux-cloud",
-  "version": "0.1.0",
-  "codeowners": [],
-  "config_flow": true,
-  "documentation": "https://github.com/maeek/ha-aux-cloud",
-  "iot_class": "cloud_polling",
-  "loggers": [],
-  "requirements": [
-    "requests==2.32.3",
-    "pycryptodome==3.21.0"
-  ],
-  "zeroconf": []
+    "domain": "ha-aux-cloud",
+    "name": "ha-aux-cloud",
+    "version": "0.1.0",
+    "codeowners": [],
+    "config_flow": true,
+    "documentation": "https://github.com/maeek/ha-aux-cloud",
+    "iot_class": "cloud_polling",
+    "loggers": [],
+    "requirements": [
+        "requests==2.32.3",
+        "pycryptodome==3.21.0"
+    ],
+    "zeroconf": []
 }
