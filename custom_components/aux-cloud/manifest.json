@@ -1,6 +1,6 @@
 {
-    "domain": "aux-cloud",
-    "name": "aux-cloud",
+    "domain": "ha-aux-cloud",
+    "name": "ha-aux-cloud",
     "version": "0.1.0",
     "codeowners": [],
     "config_flow": true,
@@ -8,8 +8,8 @@
     "iot_class": "cloud_polling",
     "loggers": [],
     "requirements": [
-        "requests",
-        "pycryptodome"
+        "requests==2.32.3",
+        "pycryptodome==3.21.0"
     ],
     "zeroconf": []
 }
