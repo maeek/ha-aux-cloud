@@ -23,7 +23,6 @@ if __name__ == "__main__":
     password: str = config['password']
     shared: bool = config['shared']
 
-
     # Example usage
 
     async def main():
@@ -59,7 +58,6 @@ if __name__ == "__main__":
                     pprint.pprint(params)
 
                 print("")
-
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
