@@ -29,17 +29,17 @@ shared: False
 As the project is in early stage, there are a lot of things to do. Here is a list of tasks that need to be done:
 
 - [x] Reverse egineer the Aux Cloud API
-  - [x][API] Implement login
-  - [x][API] Implement getting devices information
-- [][API] Implement updating device state
-- [][Home Assistant] Cloud data fetcher
-- [][Home Assistant] Data coordinator
-- [][Home Assistant] config flow
-- [][Home Assistant] climate entity
-- [][Home Assistant] sensor entity
-- [][Home Assistant] binary sensor entity
-- [][Home Assistant] number entity
-- [][Home Assistant] services
-- [] Documentation
-- [] Add to HACS
-- [] Translations
+- [x] [API] Implement login
+- [x] [API] Implement getting devices information
+- [ ] [API] Implement updating device state
+- [ ] [Home Assistant] Cloud data fetcher
+- [ ] [Home Assistant] Data coordinator
+- [ ] [Home Assistant] config flow
+- [ ] [Home Assistant] climate entity
+- [ ] [Home Assistant] sensor entity
+- [ ] [Home Assistant] binary sensor entity
+- [ ] [Home Assistant] number entity
+- [ ] [Home Assistant] services
+- [ ] Documentation
+- [ ] Add to HACS
+- [ ] Translations
