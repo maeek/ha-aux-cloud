@@ -1,6 +1,6 @@
 {
-    "domain": "ha-aux-cloud",
-    "name": "ha-aux-cloud",
+    "domain": "aux_cloud",
+    "name": "AUX Cloud",
     "version": "0.1.0",
     "codeowners": [],
     "config_flow": true,
