@@ -5,5 +5,5 @@
   "domains": [
     "cloud"
   ],
-  "zip_release": true
+  "zip_release": false
 }
