@@ -2,7 +2,7 @@
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import ConfigFlow, SOURCE_IMPORT
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.helpers.selector import selector
 
@@ -16,7 +16,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
   VERSION = 1
 
   def __init__(self) -> None:
-    """Initialize the ecobee flow."""
+    """Initialize the AUX Cloud flow."""
     self._aux_cloud = None
 
   async def async_step_user(self, user_input=None):
@@ -57,12 +57,25 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     if self.show_advanced_options:
       data_schema["allow_groups"] = selector({
           "select": {
-              "region": ["eu", "us"],
+              "options": ["eu", "us"],
           }
       })
 
     return self.async_show_form(
         step_id="user",
-        data_schema=data_schema,
+        data_schema=vol.Schema(data_schema),
         errors=errors,
     )
+
+  async def async_step_import(self, import_info):
+    """Import a config entry from configuration.yaml."""
+    # Check if we already have a config entry
+    if self._async_current_entries():
+      return self.async_abort(reason="single_instance_allowed")
+
+    # Process the import_info
+    if import_info and CONF_EMAIL in import_info and CONF_PASSWORD in import_info:
+      return await self.async_step_user(import_info)
+
+    # If import data is incomplete, show the form
+    return await self.async_step_user()

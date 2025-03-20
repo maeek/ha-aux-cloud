@@ -11,15 +11,12 @@ ATTR_CONFIG_ENTRY_ID = "entry_id"
 
 MANUFACTURER = "AUX"
 
-# PLATFORMS = [
-#     # Platform.BINARY_SENSOR,
-#     # Platform.CLIMATE,
-#     # Platform.SWITCH,
-#     # Platform.NUMBER,
-#     # Platform.WATER_HEATER,
-#     # Platform.FAN,
-#     Platform.SENSOR
-# ]
-
-# Define available platforms
-PLATFORMS = ["sensor"]
+PLATFORMS = [
+    # Platform.BINARY_SENSOR,
+    # Platform.CLIMATE,
+    # Platform.SWITCH,
+    # Platform.NUMBER,
+    # Platform.WATER_HEATER,
+    # Platform.FAN,
+    Platform.SENSOR
+]
