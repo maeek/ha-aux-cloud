@@ -19,12 +19,10 @@ from .const import (
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=180)
 
-# Updated schema to include both email and password
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema({
-            vol.Required(CONF_EMAIL): cv.string,
-            vol.Required(CONF_PASSWORD): cv.string
+            vol.Optional(CONF_EMAIL): cv.string
         })
     },
     extra=vol.ALLOW_EXTRA
@@ -80,48 +78,32 @@ class AuxCloudData:
         """Initialize the Aux Cloud data object."""
         self._hass = hass
         self._entry = entry
-        self._email = email
-        self._password = password
         self.aux_cloud = AuxCloudAPI()
         self.aux_cloud.login(email, password)
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def update(self):
         """Get the latest data from AUX Cloud"""
-        try:
-            await self._hass.async_add_executor_job(self.aux_cloud.update)
-            _LOGGER.debug("Updating AUX Cloud")
-        except Exception as e:  # Replace with specific exception when implemented
-            _LOGGER.debug("Relogging to AUX Cloud due to: %s", e)
-            await self.refresh()
+        # try:
+        await self._hass.async_add_executor_job(self.aux_cloud.update)
+        _LOGGER.debug("Updating AUX Cloud")
+        # TODO: Implement
+        # except ExpiredTokenError:
+        #   _LOGGER.debug("Relogging to AUX Cloud")
+        #   await self.login()
 
     async def refresh(self) -> bool:
         """Refresh AUX Cloud credentials and update config entry."""
-        _LOGGER.debug("Refreshing AUX Cloud credentials")
-
-        # Use the credentials from configuration.yaml if available
-        config = self._hass.data.get(DATA_AUX_CLOUD_CONFIG, {})
-        email = config.get(CONF_EMAIL, self._email)
-        password = config.get(CONF_PASSWORD, self._password)
-
-        if await self._hass.async_add_executor_job(
-                lambda: self.aux_cloud.login(email, password)
-        ):
-            # Update the stored credentials to match the current ones
-            self._email = email
-            self._password = password
-
-            # Only update the config entry if we're not using configuration.yaml credentials
-            if not config.get(CONF_EMAIL) and not config.get(CONF_PASSWORD):
-                self._hass.config_entries.async_update_entry(
-                    self._entry,
-                    data={
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                    },
-                )
+        _LOGGER.debug("Refreshing AUX CLoud credentials and updating config entry")
+        if await self._hass.async_add_executor_job(self.aux_cloud.login):
+            self._hass.config_entries.async_update_entry(
+                self._entry,
+                data={
+                    CONF_EMAIL: self.aux_cloud[CONF_EMAIL],
+                    CONF_PASSWORD: self.aux_cloud[CONF_PASSWORD],
+                },
+            )
             return True
-
         _LOGGER.error("Error refreshing AUX Cloud")
         return False
 
