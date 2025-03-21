@@ -45,8 +45,10 @@ class AuxCloudAPI:
     Class for interacting with AUX cloud services.
     """
 
-    def __init__(self, region: str = 'eu'):
+    def __init__(self, region: str = 'eu', email: str = None, password: str = None):
         self.url = API_SERVER_URL_EU if region == 'eu' else API_SERVER_URL_USA
+        self.email = email
+        self.password = password
 
     def _get_headers(self, **kwargs: str):
         return {
