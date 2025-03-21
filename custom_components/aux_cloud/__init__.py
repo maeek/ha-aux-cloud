@@ -1,13 +1,14 @@
 from datetime import timedelta
-import voluptuous as vol
 
+import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, discovery
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import Throttle
 
+from .api.aux_cloud import AuxCloudAPI
 from .const import (
     _LOGGER,
     DOMAIN,
@@ -15,8 +16,6 @@ from .const import (
     DATA_HASS_CONFIG,
     PLATFORMS
 )
-
-from .api.aux_cloud import AuxCloudAPI
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=180)
 
@@ -34,8 +33,8 @@ CONFIG_SCHEMA = vol.Schema(
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """
-  AUX Cloud setup using configuration from configuration.yaml
-  """
+    AUX Cloud uses config flow for configuration.
+    """
 
     hass.data[DATA_AUX_CLOUD_CONFIG] = config.get(DOMAIN, {})
     hass.data[DATA_HASS_CONFIG] = config
@@ -52,17 +51,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up AUX Cloud via a config entry."""
-    # Get credentials from configuration.yaml if available, otherwise from config entry
-    config = hass.data.get(DATA_AUX_CLOUD_CONFIG, {})
-
-    email = config.get(CONF_EMAIL, entry.data.get(CONF_EMAIL))
-    password = config.get(CONF_PASSWORD, entry.data.get(CONF_PASSWORD))
-
-    # Ensure we have the required credentials
-    if not email or not password:
-        _LOGGER.error("Missing required credentials for AUX Cloud")
-        return False
+    """Set up ecobee via a config entry."""
+    email = entry.data[CONF_EMAIL]
+    password = entry.data[CONF_PASSWORD]
 
     data = AuxCloudData(hass, entry, email=email, password=password)
 
@@ -71,8 +62,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await data.update()
 
-    if not data.aux_cloud.thermostats:
-        _LOGGER.error("No AUX Cloud devices found to set up")
+    if data.ecobee.thermostats is None:
+        _LOGGER.error("No ecobee devices found to set up")
         return False
 
     hass.data[DOMAIN] = data
