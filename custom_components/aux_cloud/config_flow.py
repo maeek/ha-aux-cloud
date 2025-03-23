@@ -7,11 +7,12 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import selector
 
 from .api.aux_cloud import AuxCloudAPI
 from .api.const import AUX_MODELS
-from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_SELECTED_DEVICES
+from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_SELECTED_DEVICES, CONF_FAMILIES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -320,3 +321,59 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
 
         if not email or not password:
             return self.async_abort(reason="missing_credentials")
+
+
+async def async_step_select_devices(self, user_input=None):
+    """Allow the user to select which devices to add."""
+    errors = {}
+
+    if user_input is not None:
+        selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
+
+        # Convert to list if it's a single value
+        if not isinstance(selected_device_ids, list):
+            selected_device_ids = [selected_device_ids]
+
+        # Find the selected devices
+        selected_devices = []
+        for device_id in selected_device_ids:
+            for device in self._available_devices:
+                if device['id'] == device_id:
+                    selected_devices.append(device)
+                    break
+
+        # Create config entry with the selected devices
+        config = {
+            CONF_EMAIL: self._email,
+            CONF_PASSWORD: self._password,
+            CONF_SELECTED_DEVICES: selected_device_ids,
+            CONF_FAMILIES: self._families,
+        }
+
+        # Create an entry title based on the number of devices
+        title = f"AUX Cloud ({len(selected_devices)} devices)"
+
+        return self.async_create_entry(title=title, data=config)
+
+    # Prepare device options for selection
+    device_options = {}
+    for device in self._available_devices:
+        device_id = device['id']
+        device_name = device['name']
+        family_name = device['family_name']
+        device_options[device_id] = f"{device_name} ({family_name})"
+
+    return self.async_show_form(
+        step_id="select_devices",
+        data_schema=vol.Schema({
+            vol.Required(CONF_SELECTED_DEVICES): vol.All(
+                cv.multi_select(device_options),
+                vol.Length(min=1, msg="At least one device must be selected")
+            ),
+        }),
+        errors=errors,
+        description_placeholders={
+            "devices_count": str(len(self._available_devices)),
+            "families_count": str(len(self._families)),
+        },
+    )
