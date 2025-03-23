@@ -6,8 +6,8 @@ from typing import TypedDict
 
 import aiohttp
 
-from .const import AUX_MODELS
-from .util import encrypt_aes_cbc_zero_padding
+from custom_components.aux_cloud.api.const import AUX_MODELS
+from custom_components.aux_cloud.api.util import encrypt_aes_cbc_zero_padding
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = 'kdixkdqp54545^#*'
 PASSWORD_ENCRYPT_KEY = '4969fj#k23#'

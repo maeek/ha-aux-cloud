@@ -1,13 +1,14 @@
 from datetime import timedelta
-import voluptuous as vol
 
+import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, discovery
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import Throttle
 
+from .api.aux_cloud import AuxCloudAPI
 from .const import (
     _LOGGER,
     DOMAIN,
@@ -15,8 +16,6 @@ from .const import (
     DATA_HASS_CONFIG,
     PLATFORMS
 )
-
-from .api.aux_cloud import AuxCloudAPI
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=180)
 
@@ -47,6 +46,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 DOMAIN, context={"source": SOURCE_IMPORT}
             )
         )
+
+    api = AuxCloudAPI()
+    families = await api.list_families()
+    devices = []
+    for family in families:
+        family_devices = await api.list_devices(family['familyid'])
+        devices.extend(family_devices)
+
+    # Store the devices in the hass data
+    hass.data['aux_cloud_devices'] = devices
 
     return True
 
