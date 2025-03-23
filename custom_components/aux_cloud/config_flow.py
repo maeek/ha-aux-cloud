@@ -1,4 +1,5 @@
 """Config flow to configure Aux Cloud."""
+import base64
 import logging
 
 import voluptuous as vol
@@ -94,7 +95,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 if '_' in family_name:
                     # Assume format is "<base64 encoded name>_<timestamp>"
                     try:
-                        import base64
                         name_part = family_name.split('_')[0]
                         decoded_name = base64.b64decode(name_part).decode('utf-8')
                         family_name = decoded_name
@@ -145,7 +145,23 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="no_devices_found")
 
             # Proceed to device selection step
-            return await self.async_step_select_devices()
+            return self.async_show_form(
+                step_id="select_devices",
+                data_schema=vol.Schema({
+                    vol.Required(CONF_SELECTED_DEVICES): vol.All(
+                        vol.Coerce(list),
+                        [vol.In({
+                            device['id']: f"{device['name']} ({device['family_name']})"
+                            for device in self._available_devices
+                        })]
+                    ),
+                }),
+                errors={},
+                description_placeholders={
+                    "devices_count": str(len(self._available_devices)),
+                    "families_count": str(len(self._families)),
+                },
+            )
 
         except Exception as ex:
             _LOGGER.error(f"Error fetching devices: {ex}")
