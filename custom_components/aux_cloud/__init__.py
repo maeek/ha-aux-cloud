@@ -71,7 +71,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await data.update()
 
-    if not data.aux_cloud.thermostats:
+    devices = await data.aux_cloud.async_get_devices()
+    if not devices:
         _LOGGER.error("No AUX Cloud devices found to set up")
         return False
 
@@ -92,7 +93,11 @@ class AuxCloudData:
         self._email = email
         self._password = password
         self.aux_cloud = AuxCloudAPI()
-        self.aux_cloud.login(email, password)
+        self.aux_cloud = AuxCloudAPI()
+
+    async def async_setup(self):
+        """Perform async setup."""
+        await self.aux_cloud.login(self._email, self._password)
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def update(self):
