@@ -1,3 +1,4 @@
+"""Aux Cloud integration for Home Assistant."""
 from datetime import timedelta
 
 import voluptuous as vol
@@ -14,17 +15,18 @@ from .const import (
     DOMAIN,
     DATA_AUX_CLOUD_CONFIG,
     DATA_HASS_CONFIG,
-    PLATFORMS
+    PLATFORMS,
+    CONF_SELECTED_DEVICES,
 )
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=180)
 
-# Updated schema to include both email and password
+# Schema to include email and password (device selection is handled in config flow)
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema({
             vol.Required(CONF_EMAIL): cv.string,
-            vol.Required(CONF_PASSWORD): cv.string
+            vol.Required(CONF_PASSWORD): cv.string,
         })
     },
     extra=vol.ALLOW_EXTRA
@@ -33,58 +35,53 @@ CONFIG_SCHEMA = vol.Schema(
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """
-  AUX Cloud setup using configuration from configuration.yaml
-  """
+    AUX Cloud setup for configuration.yaml import.
+    This is mainly kept for backward compatibility.
+    UI configuration is recommended for better security.
+    """
+    if DOMAIN not in config:
+        return True
 
     hass.data[DATA_AUX_CLOUD_CONFIG] = config.get(DOMAIN, {})
-    hass.data[DATA_HASS_CONFIG] = config
 
     if not hass.config_entries.async_entries(DOMAIN) and hass.data[DATA_AUX_CLOUD_CONFIG]:
-        # No config entry exists and configuration.yaml config exists, trigger the import flow.
+        # Import from configuration.yaml if no config entry exists
         hass.async_create_task(
             hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": SOURCE_IMPORT}
+                DOMAIN, context={"source": SOURCE_IMPORT}, data=config[DOMAIN]
             )
         )
 
-    api = AuxCloudAPI()
-    families = await api.list_families()
-    devices = []
-    for family in families:
-        family_devices = await api.list_devices(family['familyid'])
-        devices.extend(family_devices)
-
-    # Store the devices in the hass data
-    hass.data['aux_cloud_devices'] = devices
+        # Log a message about UI configuration being preferred
+        _LOGGER.info(
+            "AUX Cloud configured via configuration.yaml. For better security, "
+            "it is recommended to configure this integration through the UI where "
+            "credentials are stored encrypted."
+        )
 
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up AUX Cloud via a config entry."""
-    # Get credentials from configuration.yaml if available, otherwise from config entry
-    config = hass.data.get(DATA_AUX_CLOUD_CONFIG, {})
-
-    email = config.get(CONF_EMAIL, entry.data.get(CONF_EMAIL))
-    password = config.get(CONF_PASSWORD, entry.data.get(CONF_PASSWORD))
+    # Get credentials from config entry
+    email = entry.data.get(CONF_EMAIL)
+    password = entry.data.get(CONF_PASSWORD)
+    selected_device_ids = entry.data.get(CONF_SELECTED_DEVICES, [])
 
     # Ensure we have the required credentials
     if not email or not password:
         _LOGGER.error("Missing required credentials for AUX Cloud")
         return False
 
-    data = AuxCloudData(hass, entry, email=email, password=password)
+    data = AuxCloudData(hass, entry, email=email, password=password, selected_device_ids=selected_device_ids)
 
     if not await data.refresh():
         return False
 
     await data.update()
 
-    devices = await data.aux_cloud.list_devices(familyid)
-    if not devices:
-        _LOGGER.error("No AUX Cloud devices found to set up")
-        return False
-
+    # Store the data for platform use
     hass.data[DOMAIN] = data
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -94,7 +91,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 class AuxCloudData:
     def __init__(
-            self, hass: HomeAssistant, entry: ConfigEntry, email: str, password: str
+            self, hass: HomeAssistant, entry: ConfigEntry, email: str, password: str,
+            selected_device_ids: list = None
     ) -> None:
         """Initialize the Aux Cloud data object."""
         self._hass = hass
@@ -102,6 +100,9 @@ class AuxCloudData:
         self._email = email
         self._password = password
         self.aux_cloud = AuxCloudAPI()
+        self.selected_device_ids = selected_device_ids or []
+        self.devices = []
+        self.families = {}
 
     async def async_setup(self):
         """Perform async setup."""
@@ -121,46 +122,58 @@ class AuxCloudData:
         """Refresh AUX Cloud credentials and update config entry."""
         _LOGGER.debug("Refreshing AUX Cloud credentials")
 
-        # Use the credentials from configuration.yaml if available
-        config = self._hass.data.get(DATA_AUX_CLOUD_CONFIG, {})
-        email = config.get(CONF_EMAIL, self._email)
-        password = config.get(CONF_PASSWORD, self._password)
+        try:
+            # Login
+            await self.aux_cloud.login(self._email, self._password)
 
-        if await self._hass.async_add_executor_job(
-                lambda: self.aux_cloud.login(email, password)
-        ):
-            # Update the stored credentials to match the current ones
-            self._email = email
-            self._password = password
+            # Fetch all families and their devices
+            await self.async_setup_families()
 
-            # Only update the config entry if we're not using configuration.yaml credentials
-            if not config.get(CONF_EMAIL) and not config.get(CONF_PASSWORD):
-                self._hass.config_entries.async_update_entry(
-                    self._entry,
-                    data={
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                    },
-                )
             return True
-
-        _LOGGER.error("Error refreshing AUX Cloud")
-        return False
+        except Exception as e:
+            _LOGGER.error("Error refreshing AUX Cloud: %s", e)
+            return False
 
     async def async_setup_families(self):
-        """Setup families."""
+        """Setup families and devices."""
         family_data = await self.aux_cloud.list_families()
         self.families = {}
+        all_devices = []
+
         for family in family_data:
-            self.families[family['familyid']] = {
-                'id': family['familyid'],
+            family_id = family['familyid']
+            self.families[family_id] = {
+                'id': family_id,
                 'name': family['name'],
                 'rooms': [],
                 'devices': []
             }
-            await self.aux_cloud.list_rooms(family['familyid'])
-            await self.aux_cloud.list_devices(family['familyid'])
-            await self.aux_cloud.list_devices(family['familyid'], shared=True)
+
+            # Get rooms if needed
+            rooms = await self.aux_cloud.list_rooms(family_id)
+            if rooms:
+                self.families[family_id]['rooms'] = rooms
+
+            # Get devices for this family
+            devices = await self.aux_cloud.list_devices(family_id)
+            shared_devices = await self.aux_cloud.list_devices(family_id, shared=True)
+
+            family_devices = devices + shared_devices
+            all_devices.extend(family_devices)
+
+            # Add devices to family in memory
+            self.families[family_id]['devices'] = family_devices
+
+        # Filter devices if selected_device_ids is provided
+        if self.selected_device_ids:
+            self.devices = [
+                device for device in all_devices
+                if device['endpointId'] in self.selected_device_ids
+            ]
+        else:
+            self.devices = all_devices
+
+        _LOGGER.debug(f"Found {len(self.devices)} devices out of {len(all_devices)} total devices")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
