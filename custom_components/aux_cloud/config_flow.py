@@ -1,18 +1,13 @@
 """Config flow to configure Aux Cloud."""
-import json
 import logging
 
-import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.selector import selector
 
 from .api.aux_cloud import AuxCloudAPI
-from .api.const import AUX_MODELS
-from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_SELECTED_DEVICES, CONF_FAMILIES
+from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_FAMILIES, CONF_SELECTED_DEVICES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,12 +65,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         }
 
         if self.show_advanced_options:
-            data_schema["region"] = selector({
-                "select": {
-                    "options": ["eu", "us"],
-                    "translation_key": "region",
-                }
-            })
+            data_schema["region"] = vol.In(["eu", "us"], default="eu")
 
         return self.async_show_form(
             step_id="user",
@@ -108,7 +98,8 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                         name_part = family_name.split('_')[0]
                         decoded_name = base64.b64decode(name_part).decode('utf-8')
                         family_name = decoded_name
-                    except Exception:
+                    except Exception as e:
+                        _LOGGER.warning(f"Failed to decode family name: {e}")
                         # If decoding fails, use the original name
                         pass
 
@@ -119,8 +110,17 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
 
                 # Fetch devices for this family
-                devices = await self._aux_cloud.list_devices(family_id) or []
-                shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+                try:
+                    devices = await self._aux_cloud.list_devices(family_id) or []
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to fetch personal devices for family {family_id}: {e}")
+                    devices = []
+
+                try:
+                    shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to fetch shared devices for family {family_id}: {e}")
+                    shared_devices = []
 
                 # Process devices
                 all_family_devices = devices + shared_devices
@@ -149,79 +149,72 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
         except Exception as ex:
             _LOGGER.error(f"Error fetching devices: {ex}")
+            # Always return a flow result, never None
             return self.async_abort(reason="fetch_devices_failed")
 
-    async def list_devices(self, familyid: str, shared=False):
-        """List devices for a family."""
-        async with aiohttp.ClientSession() as session:
-            device_endpoint = 'dev/query?action=select' if not shared else 'sharedev/querylist?querytype=shared'
-            async with session.post(
-                    f'{self.url}/appsync/group/{device_endpoint}',
-                    data='{"pids":[]}' if not shared else '{"endpointId":""}',
-                    headers=self._get_headers(familyid=familyid),
-                    ssl=False
-            ) as response:
-                try:
-                    data = await response.text()
-                    json_data = json.loads(data)
+    async def async_step_select_devices(self, user_input=None):
+        """Allow the user to select which devices to add."""
+        errors = {}
 
-                    if 'status' in json_data and json_data['status'] == 0:
-                        devices = []  # Initialize with empty list
+        if user_input is not None:
+            try:
+                selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
 
-                        if 'endpoints' in json_data['data']:
-                            devices = json_data['data']['endpoints']
-                        elif 'shareFromOther' in json_data['data']:
-                            devices = list(
-                                map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
-                        else:
-                            # No devices found, return empty list
-                            return devices
+                # Convert to list if it's a single value
+                if not isinstance(selected_device_ids, list):
+                    selected_device_ids = [selected_device_ids]
 
-                        if devices:
-                            for dev in devices:
-                                try:
-                                    # Check if the device is online
-                                    dev_state = await self.query_device_state(dev['endpointId'], dev['devSession'])
-                                    dev['state'] = dev_state['data'][0]['state']
+                # Find the selected devices
+                selected_devices = []
+                for device_id in selected_device_ids:
+                    for device in self._available_devices:
+                        if device['id'] == device_id:
+                            selected_devices.append(device)
+                            break
 
-                                    # Fetch known params of the device
-                                    if dev['productId'] in AUX_MODELS and dev['state'] == 1:
-                                        dev_params = await self.get_device_params(dev, params=list(
-                                            AUX_MODELS[dev['productId']]['params'].keys()))
-                                        dev['params'] = dev_params
+                # Create config entry with the selected devices
+                config = {
+                    CONF_EMAIL: self._email,
+                    CONF_PASSWORD: self._password,
+                    CONF_SELECTED_DEVICES: selected_device_ids,
+                    CONF_FAMILIES: self._families,
+                }
 
-                                        # Fetch additional params not returned with the
-                                        # default query
-                                        if len(AUX_MODELS[dev['productId']]['special_params']) != 0:
-                                            dev_special_params = await self.get_device_params(dev, params=list(
-                                                AUX_MODELS[dev['productId']]['special_params'].keys()))
-                                            dev['params'] = {
-                                                **dev['params'], **dev_special_params}
+                # Create an entry title based on the number of devices
+                title = f"AUX Cloud ({len(selected_devices)} devices)"
 
-                                    # Fetch params from unknown device
-                                    elif dev['state'] == 1:
-                                        dev_params = await self.get_device_params(dev)
-                                        dev['params'] = dev_params
+                return self.async_create_entry(title=title, data=config)
+            except Exception as ex:
+                _LOGGER.error(f"Error creating entry: {ex}")
+                errors["base"] = "unknown"
 
-                                except Exception as e:
-                                    _LOGGER.error(f"Error processing device {dev.get('endpointId', 'unknown')}: {e}")
-                                    dev['state'] = 0  # Mark as offline if we can't get state
-                                    dev['params'] = {}
+        # Prepare device options for selection
+        device_options = {}
+        for device in self._available_devices:
+            device_id = device['id']
+            device_name = device['name']
+            family_name = device['family_name']
+            device_options[device_id] = f"{device_name} ({family_name})"
 
-                                # Add to family devices if not already there
-                                if hasattr(self, 'data') and familyid in self.data:
-                                    if not any(d.get('endpointId') == dev.get('endpointId')
-                                               for d in self.data[familyid].get('devices', [])):
-                                        self.data[familyid]['devices'].append(dev)
+        # If no devices were found, abort
+        if not device_options:
+            return self.async_abort(reason="no_devices_found")
 
-                        return devices  # Always return devices, even if empty
-                    else:
-                        _LOGGER.warning(f"Failed to query devices: {data}")
-                        return []  # Return empty list instead of raising exception
-
-                except Exception as e:
-                    _LOGGER.error(f"Exception in list_devices: {e}")
-                    return []  # Always return a list even if an exception occurs
+        # Create a simple list of device options
+        return self.async_show_form(
+            step_id="select_devices",
+            data_schema=vol.Schema({
+                vol.Required(CONF_SELECTED_DEVICES): vol.All(
+                    vol.Coerce(list),
+                    [vol.In(device_options)]
+                ),
+            }),
+            errors=errors,
+            description_placeholders={
+                "devices_count": str(len(self._available_devices)),
+                "families_count": str(len(self._families)),
+            },
+        )
 
     async def async_step_import(self, import_info):
         """Import a config entry from configuration.yaml."""
@@ -253,8 +246,8 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 all_devices = []
                 for family in families:
                     family_id = family['familyid']
-                    devices = await self._aux_cloud.list_devices(family_id)
-                    shared_devices = await self._aux_cloud.list_devices(family_id, shared=True)
+                    devices = await self._aux_cloud.list_devices(family_id) or []
+                    shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
                     all_devices.extend(devices + shared_devices)
 
                 # Extract device IDs
@@ -273,8 +266,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
             except Exception as ex:
                 _LOGGER.error(f"Import failed: {ex}")
+                return self.async_abort(reason="user_login_failed")
 
-        # If import data is incomplete or login failed, show the form
+        # If import data is incomplete, show the form
         return await self.async_step_user()
 
     @staticmethod
@@ -297,23 +291,26 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Handle options flow."""
         if user_input is not None:
-            # Update the config entry with new selected devices
-            selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
+            try:
+                # Update the config entry with new selected devices
+                selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
 
-            # Convert to list if it's a single value
-            if not isinstance(selected_device_ids, list):
-                selected_device_ids = [selected_device_ids]
+                # Convert to list if it's a single value
+                if not isinstance(selected_device_ids, list):
+                    selected_device_ids = [selected_device_ids]
 
-            new_data = {
-                **self.config_entry.data,
-                CONF_SELECTED_DEVICES: selected_device_ids,
-            }
+                new_data = {
+                    **self.config_entry.data,
+                    CONF_SELECTED_DEVICES: selected_device_ids,
+                }
 
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=new_data
-            )
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
 
-            return self.async_create_entry(title="", data={})
+                return self.async_create_entry(title="", data={})
+            except Exception as ex:
+                _LOGGER.error(f"Error updating config entry: {ex}")
 
         # Fetch all devices to allow re-selection
         email = self.config_entry.data.get(CONF_EMAIL)
@@ -322,58 +319,71 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
         if not email or not password:
             return self.async_abort(reason="missing_credentials")
 
+        try:
+            self._aux_cloud = AuxCloudAPI()
+            await self._aux_cloud.login(email, password)
 
-async def async_step_select_devices(self, user_input=None):
-    """Allow the user to select which devices to add."""
-    errors = {}
+            # Fetch all families and devices
+            families = await self._aux_cloud.list_families()
+            self._families = {}
+            self._available_devices = []
 
-    if user_input is not None:
-        selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
+            for family in families:
+                family_id = family['familyid']
+                family_name = family['name']
 
-        # Convert to list if it's a single value
-        if not isinstance(selected_device_ids, list):
-            selected_device_ids = [selected_device_ids]
+                # Store family info
+                self._families[family_id] = {
+                    'name': family_name,
+                    'devices': []
+                }
 
-        # Find the selected devices
-        selected_devices = []
-        for device_id in selected_device_ids:
+                devices = await self._aux_cloud.list_devices(family_id) or []
+                shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+
+                for device in devices + shared_devices:
+                    device_id = device['endpointId']
+                    device_name = device['friendlyName']
+                    device_info = {
+                        'id': device_id,
+                        'name': device_name,
+                        'family_id': family_id,
+                        'family_name': family_name,
+                    }
+                    self._available_devices.append(device_info)
+                    self._families[family_id]['devices'].append(device_info)
+
+            # If no devices were found, display an error
+            if not self._available_devices:
+                return self.async_abort(reason="no_devices_found")
+
+            # Create options for the form
+            device_options = {}
             for device in self._available_devices:
-                if device['id'] == device_id:
-                    selected_devices.append(device)
-                    break
+                device_id = device['id']
+                device_name = device['name']
+                family_name = device['family_name']
+                device_options[device_id] = f"{device_name} ({family_name})"
 
-        # Create config entry with the selected devices
-        config = {
-            CONF_EMAIL: self._email,
-            CONF_PASSWORD: self._password,
-            CONF_SELECTED_DEVICES: selected_device_ids,
-            CONF_FAMILIES: self._families,
-        }
+            # Get currently selected devices
+            current_devices = self.config_entry.data.get(CONF_SELECTED_DEVICES, [])
 
-        # Create an entry title based on the number of devices
-        title = f"AUX Cloud ({len(selected_devices)} devices)"
-
-        return self.async_create_entry(title=title, data=config)
-
-    # Prepare device options for selection
-    device_options = {}
-    for device in self._available_devices:
-        device_id = device['id']
-        device_name = device['name']
-        family_name = device['family_name']
-        device_options[device_id] = f"{device_name} ({family_name})"
-
-    return self.async_show_form(
-        step_id="select_devices",
-        data_schema=vol.Schema({
-            vol.Required(CONF_SELECTED_DEVICES): vol.All(
-                cv.multi_select(device_options),
-                vol.Length(min=1, msg="At least one device must be selected")
-            ),
-        }),
-        errors=errors,
-        description_placeholders={
-            "devices_count": str(len(self._available_devices)),
-            "families_count": str(len(self._families)),
-        },
-    )
+            return self.async_show_form(
+                step_id="init",
+                data_schema=vol.Schema({
+                    vol.Required(
+                        CONF_SELECTED_DEVICES,
+                        default=current_devices
+                    ): vol.All(
+                        vol.Coerce(list),
+                        [vol.In(device_options)]
+                    ),
+                }),
+                description_placeholders={
+                    "devices_count": str(len(self._available_devices)),
+                    "families_count": str(len(self._families)),
+                },
+            )
+        except Exception as ex:
+            _LOGGER.error(f"Error fetching devices: {ex}")
+            return self.async_abort(reason="fetch_devices_failed")
