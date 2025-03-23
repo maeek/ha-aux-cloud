@@ -1,15 +1,17 @@
 """Config flow to configure Aux Cloud."""
+import json
 import logging
 
+import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import selector
 
 from .api.aux_cloud import AuxCloudAPI
-from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_FAMILIES, CONF_SELECTED_DEVICES
+from .api.const import AUX_MODELS
+from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_SELECTED_DEVICES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -148,60 +150,77 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             _LOGGER.error(f"Error fetching devices: {ex}")
             return self.async_abort(reason="fetch_devices_failed")
 
-    async def async_step_select_devices(self, user_input=None):
-        """Allow the user to select which devices to add."""
-        errors = {}
+    async def list_devices(self, familyid: str, shared=False):
+        """List devices for a family."""
+        async with aiohttp.ClientSession() as session:
+            device_endpoint = 'dev/query?action=select' if not shared else 'sharedev/querylist?querytype=shared'
+            async with session.post(
+                    f'{self.url}/appsync/group/{device_endpoint}',
+                    data='{"pids":[]}' if not shared else '{"endpointId":""}',
+                    headers=self._get_headers(familyid=familyid),
+                    ssl=False
+            ) as response:
+                try:
+                    data = await response.text()
+                    json_data = json.loads(data)
 
-        if user_input is not None:
-            selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
+                    if 'status' in json_data and json_data['status'] == 0:
+                        devices = []  # Initialize with empty list
 
-            # Convert to list if it's a single value
-            if not isinstance(selected_device_ids, list):
-                selected_device_ids = [selected_device_ids]
+                        if 'endpoints' in json_data['data']:
+                            devices = json_data['data']['endpoints']
+                        elif 'shareFromOther' in json_data['data']:
+                            devices = list(
+                                map(lambda dev: dev['devinfo'], json_data['data']['shareFromOther']))
+                        else:
+                            # No devices found, return empty list
+                            return devices
 
-            # Find the selected devices
-            selected_devices = []
-            for device_id in selected_device_ids:
-                for device in self._available_devices:
-                    if device['id'] == device_id:
-                        selected_devices.append(device)
-                        break
+                        if devices:
+                            for dev in devices:
+                                try:
+                                    # Check if the device is online
+                                    dev_state = await self.query_device_state(dev['endpointId'], dev['devSession'])
+                                    dev['state'] = dev_state['data'][0]['state']
 
-            # Create config entry with the selected devices
-            config = {
-                CONF_EMAIL: self._email,
-                CONF_PASSWORD: self._password,
-                CONF_SELECTED_DEVICES: selected_device_ids,
-                CONF_FAMILIES: self._families,
-            }
+                                    # Fetch known params of the device
+                                    if dev['productId'] in AUX_MODELS and dev['state'] == 1:
+                                        dev_params = await self.get_device_params(dev, params=list(
+                                            AUX_MODELS[dev['productId']]['params'].keys()))
+                                        dev['params'] = dev_params
 
-            # Create an entry title based on the number of devices
-            title = f"AUX Cloud ({len(selected_devices)} devices)"
+                                        # Fetch additional params not returned with the
+                                        # default query
+                                        if len(AUX_MODELS[dev['productId']]['special_params']) != 0:
+                                            dev_special_params = await self.get_device_params(dev, params=list(
+                                                AUX_MODELS[dev['productId']]['special_params'].keys()))
+                                            dev['params'] = {
+                                                **dev['params'], **dev_special_params}
 
-            return self.async_create_entry(title=title, data=config)
+                                    # Fetch params from unknown device
+                                    elif dev['state'] == 1:
+                                        dev_params = await self.get_device_params(dev)
+                                        dev['params'] = dev_params
 
-        # Prepare device options for selection
-        device_options = {}
-        for device in self._available_devices:
-            device_id = device['id']
-            device_name = device['name']
-            family_name = device['family_name']
-            device_options[device_id] = f"{device_name} ({family_name})"
+                                except Exception as e:
+                                    _LOGGER.error(f"Error processing device {dev.get('endpointId', 'unknown')}: {e}")
+                                    dev['state'] = 0  # Mark as offline if we can't get state
+                                    dev['params'] = {}
 
-        return self.async_show_form(
-            step_id="select_devices",
-            data_schema=vol.Schema({
-                vol.Required(CONF_SELECTED_DEVICES): vol.All(
-                    cv.multi_select(device_options),
-                    vol.Length(min=1, msg="At least one device must be selected")
-                ),
-            }),
-            errors=errors,
-            description_placeholders={
-                "devices_count": str(len(self._available_devices)),
-                "families_count": str(len(self._families)),
-            },
-        )
+                                # Add to family devices if not already there
+                                if hasattr(self, 'data') and familyid in self.data:
+                                    if not any(d.get('endpointId') == dev.get('endpointId')
+                                               for d in self.data[familyid].get('devices', [])):
+                                        self.data[familyid]['devices'].append(dev)
+
+                        return devices  # Always return devices, even if empty
+                    else:
+                        _LOGGER.warning(f"Failed to query devices: {data}")
+                        return []  # Return empty list instead of raising exception
+
+                except Exception as e:
+                    _LOGGER.error(f"Exception in list_devices: {e}")
+                    return []  # Always return a list even if an exception occurs
 
     async def async_step_import(self, import_info):
         """Import a config entry from configuration.yaml."""
