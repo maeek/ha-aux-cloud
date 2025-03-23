@@ -6,6 +6,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
 
 from .api.aux_cloud import AuxCloudAPI
 from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_FAMILIES, CONF_SELECTED_DEVICES
@@ -220,10 +221,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="select_devices",
             data_schema=vol.Schema({
-                vol.Required(CONF_SELECTED_DEVICES): vol.All(
-                    vol.Coerce(list),
-                    [vol.In(device_options)]
-                ),
+                vol.Required(CONF_SELECTED_DEVICES): cv.multi_select(device_options),
             }),
             errors=errors,
             description_placeholders={
@@ -390,10 +388,7 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                     vol.Required(
                         CONF_SELECTED_DEVICES,
                         default=current_devices
-                    ): vol.All(
-                        vol.Coerce(list),
-                        [vol.In(device_options)]
-                    ),
+                    ): cv.multi_select(device_options),
                 }),
                 description_placeholders={
                     "devices_count": str(len(self._available_devices)),
