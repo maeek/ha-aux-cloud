@@ -173,6 +173,8 @@ class AuxCloudAPI:
                 json_data = json.loads(data)
 
                 if 'status' in json_data and json_data['status'] == 0:
+                    devices = []  # Initialize with empty list
+
                     if 'endpoints' in json_data['data']:
                         devices = json_data['data']['endpoints']
                     elif 'shareFromOther' in json_data['data']:
@@ -209,7 +211,7 @@ class AuxCloudAPI:
                                        for d in self.data[familyid]['devices']):
                                 self.data[familyid]['devices'].append(dev)
 
-                        return devices
+                    return devices  # Always return devices, even if empty
                 else:
                     raise Exception(f"Failed to query a room: {data}")
 

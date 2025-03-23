@@ -116,8 +116,8 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
 
                 # Fetch devices for this family
-                devices = await self._aux_cloud.list_devices(family_id)
-                shared_devices = await self._aux_cloud.list_devices(family_id, shared=True)
+                devices = await self._aux_cloud.list_devices(family_id) or []
+                shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
 
                 # Process devices
                 all_family_devices = devices + shared_devices
