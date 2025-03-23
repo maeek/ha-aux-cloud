@@ -71,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await data.update()
 
-    devices = await data.aux_cloud.async_get_devices()
+    devices = await data.aux_cloud.list_devices(familyid)
     if not devices:
         _LOGGER.error("No AUX Cloud devices found to set up")
         return False
@@ -92,7 +92,6 @@ class AuxCloudData:
         self._entry = entry
         self._email = email
         self._password = password
-        self.aux_cloud = AuxCloudAPI()
         self.aux_cloud = AuxCloudAPI()
 
     async def async_setup(self):
@@ -138,6 +137,21 @@ class AuxCloudData:
 
         _LOGGER.error("Error refreshing AUX Cloud")
         return False
+
+    async def async_setup_families(self):
+        """Setup families."""
+        family_data = await self.aux_cloud.list_families()
+        self.families = {}
+        for family in family_data:
+            self.families[family['familyid']] = {
+                'id': family['familyid'],
+                'name': family['name'],
+                'rooms': [],
+                'devices': []
+            }
+            await self.aux_cloud.list_rooms(family['familyid'])
+            await self.aux_cloud.list_devices(family['familyid'])
+            await self.aux_cloud.list_devices(family['familyid'], shared=True)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
