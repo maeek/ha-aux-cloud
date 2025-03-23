@@ -29,7 +29,7 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
 )
 
-from .api.const import (
+from .const import (
     DOMAIN,
     MODE_AUTO,
     MODE_COOL,
@@ -37,6 +37,12 @@ from .api.const import (
     MODE_DRY,
     MODE_FAN_ONLY,
     MODE_OFF,
+    FAN_TURBO,
+    ATTR_ECO_MODE,
+    ATTR_HEALTH_MODE,
+    ATTR_SLEEP_MODE,
+    ATTR_SELF_CLEAN,
+    ATTR_CHILD_LOCK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +59,9 @@ MODE_MAP = {
 
 # Map Home Assistant modes to AUX modes
 REVERSE_MODE_MAP = {v: k for k, v in MODE_MAP.items()}
+
+# Define custom fan modes
+FAN_MODES = [FAN_LOW, FAN_MEDIUM, FAN_HIGH, FAN_TURBO, FAN_AUTO]
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -115,12 +124,7 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
         ]
 
         # Set available fan modes
-        self._attr_fan_modes = [
-            FAN_AUTO,
-            FAN_LOW,
-            FAN_MEDIUM,
-            FAN_HIGH,
-        ]
+        self._attr_fan_modes = FAN_MODES
 
         # Set available swing modes
         self._attr_swing_modes = [
@@ -133,7 +137,7 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
         # Set temperature range
         self._attr_min_temp = 16
         self._attr_max_temp = 30
-        self._attr_target_temperature_step = 1
+        self._attr_target_temperature_step = 0.5
 
     @property
     def device_info(self):
@@ -142,7 +146,7 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
             "identifiers": {(DOMAIN, self.device_id)},
             "name": self._attr_name,
             "manufacturer": "AUX",
-            "model": self.device_info.get("model", "Unknown"),
+            "model": f"AUX AC (Model {self.device_info.get('model', 'Unknown')})",
             "sw_version": self.device_info.get("firmware_version", "Unknown"),
         }
 
@@ -187,8 +191,6 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
         if not status:
             return HVACAction.IDLE
 
-        # Determine the current action based on status
-        # This depends on the actual API response structure
         if "is_heating" in status and status["is_heating"]:
             return HVACAction.HEATING
         if "is_cooling" in status and status["is_cooling"]:
@@ -205,15 +207,7 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
         """Return the fan mode."""
         status = self.get_device_status()
         if status and "fan_mode" in status:
-            fan_mode = status["fan_mode"].lower()
-            if fan_mode == "low":
-                return FAN_LOW
-            elif fan_mode == "medium":
-                return FAN_MEDIUM
-            elif fan_mode == "high":
-                return FAN_HIGH
-            else:
-                return FAN_AUTO
+            return status["fan_mode"]
         return FAN_AUTO
 
     @property
@@ -235,12 +229,39 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
         else:
             return SWING_OFF
 
+    @property
+    def extra_state_attributes(self):
+        """Return entity specific state attributes."""
+        status = self.get_device_status()
+        if not status:
+            return {}
+
+        attrs = {}
+        # Add extra features as attributes
+        if "eco_mode" in status:
+            attrs[ATTR_ECO_MODE] = status["eco_mode"]
+        if "health_mode" in status:
+            attrs[ATTR_HEALTH_MODE] = status["health_mode"]
+        if "sleep_mode" in status:
+            attrs[ATTR_SLEEP_MODE] = status["sleep_mode"]
+        if "self_clean" in status:
+            attrs[ATTR_SELF_CLEAN] = status["self_clean"]
+        if "child_lock" in status:
+            attrs[ATTR_CHILD_LOCK] = status["child_lock"]
+
+        # Add error information if present
+        if "error_code" in status and status["error_code"] != 0:
+            attrs["error_code"] = status["error_code"]
+
+        return attrs
+
     def get_device_status(self):
         """Get the latest status of the device."""
-        for device in self.coordinator.data.devices:
-            if device["id"] == self.device_id:
-                # Return the device status if available in the coordinator data
-                return device.get("status", {})
+        # Check if coordinator has the data
+        if hasattr(self.coordinator.data, "devices"):
+            for device in self.coordinator.data.devices:
+                if device["id"] == self.device_id:
+                    return device.get("status", {})
 
         # If not found in coordinator data, fetch it directly
         return self.api.get_device_status(self.device_id)
@@ -290,9 +311,7 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode):
         """Set new fan mode."""
-        aux_fan_mode = fan_mode.lower()
-
-        state = {"fan_mode": aux_fan_mode}
+        state = {"fan_mode": fan_mode}
 
         await self.hass.async_add_executor_job(
             self.api.set_device_state, self.device_id, state
@@ -333,3 +352,54 @@ class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
     async def async_turn_off(self):
         """Turn the entity off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
+
+    # Add methods for controlling additional features
+    async def async_set_eco_mode(self, eco_mode):
+        """Set economy mode."""
+        state = {"eco_mode": eco_mode}
+
+        await self.hass.async_add_executor_job(
+            self.api.set_device_state, self.device_id, state
+        )
+
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_health_mode(self, health_mode):
+        """Set health mode."""
+        state = {"health_mode": health_mode}
+
+        await self.hass.async_add_executor_job(
+            self.api.set_device_state, self.device_id, state
+        )
+
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_sleep_mode(self, sleep_mode):
+        """Set sleep mode."""
+        state = {"sleep_mode": sleep_mode}
+
+        await self.hass.async_add_executor_job(
+            self.api.set_device_state, self.device_id, state
+        )
+
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_self_clean(self, self_clean):
+        """Set self-cleaning mode."""
+        state = {"self_clean": self_clean}
+
+        await self.hass.async_add_executor_job(
+            self.api.set_device_state, self.device_id, state
+        )
+
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_child_lock(self, child_lock):
+        """Set child lock."""
+        state = {"child_lock": child_lock}
+
+        await self.hass.async_add_executor_job(
+            self.api.set_device_state, self.device_id, state
+        )
+
+        await self.coordinator.async_request_refresh()
