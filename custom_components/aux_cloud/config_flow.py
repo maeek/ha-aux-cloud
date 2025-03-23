@@ -1,14 +1,10 @@
 """Config flow to configure Aux Cloud."""
 import logging
-from typing import Any, Dict, Optional
 
 import voluptuous as vol
-
-from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlow, SOURCE_IMPORT, OptionsFlow
+from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import selector
 
@@ -16,6 +12,7 @@ from .api.aux_cloud import AuxCloudAPI
 from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_FAMILIES, CONF_SELECTED_DEVICES
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for AUX Cloud."""
@@ -303,4 +300,4 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
         password = self.config_entry.data.get(CONF_PASSWORD)
 
         if not email or not password:
-            return self.async_abort(reason="
+            return self.async_abort(reason="missing_credentials")
