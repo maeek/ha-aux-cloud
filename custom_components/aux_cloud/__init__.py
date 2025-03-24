@@ -150,14 +150,29 @@ class AuxCloudData:
             }
 
             # Get rooms if needed
-            rooms = await self.aux_cloud.list_rooms(family_id)
-            if rooms:
-                self.families[family_id]['rooms'] = rooms
+            try:
+                rooms = await self.aux_cloud.list_rooms(family_id)
+                if rooms:
+                    self.families[family_id]['rooms'] = rooms
+            except Exception as e:
+                _LOGGER.warning("Failed to fetch rooms for family %s: %s", family_id, e)
 
-            # Get devices for this family
-            devices = await self.aux_cloud.list_devices(family_id)
-            shared_devices = await self.aux_cloud.list_devices(family_id, shared=True)
+            # Get devices for this family - with error handling and None protection
+            try:
+                devices = await self.aux_cloud.list_devices(family_id) or []
+                _LOGGER.debug("Family %s: Found %d personal devices", family_id, len(devices))
+            except Exception as e:
+                _LOGGER.warning("Failed to fetch personal devices for family %s: %s", family_id, e)
+                devices = []
 
+            try:
+                shared_devices = await self.aux_cloud.list_devices(family_id, shared=True) or []
+                _LOGGER.debug("Family %s: Found %d shared devices", family_id, len(shared_devices))
+            except Exception as e:
+                _LOGGER.warning("Failed to fetch shared devices for family %s: %s", family_id, e)
+                shared_devices = []
+
+            # Now we're guaranteed to have lists (even if empty)
             family_devices = devices + shared_devices
             all_devices.extend(family_devices)
 
@@ -173,7 +188,8 @@ class AuxCloudData:
         else:
             self.devices = all_devices
 
-        _LOGGER.debug(f"Found {len(self.devices)} devices out of {len(all_devices)} total devices")
+        _LOGGER.debug("Found %d devices out of %d total devices",
+                      len(self.devices), len(all_devices))
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
