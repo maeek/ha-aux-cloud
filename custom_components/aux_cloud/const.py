@@ -41,10 +41,10 @@ MANUFACTURER = "AUX"
 # Platforms to set up
 PLATFORMS = [
     # Platform.BINARY_SENSOR,
-    # Platform.CLIMATE,
+    Platform.CLIMATE,
     # Platform.SWITCH,
     # Platform.NUMBER,
     # Platform.WATER_HEATER,
     # Platform.FAN,
-    Platform.SENSOR
+    # Platform.SENSOR
 ]
