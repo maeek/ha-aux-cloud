@@ -145,17 +145,19 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             if not self._available_devices:
                 return self.async_abort(reason="no_devices_found")
 
-            # Proceed to device selection step
+            # Prepare device options for the multi_select
+            device_options = {}
+            for device in self._available_devices:
+                device_id = device['id']
+                device_name = device['name']
+                family_name = device['family_name']
+                device_options[device_id] = f"{device['name']} ({device['family_name']})"
+
+            # Proceed to device selection step with a simpler schema using cv.multi_select
             return self.async_show_form(
                 step_id="select_devices",
                 data_schema=vol.Schema({
-                    vol.Required(CONF_SELECTED_DEVICES): vol.All(
-                        vol.Coerce(list),
-                        [vol.In({
-                            device['id']: f"{device['name']} ({device['family_name']})"
-                            for device in self._available_devices
-                        })]
-                    ),
+                    vol.Required(CONF_SELECTED_DEVICES): cv.multi_select(device_options),
                 }),
                 errors={},
                 description_placeholders={
