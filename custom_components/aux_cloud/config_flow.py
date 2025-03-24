@@ -83,6 +83,15 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         try:
             # Fetch all families
             families = await self._aux_cloud.list_families()
+            _LOGGER.debug("Fetched %d families", len(families))
+
+            # Log each family
+            for family in families:
+                _LOGGER.debug(
+                    "Family: ID=%s, Name=%s",
+                    family['familyid'],
+                    family['name']
+                )
 
             # Process families and fetch devices for each family
             self._families = {}
@@ -99,6 +108,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                         name_part = family_name.split('_')[0]
                         decoded_name = base64.b64decode(name_part).decode('utf-8')
                         family_name = decoded_name
+                        _LOGGER.debug("Decoded family name from %s to %s", family['name'], family_name)
                     except Exception as e:
                         _LOGGER.warning(f"Failed to decode family name: {e}")
                         # If decoding fails, use the original name
@@ -113,12 +123,14 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 # Fetch devices for this family
                 try:
                     devices = await self._aux_cloud.list_devices(family_id) or []
+                    _LOGGER.debug("Family %s: Found %d personal devices", family_id, len(devices))
                 except Exception as e:
                     _LOGGER.warning(f"Failed to fetch personal devices for family {family_id}: {e}")
                     devices = []
 
                 try:
                     shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+                    _LOGGER.debug("Family %s: Found %d shared devices", family_id, len(shared_devices))
                 except Exception as e:
                     _LOGGER.warning(f"Failed to fetch shared devices for family {family_id}: {e}")
                     shared_devices = []
@@ -128,6 +140,19 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 for device in all_family_devices:
                     device_id = device['endpointId']
                     device_name = device['friendlyName']
+
+                    # Log each device's details
+                    _LOGGER.debug(
+                        "Device: ID=%s, Name=%s, Family=%s, ProductID=%s",
+                        device_id,
+                        device_name,
+                        family_name,
+                        device.get('productId', 'Unknown')
+                    )
+
+                    if 'params' in device:
+                        _LOGGER.debug("Device %s params: %s", device_id, device.get('params', {}))
+
                     device_info = {
                         'id': device_id,
                         'name': device_name,
@@ -143,7 +168,11 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
             # If no devices were found, display an error
             if not self._available_devices:
+                _LOGGER.error("No devices found in any family")
                 return self.async_abort(reason="no_devices_found")
+
+            _LOGGER.debug("Successfully processed %d devices across %d families",
+                          len(self._available_devices), len(self._families))
 
             # Prepare device options for the multi_select
             device_options = {}
