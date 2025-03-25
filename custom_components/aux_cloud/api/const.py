@@ -1,4 +1,5 @@
-# Complete parameters for AUX models
+
+# TODO: Update params
 AUX_MODELS = {
     "000000000000000000000000c3aa0000": {
         "type": "heat_pump",
@@ -83,131 +84,8 @@ AUX_MODELS = {
     },
     "000000000000000000000000c0620000": {
         "type": "air_conditioner",
-        "params": {
-            'pwr': {
-                'name': 'power',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'ac_pwr': {
-                'name': 'power',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'ac_mode': {
-                'name': 'mode',
-                'adjustable': True,
-                'values': {
-                    '0': 'auto',
-                    '1': 'cool',
-                    '2': 'dry',
-                    '3': 'fan',
-                    '4': 'heat'
-                }
-            },
-            'ac_temp': {
-                'name': 'target_temperature',
-                'adjustable': True,
-                'values': {},
-                'min': 16,
-                'max': 30
-            },
-            'temp': {
-                'name': 'target_temperature',
-                'adjustable': True,
-                'values': {},
-                'min': 16,
-                'max': 30
-            },
-            'ac_mark': {
-                'name': 'fan_speed',
-                'adjustable': True,
-                'values': {
-                    '0': 'auto',
-                    '1': 'low',
-                    '2': 'medium',
-                    '3': 'high',
-                    '4': 'turbo',
-                    '5': 'quiet'
-                }
-            },
-            'ac_vdir': {
-                'name': 'swing_vertical',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'ac_hdir': {
-                'name': 'swing_horizontal',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'envtemp': {
-                'name': 'room_temperature',
-                'adjustable': False
-            },
-            'ecomode': {
-                'name': 'eco_mode',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'ac_health': {
-                'name': 'health_mode',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'ac_slp': {
-                'name': 'sleep_mode',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'ac_clean': {
-                'name': 'self_clean',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            },
-            'childlock': {
-                'name': 'child_lock',
-                'adjustable': True,
-                'values': {
-                    '0': 'off',
-                    '1': 'on'
-                }
-            }
-        },
-        "special_params": {
-            'ac_errcode1': {
-                'name': 'error_code',
-                'adjustable': False
-            },
-            'err_flag': {
-                'name': 'error_flag',
-                'adjustable': False
-            }
-        }
+        "params": {},
+        "special_params": {}
     },
 }
 
@@ -225,6 +103,7 @@ FAN_SPEEDS_HIGH: dict = {"ac_mark": 4}
 
 # TODO need to be refactored
 TEMP: dict = {"temp": 240}
+
 
 """
 PARAMETERS NOT TESTED ALL
