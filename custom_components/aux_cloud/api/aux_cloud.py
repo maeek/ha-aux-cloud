@@ -279,8 +279,7 @@ class AuxCloudAPI:
                         json_data['event']['payload']['status'] == 0
                 ):
                     return json_data['event']['payload']
-                else:
-                    raise Exception(f"Failed to query device state: {data}")
+                raise Exception(f"Failed to query device state: {data}")
 
     async def _act_device_params(
             self,

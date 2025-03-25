@@ -63,6 +63,7 @@ REVERSE_MODE_MAP = {v: k for k, v in MODE_MAP.items()}
 # Define custom fan modes
 FAN_MODES = [FAN_LOW, FAN_MEDIUM, FAN_HIGH, FAN_TURBO, FAN_AUTO]
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -83,6 +84,7 @@ async def async_setup_entry(
         async_add_entities(entities, True)
     else:
         _LOGGER.info("No AUX climate devices added")
+
 
 class AuxClimateEntity(CoordinatorEntity, ClimateEntity):
     """AUX Cloud climate entity."""
