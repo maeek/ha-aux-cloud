@@ -8,37 +8,37 @@ to[replacing wifi module in your AC](https: // github.com / GrKoR / esphome_aux_
 to control heat pumps. The implementation of API requests are based on public resources from Broadlink documentation and
 lots of reverse engineering.
 
-## Features
+# Features
 
 - Control AUX air conditioners and heat pumps from Home Assistant
 - View device status and sensor readings
 - Support for both personal and shared devices
-- Secure credential storage (when configured through UI)
+- Secure credential storage(when configured through UI)
 
-## Installation
+# Installation
 
-### HACS Installation (Recommended)
+# HACS Installation (Recommended)
 
-1. Make sure you have [HACS](https://hacs.xyz/) installed
+1. Make sure you have[HACS](https: // hacs.xyz /) installed
 2. Go to HACS > Integrations
 3. Click the "+" button and search for "AUX Cloud"
 4. Install the integration
 5. Restart Home Assistant
 
-### Manual Installation
+# Manual Installation
 
 1. Download this repository
-2. Copy the `custom_components/aux_cloud` folder to your Home Assistant `custom_components` directory
+2. Copy the `custom_components / aux_cloud` folder to your Home Assistant `custom_components` directory
 3. Restart Home Assistant
 
-## Configuration
+# Configuration
 
-### UI Configuration (Recommended)
+# UI Configuration (Recommended)
 
 The recommended way to set up this integration is through the Home Assistant UI:
 
-1. Go to **Settings** > **Devices & Services**
-2. Click the **+ Add Integration** button
+1. Go to ** Settings ** > **Devices & Services**
+2. Click the ** + Add Integration ** button
 3. Search for "AUX Cloud" and select it
 4. Enter your AUX Cloud email and password
 5. Select which devices you want to add to Home Assistant
@@ -93,3 +93,65 @@ communicate with AUX Cloud services.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+# Testing
+
+This document describes how to run tests and perform code quality checks for the AUX Cloud Integration.
+
+## Prerequisites
+
+Before running tests, ensure you have all the required dependencies installed:
+
+```bash
+pip install -r requirements.test.txt
+```
+
+## Running Tests with pytest
+
+### Basic Test Run
+
+Run all tests:
+
+```bash
+pytest
+```
+
+### Test with Coverage Reporting
+
+Run tests and show coverage information:
+
+```bash
+pytest --cov=custom_components
+```
+
+### Additional Testing Options
+
+Run specific test file:
+
+```bash
+pytest tests/test_init.py
+```
+
+## Code Quality Checks with pylint
+
+### Basic pylint Check
+
+Run pylint on the entire component:
+
+```bash
+pylint custom_components/aux_cloud
+```
+
+### Targeted pylint Checks
+
+Check a specific file:
+
+```bash
+pylint custom_components/aux_cloud/api/aux_cloud.py
+```
+
+Set a minimum score threshold (useful for CI/CD):
+
+```bash
+pylint --fail-under=8.0 custom_components/aux_cloud
+```

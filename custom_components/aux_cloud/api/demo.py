@@ -30,10 +30,10 @@ if __name__ == "__main__":
 
         families = await cloud.list_families()
         for family in families:
-            print(f"FamilyId {family['familyid']}:")
+            print("FamilyId {family['familyid']}:")
             devices = await cloud.list_devices(family['familyid'], shared)
             if devices:
-                print(f"Devices:")
+                print("Devices:")
                 pprint.pprint(devices)
                 for device in devices:
                     state = await cloud.query_device_state(
@@ -42,9 +42,9 @@ if __name__ == "__main__":
 
                     print("Device state:")
                     pprint.pprint(state)
-                    print(f"devSession {device['devSession']}")
+                    print("devSession {device['devSession']}")
                     params = await cloud.get_device_params(device)
-                    print(f"Device params:")
+                    print("Device params:")
                     pprint.pprint(params)
                     # await cloud.set_device_params(device, POWER_OFF)
                     # await cloud.set_device_params(device, HEATING)
@@ -53,7 +53,7 @@ if __name__ == "__main__":
 
                     params = await cloud.get_device_params(device)
 
-                    print(f"Device params after set:")
+                    print("Device params after set:")
                     pprint.pprint(params)
 
                 print("")
