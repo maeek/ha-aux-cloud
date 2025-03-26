@@ -1,8 +1,12 @@
 # AUX Cloud Integration for Home Assistant
 
-Unofficial integration for AUX Cloud connected appliances like air conditioners and heat pumps. AUX Cloud is a service
-based on the Broadlink platform that allows you to control your appliances from anywhere. This integration provides a
-way to control your AUX devices through Home Assistant without needing to replace hardware.
+(**Currently work in progress**)
+
+Unofficial integration for Aux Cloud connected appliances like air conditioners and heat pumps. Aux Cloud is a service
+based on the Broadlink platform that allows you to control your appliances from anywhere. This is a cloud alternative
+to[replacing wifi module in your AC](https: // github.com / GrKoR / esphome_aux_ac_component), which will also allow you
+to control heat pumps. The implementation of API requests are based on public resources from Broadlink documentation and
+lots of reverse engineering.
 
 ## Features
 
@@ -40,20 +44,6 @@ The recommended way to set up this integration is through the Home Assistant UI:
 5. Select which devices you want to add to Home Assistant
 
 Your credentials will be stored securely in Home Assistant's encrypted storage.
-
-### Configuration.yaml (Alternative)
-
-If you prefer, you can also configure the integration through `configuration.yaml`:
-
-```yaml
-# Example configuration.yaml entry
-aux_cloud:
-  email: your_email@example.com
-  password: your_password
-```
-
-**Note:** Credentials stored in configuration.yaml are not encrypted. For better security, the UI configuration method
-is recommended.
 
 ## Usage
 
