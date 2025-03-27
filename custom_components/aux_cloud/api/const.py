@@ -85,7 +85,12 @@ AUX_MODELS = {
     "000000000000000000000000c0620000": {
         "type": "air_conditioner",
         "params": {},
-        "special_params": {}
+        "special_params": {
+          'mode': {
+              'name': 'mode',
+              'ajustable': True
+          }
+        }
     },
 }
 
