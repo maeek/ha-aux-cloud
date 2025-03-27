@@ -47,6 +47,7 @@ class AuxCloudAPI:
 
     def __init__(self, region: str = 'eu'):
         self.url = API_SERVER_URL_EU if region == 'eu' else API_SERVER_URL_USA
+        self.devices = []
 
     def _get_headers(self, **kwargs: str):
         return {
@@ -211,6 +212,7 @@ class AuxCloudAPI:
                                        for d in self.data[familyid]['devices']):
                                 self.data[familyid]['devices'].append(dev)
 
+                    self.devices = devices
                     return devices  # Always return devices, even if empty
                 else:
                     raise Exception(f"Failed to query a room: {data}")
