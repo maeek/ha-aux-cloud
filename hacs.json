@@ -1,0 +1,9 @@
+{
+  "name": "aux_cloud",
+  "content_in_root": false,
+  "render_readme": true,
+  "domains": [
+    "cloud"
+  ],
+  "zip_release": false
+}

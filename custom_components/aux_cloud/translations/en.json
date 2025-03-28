@@ -1,0 +1,57 @@
+{
+  "config": {
+    "flow_title": "AUX Cloud: {name}",
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single configuration possible.",
+      "no_devices_found": "No AUX Cloud devices found. Please check your account.",
+      "fetch_devices_failed": "Failed to fetch devices from AUX Cloud.",
+      "login_required": "Login required before device selection."
+    },
+    "error": {
+      "user_login_failed": "Login failed. Please check your credentials.",
+      "cannot_connect": "Failed to connect to the AUX Cloud server.",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "step": {
+      "user": {
+        "title": "AUX Cloud Login",
+        "description": "Enter your AUX Cloud account credentials",
+        "data": {
+          "email": "Email",
+          "password": "Password",
+          "region": "Region"
+        }
+      },
+      "select_devices": {
+        "title": "Select AUX Cloud Devices",
+        "description": "Found {devices_count} devices in {families_count} homes. Select the devices you would like to add to Home Assistant.",
+        "data": {
+          "selected_devices": "Select Devices"
+        }
+      }
+    },
+    "progress": {
+      "fetching_devices": "Fetching your devices... This may take a moment."
+    },
+    "info": {
+      "configuration_recommendation": "For better security, it is recommended to configure this integration through the UI where credentials are stored encrypted."
+    }
+  },
+  "options": {
+    "abort": {
+      "missing_credentials": "Missing credentials. Please reconfigure the integration.",
+      "no_devices_found": "No AUX Cloud devices found. Please check your account.",
+      "fetch_devices_failed": "Failed to fetch devices from AUX Cloud."
+    },
+    "step": {
+      "init": {
+        "title": "Update AUX Cloud Devices",
+        "description": "Select which devices you want to monitor and control with Home Assistant.",
+        "data": {
+          "selected_devices": "Select Devices"
+        }
+      }
+    }
+  }
+}

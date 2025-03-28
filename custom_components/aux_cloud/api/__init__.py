@@ -1,0 +1,1 @@
+"""Aux cloud API module"""

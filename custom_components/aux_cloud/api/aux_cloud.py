@@ -6,8 +6,8 @@ from typing import TypedDict
 
 import aiohttp
 
-from const import AUX_MODELS
-from util import encrypt_aes_cbc_zero_padding
+from custom_components.aux_cloud.api.const import AUX_MODELS
+from custom_components.aux_cloud.api.util import encrypt_aes_cbc_zero_padding
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = 'kdixkdqp54545^#*'
 PASSWORD_ENCRYPT_KEY = '4969fj#k23#'
@@ -173,6 +173,8 @@ class AuxCloudAPI:
                 json_data = json.loads(data)
 
                 if 'status' in json_data and json_data['status'] == 0:
+                    devices = []  # Initialize with empty list
+
                     if 'endpoints' in json_data['data']:
                         devices = json_data['data']['endpoints']
                     elif 'shareFromOther' in json_data['data']:
@@ -209,7 +211,7 @@ class AuxCloudAPI:
                                        for d in self.data[familyid]['devices']):
                                 self.data[familyid]['devices'].append(dev)
 
-                        return devices
+                    return devices  # Always return devices, even if empty
                 else:
                     raise Exception(f"Failed to query a room: {data}")
 
@@ -277,8 +279,7 @@ class AuxCloudAPI:
                         json_data['event']['payload']['status'] == 0
                 ):
                     return json_data['event']['payload']
-                else:
-                    raise Exception(f"Failed to query device state: {data}")
+                raise Exception(f"Failed to query device state: {data}")
 
     async def _act_device_params(
             self,
