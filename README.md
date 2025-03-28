@@ -43,7 +43,7 @@ The recommended way to set up this integration is through the Home Assistant UI:
 4. Enter your AUX Cloud email and password
 5. Select which devices you want to add to Home Assistant
 
-Your credentials will be stored securely in Home Assistant's encrypted storage.
+Your credentials will be stored securely in Home Assistant's .storage/core.config_entries storage.
 
 ## Usage
 
@@ -87,7 +87,7 @@ This integration is still in development. Current status:
 ## Privacy
 
 This integration communicates with the AUX Cloud servers but stores your credentials locally in Home Assistant's
-encrypted storage (when configured through the UI). No data is shared with third parties beyond what's necessary to
+internal storage (when configured through the UI). No data is shared with third parties beyond what's necessary to
 communicate with AUX Cloud services.
 
 ## Contributing
