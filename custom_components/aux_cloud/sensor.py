@@ -8,30 +8,24 @@ from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_NETWORK
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, _LOGGER
-from datetime import datetime
 
 
 async def async_setup_entry(
         hass: HomeAssistant,
-        config_entry: ConfigEntry,
+        entry: ConfigEntry,
         async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up AUX Cloud sensor platform."""
-    data = hass.data[DOMAIN]
-
-    if not data.devices:
-        return
+    """Set up AUX Cloud sensors."""
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
 
     entities = []
 
-    _LOGGER.warning(data.devices)
-
-    # Add sensor entities for each thermostat
-    for device in data.devices:
+    for device in coordinator.data["devices"]:
         if 'params' in device and 'envtemp' in device['params']:
-            entities.append(AuxCloudTemperatureSensor(data, device, 'ambient_temperature', lambda d: d['params']['envtemp'] / 10))
+            entities.append(AuxCloudTemperatureSensor(coordinator, device, 'ambient_temperature', lambda d: d['params']['envtemp'] / 10))
         if 'params' in device and 'hp_water_tank_temp' in device['params']:
-            entities.append(AuxCloudTemperatureSensor(data, device, 'water_tank_temperature', lambda d: d['params']['hp_water_tank_temp']))
+            entities.append(AuxCloudTemperatureSensor(coordinator, device, 'water_tank_temperature', lambda d: d['params']['hp_water_tank_temp']))
 
     async_add_entities(entities, True)
 
@@ -39,9 +33,9 @@ async def async_setup_entry(
 class AuxCloudTemperatureSensor(SensorEntity):
     """Representation of an AUX Cloud temperature sensor."""
 
-    def __init__(self, data, device, param_name, get_value_fn):
+    def __init__(self, coordinator, device, param_name, get_value_fn):
         """Initialize the sensor."""
-        self._data = data
+        self._coordinator = coordinator
         self._device = device
         self._param_name = param_name
         self._get_value_fn = get_value_fn
@@ -75,10 +69,10 @@ class AuxCloudTemperatureSensor(SensorEntity):
     async def async_update(self):
         """Get the latest data."""
         _LOGGER.debug("Updating AUX Cloud sensor")
-        await self._data.refresh()
+        await self._coordinator.async_request_refresh()
 
         updated_device = next(
-            (device for device in self._data.devices if device["endpointId"] == self._device["endpointId"]),
+            (device for device in self._coordinator.data["devices"] if device["endpointId"] == self._device["endpointId"]),
             None,
         )
         if updated_device:
