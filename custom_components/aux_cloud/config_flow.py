@@ -320,15 +320,14 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return AuxCloudOptionsFlowHandler(config_entry)
+        return AuxCloudOptionsFlowHandler()
 
 
 class AuxCloudOptionsFlowHandler(OptionsFlow):
     """Handle options flow for AUX Cloud."""
 
-    def __init__(self, config_entry):
+    def __init__(self):
         """Initialize options flow."""
-        self.config_entry = config_entry
         self._aux_cloud = None
         self._available_devices = []
         self._families = {}

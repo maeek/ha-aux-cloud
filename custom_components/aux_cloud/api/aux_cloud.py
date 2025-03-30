@@ -47,7 +47,7 @@ class AuxCloudAPI:
 
     def __init__(self, region: str = 'eu'):
         self.url = API_SERVER_URL_EU if region == 'eu' else API_SERVER_URL_USA
-        self.devices = []
+        self.devices = None
 
     def _get_headers(self, **kwargs: str):
         return {
@@ -115,6 +115,12 @@ class AuxCloudAPI:
                     return True
                 else:
                     raise Exception(f"Failed to login: {data}")
+
+    def is_logged_in(self):
+        """
+        Check if the user is logged in.
+        """
+        return hasattr(self, 'loginsession') and hasattr(self, 'userid')
 
     async def list_families(self):
         async with aiohttp.ClientSession() as session:
@@ -212,8 +218,21 @@ class AuxCloudAPI:
                                        for d in self.data[familyid]['devices']):
                                 self.data[familyid]['devices'].append(dev)
 
-                    self.devices = devices
-                    return devices  # Always return devices, even if empty
+                    for dev in devices:
+                      # Check if the device is already in self.devices
+                      if self.devices is None:
+                        self.devices = []
+
+                      existing_device = next(
+                        (d for d in self.devices if d['endpointId'] == dev['endpointId']), None)
+                      if existing_device:
+                        # Replace the existing device with the new entry
+                        self.devices.remove(existing_device)
+                      # Add the new device entry
+                      dev['lastUpdated'] = time.time()
+                      self.devices.append(dev)
+
+                    return self.devices  # Always return self.devices, even if empty
                 else:
                     raise Exception(f"Failed to query a room: {data}")
 
@@ -396,3 +415,5 @@ class AuxCloudAPI:
             await self.list_rooms(family['familyid'])
             await self.list_devices(family['familyid'])
             await self.list_devices(family['familyid'], shared=True)
+
+        return True

@@ -106,13 +106,14 @@ class AuxCloudData:
 
     async def async_setup(self):
         """Perform async setup."""
-        await self.aux_cloud.login(self._email, self._password)
+        if not self.aux_cloud.is_logged_in():
+            await self.aux_cloud.login(self._email, self._password)
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def update(self):
         """Get the latest data from AUX Cloud"""
         try:
-            await self._hass.async_add_executor_job(self.aux_cloud.update)
+            await self._hass.async_add_executor_job(self.aux_cloud.refresh)
             _LOGGER.debug("Updating AUX Cloud")
         except Exception as e:  # Replace with specific exception when implemented
             _LOGGER.debug("Relogging to AUX Cloud due to: %s", e)
@@ -120,11 +121,12 @@ class AuxCloudData:
 
     async def refresh(self) -> bool:
         """Refresh AUX Cloud credentials and update config entry."""
-        _LOGGER.debug("Refreshing AUX Cloud credentials")
-
         try:
             # Login
-            await self.aux_cloud.login(self._email, self._password)
+            if not self.aux_cloud.is_logged_in():
+                _LOGGER.debug("Refreshing AUX Cloud credentials")
+                _LOGGER.debug("Logging in to AUX Cloud")
+                await self.aux_cloud.login(self._email, self._password)
 
             # Fetch all families and their devices
             await self.async_setup_families()
@@ -173,7 +175,13 @@ class AuxCloudData:
                 shared_devices = []
 
             # Now we're guaranteed to have lists (even if empty)
-            family_devices = devices + shared_devices
+            # Deduplicate devices based on 'endpointId'
+            seen_endpoint_ids = set()
+            family_devices = []
+            for device in devices + shared_devices:
+                if device['endpointId'] not in seen_endpoint_ids:
+                    seen_endpoint_ids.add(device['endpointId'])
+                    family_devices.append(device)
             all_devices.extend(family_devices)
 
             # Add devices to family in memory
