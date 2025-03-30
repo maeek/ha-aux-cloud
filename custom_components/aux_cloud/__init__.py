@@ -77,42 +77,39 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
         self.password = password
         self.selected_device_ids = selected_device_ids
         self.devices = []
-        self.families = {}
+        _LOGGER.debug("AUX Cloud Coordinator initialized with email: %s", email)
+
+    def get_device_by_endpoint_id(self, endpoint_id: str):
+        """Get a device by its endpoint ID."""
+        if not self.devices:
+            return None
+        for device in self.devices:
+            if device['endpointId'] == endpoint_id:
+                return device
+        return None
 
     async def _async_update_data(self):
         """Fetch data from AUX Cloud."""
-        try:
-            if not await self.api.is_logged_in():
-                await self.api.login(self.email, self.password)
+        _LOGGER.debug("Updating AUX Cloud data...")
 
-            # Fetch families and devices
-            family_data = await self.api.list_families()
-            self.families = {}
+        try:
+            # Attempt to log in
+            _LOGGER.debug("Logging into AUX Cloud API...")
+            login_success = await self.api.login(self.email, self.password)
+            if not login_success:
+                raise UpdateFailed("Login to AUX Cloud API failed")
+
             all_devices = []
 
-            for family in family_data:
-                family_id = family['familyid']
-                self.families[family_id] = {
-                    'id': family_id,
-                    'name': family['name'],
-                    'rooms': [],
-                    'devices': []
-                }
+            if self.api.families is None:
+                _LOGGER.debug("Fetching families from AUX Cloud API...")
+                await self.api.get_families()
 
-                # Fetch devices
-                devices = await self.api.list_devices(family_id) or []
-                shared_devices = await self.api.list_devices(family_id, shared=True) or []
+            for family_id in self.api.families:
+                devices = await self.api.get_devices(family_id, shared=False, selected_devices=self.selected_device_ids) or []
+                shared_devices = await self.api.get_devices(family_id, shared=True, selected_devices=self.selected_device_ids) or []
 
-                # Deduplicate devices
-                seen_endpoint_ids = set()
-                family_devices = []
-                for device in devices + shared_devices:
-                    if device['endpointId'] not in seen_endpoint_ids:
-                        seen_endpoint_ids.add(device['endpointId'])
-                        family_devices.append(device)
-                all_devices.extend(family_devices)
-
-                self.families[family_id]['devices'] = family_devices
+            all_devices = devices + shared_devices
 
             # Filter devices if selected_device_ids is provided
             if self.selected_device_ids:
@@ -123,9 +120,17 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
             else:
                 self.devices = all_devices
 
-            return {"devices": self.devices, "families": self.families}
+            _LOGGER.debug(
+                "Fetched AUX Cloud data: %s devices",
+                len(self.devices)
+            )
+
+            return {
+                "devices": self.devices
+            }
 
         except Exception as e:
+            _LOGGER.error(f"Error updating AUX Cloud data: {e}")
             raise UpdateFailed(f"Error updating AUX Cloud data: {e}")
 
 
@@ -141,6 +146,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     api = AuxCloudAPI()
     coordinator = AuxCloudCoordinator(hass, api, email, password, selected_device_ids)
+
+    # Attempt to log in
+    try:
+        login_success = await api.login(email, password)
+        if not login_success:
+            _LOGGER.error("Login to AUX Cloud API failed")
+            return False
+    except Exception as e:
+        _LOGGER.error(f"Exception during login: {e}")
+        return False
 
     # Perform an initial update
     await coordinator.async_config_entry_first_refresh()

@@ -82,7 +82,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
         try:
             # Fetch all families
-            families = await self._aux_cloud.list_families()
+            families = await self._aux_cloud.get_families()
             _LOGGER.debug("Fetched %d families", len(families))
 
             # Log each family
@@ -122,14 +122,14 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 # Fetch devices for this family
                 try:
-                    devices = await self._aux_cloud.list_devices(family_id) or []
+                    devices = await self._aux_cloud.get_devices(family_id) or []
                     _LOGGER.debug("Family %s: Found %d personal devices", family_id, len(devices))
                 except Exception as e:
                     _LOGGER.warning(f"Failed to fetch personal devices for family {family_id}: {e}")
                     devices = []
 
                 try:
-                    shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+                    shared_devices = await self._aux_cloud.get_devices(family_id, shared=True) or []
                     _LOGGER.debug("Family %s: Found %d shared devices", family_id, len(shared_devices))
                 except Exception as e:
                     _LOGGER.warning(f"Failed to fetch shared devices for family {family_id}: {e}")
@@ -286,13 +286,13 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 await self._aux_cloud.login(self._email, self._password)
 
                 # Fetch all families and devices
-                families = await self._aux_cloud.list_families()
+                families = await self._aux_cloud.get_families()
 
                 all_devices = []
                 for family in families:
                     family_id = family['familyid']
-                    devices = await self._aux_cloud.list_devices(family_id) or []
-                    shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+                    devices = await self._aux_cloud.get_devices(family_id) or []
+                    shared_devices = await self._aux_cloud.get_devices(family_id, shared=True) or []
                     all_devices.extend(devices + shared_devices)
 
                 # Extract device IDs
@@ -368,7 +368,7 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
             await self._aux_cloud.login(email, password)
 
             # Fetch all families and devices
-            families = await self._aux_cloud.list_families()
+            families = await self._aux_cloud.get_families()
             self._families = {}
             self._available_devices = []
 
@@ -382,8 +382,8 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                     'devices': []
                 }
 
-                devices = await self._aux_cloud.list_devices(family_id) or []
-                shared_devices = await self._aux_cloud.list_devices(family_id, shared=True) or []
+                devices = await self._aux_cloud.get_devices(family_id) or []
+                shared_devices = await self._aux_cloud.get_devices(family_id, shared=True) or []
 
                 for device in devices + shared_devices:
                     device_id = device['endpointId']
