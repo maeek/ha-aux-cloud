@@ -28,10 +28,10 @@ if __name__ == "__main__":
         cloud = AuxCloudAPI()
         await cloud.login(email, password)
 
-        families = await cloud.list_families()
+        families = await cloud.get_families()
         for family in families:
             print("FamilyId {family['familyid']}:")
-            devices = await cloud.list_devices(family['familyid'], shared)
+            devices = await cloud.get_devices(family['familyid'], shared)
             if devices:
                 print("Devices:")
                 pprint.pprint(devices)

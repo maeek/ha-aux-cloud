@@ -7,14 +7,13 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.util import Throttle
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api.aux_cloud import AuxCloudAPI
 from .const import (
     _LOGGER,
     DOMAIN,
     DATA_AUX_CLOUD_CONFIG,
-    DATA_HASS_CONFIG,
     PLATFORMS,
     CONF_SELECTED_DEVICES,
 )
@@ -62,134 +61,114 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+class AuxCloudCoordinator(DataUpdateCoordinator):
+    """DataUpdateCoordinator for AUX Cloud."""
+
+    def __init__(self, hass: HomeAssistant, api: AuxCloudAPI, email: str, password: str, selected_device_ids: list):
+        """Initialize the coordinator."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="AUX Cloud Coordinator",
+            update_interval=MIN_TIME_BETWEEN_UPDATES,
+        )
+        self.api = api
+        self.email = email
+        self.password = password
+        self.selected_device_ids = selected_device_ids
+        self.devices = []
+        _LOGGER.debug("AUX Cloud Coordinator initialized with email: %s", email)
+
+    def get_device_by_endpoint_id(self, endpoint_id: str):
+        """Get a device by its endpoint ID."""
+        if not self.devices:
+            return None
+        for device in self.devices:
+            if device['endpointId'] == endpoint_id:
+                return device
+        return None
+
+    async def _async_update_data(self):
+        """Fetch data from AUX Cloud."""
+        _LOGGER.debug("Updating AUX Cloud data...")
+
+        try:
+            # Attempt to log in
+            _LOGGER.debug("Logging into AUX Cloud API...")
+            login_success = await self.api.login(self.email, self.password)
+            if not login_success:
+                raise UpdateFailed("Login to AUX Cloud API failed")
+
+            all_devices = []
+
+            if self.api.families is None:
+                _LOGGER.debug("Fetching families from AUX Cloud API...")
+                await self.api.get_families()
+
+            for family_id in self.api.families:
+                devices = await self.api.get_devices(family_id, shared=False, selected_devices=self.selected_device_ids) or []
+                shared_devices = await self.api.get_devices(family_id, shared=True, selected_devices=self.selected_device_ids) or []
+
+            all_devices = devices + shared_devices
+
+            # Filter devices if selected_device_ids is provided
+            if self.selected_device_ids:
+                self.devices = [
+                    device for device in all_devices
+                    if device['endpointId'] in self.selected_device_ids
+                ]
+            else:
+                self.devices = all_devices
+
+            _LOGGER.debug(
+                "Fetched AUX Cloud data: %s devices",
+                len(self.devices)
+            )
+
+            return {
+                "devices": self.devices
+            }
+
+        except Exception as e:
+            _LOGGER.error(f"Error updating AUX Cloud data: {e}")
+            raise UpdateFailed(f"Error updating AUX Cloud data: {e}")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up AUX Cloud via a config entry."""
-    # Get credentials from config entry
     email = entry.data.get(CONF_EMAIL)
     password = entry.data.get(CONF_PASSWORD)
     selected_device_ids = entry.data.get(CONF_SELECTED_DEVICES, [])
 
-    # Ensure we have the required credentials
     if not email or not password:
         _LOGGER.error("Missing required credentials for AUX Cloud")
         return False
 
-    data = AuxCloudData(hass, entry, email=email, password=password, selected_device_ids=selected_device_ids)
+    api = AuxCloudAPI()
+    coordinator = AuxCloudCoordinator(hass, api, email, password, selected_device_ids)
 
-    if not await data.refresh():
+    # Attempt to log in
+    try:
+        login_success = await api.login(email, password)
+        if not login_success:
+            _LOGGER.error("Login to AUX Cloud API failed")
+            return False
+    except Exception as e:
+        _LOGGER.error(f"Exception during login: {e}")
         return False
 
-    await data.update()
+    # Perform an initial update
+    await coordinator.async_config_entry_first_refresh()
 
-    # Store the data for platform use
-    hass.data[DOMAIN] = data
+    # Store the coordinator for platform use
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": coordinator,
+        "api": api,
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
-
-
-class AuxCloudData:
-    def __init__(
-            self, hass: HomeAssistant, entry: ConfigEntry, email: str, password: str,
-            selected_device_ids: list = None
-    ) -> None:
-        """Initialize the Aux Cloud data object."""
-        self._hass = hass
-        self._entry = entry
-        self._email = email
-        self._password = password
-        self.aux_cloud = AuxCloudAPI()
-        self.selected_device_ids = selected_device_ids or []
-        self.devices = []
-        self.families = {}
-
-    async def async_setup(self):
-        """Perform async setup."""
-        await self.aux_cloud.login(self._email, self._password)
-
-    @Throttle(MIN_TIME_BETWEEN_UPDATES)
-    async def update(self):
-        """Get the latest data from AUX Cloud"""
-        try:
-            await self._hass.async_add_executor_job(self.aux_cloud.update)
-            _LOGGER.debug("Updating AUX Cloud")
-        except Exception as e:  # Replace with specific exception when implemented
-            _LOGGER.debug("Relogging to AUX Cloud due to: %s", e)
-            await self.refresh()
-
-    async def refresh(self) -> bool:
-        """Refresh AUX Cloud credentials and update config entry."""
-        _LOGGER.debug("Refreshing AUX Cloud credentials")
-
-        try:
-            # Login
-            await self.aux_cloud.login(self._email, self._password)
-
-            # Fetch all families and their devices
-            await self.async_setup_families()
-
-            return True
-        except Exception as e:
-            _LOGGER.error("Error refreshing AUX Cloud: %s", e)
-            return False
-
-    async def async_setup_families(self):
-        """Setup families and devices."""
-        family_data = await self.aux_cloud.list_families()
-        self.families = {}
-        all_devices = []
-
-        for family in family_data:
-            family_id = family['familyid']
-            self.families[family_id] = {
-                'id': family_id,
-                'name': family['name'],
-                'rooms': [],
-                'devices': []
-            }
-
-            # Get rooms if needed
-            try:
-                rooms = await self.aux_cloud.list_rooms(family_id)
-                if rooms:
-                    self.families[family_id]['rooms'] = rooms
-            except Exception as e:
-                _LOGGER.warning("Failed to fetch rooms for family %s: %s", family_id, e)
-
-            # Get devices for this family - with error handling and None protection
-            try:
-                devices = await self.aux_cloud.list_devices(family_id) or []
-                _LOGGER.debug("Family %s: Found %d personal devices", family_id, len(devices))
-            except Exception as e:
-                _LOGGER.warning("Failed to fetch personal devices for family %s: %s", family_id, e)
-                devices = []
-
-            try:
-                shared_devices = await self.aux_cloud.list_devices(family_id, shared=True) or []
-                _LOGGER.debug("Family %s: Found %d shared devices", family_id, len(shared_devices))
-            except Exception as e:
-                _LOGGER.warning("Failed to fetch shared devices for family %s: %s", family_id, e)
-                shared_devices = []
-
-            # Now we're guaranteed to have lists (even if empty)
-            family_devices = devices + shared_devices
-            all_devices.extend(family_devices)
-
-            # Add devices to family in memory
-            self.families[family_id]['devices'] = family_devices
-
-        # Filter devices if selected_device_ids is provided
-        if self.selected_device_ids:
-            self.devices = [
-                device for device in all_devices
-                if device['endpointId'] in self.selected_device_ids
-            ]
-        else:
-            self.devices = all_devices
-
-        _LOGGER.debug("Found %d devices out of %d total devices",
-                      len(self.devices), len(all_devices))
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
