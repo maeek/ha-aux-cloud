@@ -66,8 +66,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_PASSWORD, default=stored_password): str,
         }
 
-        if self.show_advanced_options:
-            data_schema["region"] = vol.In(["eu", "us"], default="eu")
+        # Broken
+        # if self.show_advanced_options:
+        #     data_schema["region"] = vol.In(["eu", "us"], default="eu")
 
         return self.async_show_form(
             step_id="user",
