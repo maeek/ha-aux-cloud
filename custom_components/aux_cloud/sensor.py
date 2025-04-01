@@ -1,6 +1,7 @@
 """Support for AUX Cloud sensors."""
 from __future__ import annotations
 
+from homeassistant.const import UnitOfTemperature
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -21,7 +22,7 @@ SENSORS: dict[str, dict[str, any]] = {
             icon="mdi:thermometer",
             translation_key="ambient_temperature",
             device_class="temperature",
-            native_unit_of_measurement="°C",
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
         "get_fn": lambda d: d.get("params", {}).get("envtemp", 0) / 10,
     },
@@ -34,7 +35,7 @@ SENSORS: dict[str, dict[str, any]] = {
             icon="mdi:thermometer-water",
             translation_key="water_tank_temperature",
             device_class="temperature",
-            native_unit_of_measurement="°C",
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
         "get_fn": lambda d: d.get("params", {}).get("hp_water_tank_temp", 0),
     },
@@ -47,7 +48,7 @@ SENSORS: dict[str, dict[str, any]] = {
             icon="mdi:thermometer-water",
             translation_key="hot_water_temperature",
             device_class="temperature",
-            native_unit_of_measurement="°C",
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
         "get_fn": lambda d: d.get("params", {}).get("hp_hotwater_temp", 0) / 10,
     },
@@ -60,7 +61,7 @@ SENSORS: dict[str, dict[str, any]] = {
             icon="mdi:thermometer",
             translation_key="ac_temperature",
             device_class="temperature",
-            native_unit_of_measurement="°C",
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
         "get_fn": lambda d: d.get("params", {}).get("ac_temp", 0) / 10,
     },
