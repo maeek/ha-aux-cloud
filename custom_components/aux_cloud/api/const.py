@@ -1,3 +1,4 @@
+from enum import IntFlag, StrEnum, auto
 
 # Used to fetch params from the device that are not returned in basic call
 AUX_MODEL_TO_PARAMS = {
@@ -14,14 +15,18 @@ AUX_MODEL_TO_NAME = {
     "000000000000000000000000c0620000": "AUX Air Conditioner",
 }
 
-AUX_PRODUCT_CATEGORY = {
-  "Heat Pump": [
+AC = "Air Conditioner"
+HEAT_PUMP = "Heat Pump"
+
+class AUX_PRODUCT_CATEGORY(auto):
+  HEAT_PUMP = [
     "000000000000000000000000c3aa0000"
-  ],
-  "Air Conditioner": [
+  ]
+
+  AC = [
     "000000000000000000000000c0620000"
   ]
-}
+
 
 POWER_OFF: dict = {"pwr": 0}
 POWER_ON: dict = {"pwr": 1}

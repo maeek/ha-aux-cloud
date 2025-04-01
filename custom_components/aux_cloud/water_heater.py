@@ -43,7 +43,7 @@ async def async_setup_entry(
     for device in coordinator.data["devices"]:
         for entity in WATER_HEATER_ENTITIES.values():
             # Only add water heater entities for devices that are in the AUX "Heat pump" category
-            if device["productId"] in AUX_PRODUCT_CATEGORY["Heat Pump"]:
+            if device["productId"] in AUX_PRODUCT_CATEGORY.HEAT_PUMP:
                 entities.append(
                     AuxWaterHeaterEntity(
                         coordinator,
