@@ -144,6 +144,20 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             await self._set_device_params({"ecomode": 0 })
 
         await self.coordinator.async_request_refresh()
+        
+    async def async_set_temperature(self, **kwargs):
+        """Set new target temperature."""
+        if ATTR_TEMPERATURE not in kwargs:
+            return
+
+        temperature = kwargs[ATTR_TEMPERATURE]
+        if temperature < self._attr_min_temp:
+            temperature = self._attr_min_temp
+        elif temperature > self._attr_max_temp:
+            temperature = self._attr_max_temp
+
+        await self.coordinator.api.set_device_params(self.coordinator.get_device_by_endpoint_id(self._device_id), {"ac_temp": int(temperature * 10)})
+        await self.coordinator.async_request_refresh()
 
 class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud climate entity."""
