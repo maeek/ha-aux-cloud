@@ -78,9 +78,6 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
         )
         self.entity_id = f"water_heater.{self._attr_unique_id}"
 
-        icon = self.coordinator.api.url + self._get_device().get("icon")
-        self._attr_entity_picture = icon if icon else None
-
     @property
     def current_temperature(self):
         """Return the current water temperature."""

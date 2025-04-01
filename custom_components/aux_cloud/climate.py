@@ -94,9 +94,6 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_target_temperature_step = 1
         self._attr_temperature_unit = entity_description.unit_of_measurement
         self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
-
-        icon = self.coordinator.api.url + self._get_device().get("icon")
-        self._attr_entity_picture = icon if icon else None
         
     @property
     def preset_mode(self):
