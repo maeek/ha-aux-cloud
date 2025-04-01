@@ -111,8 +111,8 @@ class AuxCloudSensor(BaseEntity, SensorEntity, CoordinatorEntity):
     @property
     def native_value(self):
         """Return the state of the sensor."""
-        _LOGGER.debug("Reading AUX Cloud sensor value for %s value is %s", self.coordinator.get_device_by_endpoint_id(self._device_id)["friendlyName"], self._get_value_fn(self._device_id))
-        return self._get_value_fn(self.coordinator.get_device_by_endpoint_id(self._device_id))
+        _LOGGER.debug("Reading AUX Cloud sensor value for %s value is %s", self._get_device().get("friendlyName", "AUX"), self._get_value_fn(self._device_id))
+        return self._get_value_fn(self._get_device())
 
     async def async_update(self):
         """Get the latest data."""
@@ -123,4 +123,4 @@ class AuxCloudSensor(BaseEntity, SensorEntity, CoordinatorEntity):
     @property 
     def state(self):
         # Use the latest data from the coordinator
-        return self._get_value_fn(self.coordinator.get_device_by_endpoint_id(self._device_id))
+        return self._get_value_fn(self._get_device())

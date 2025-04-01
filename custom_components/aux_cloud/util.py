@@ -25,6 +25,12 @@ class BaseEntity(CoordinatorEntity):
             "manufacturer": "AUX",
             "model": AUX_MODEL_TO_NAME[dev["productId"]] or "Unknown",
         }
+
+    def _get_device(self):
+        return self.coordinator.get_device_by_endpoint_id(self._device_id)
+
+    def _get_device_params(self, param: str, fallback = None):
+        return self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get(param, fallback)
     
     async def _set_device_params(self, params: dict):
         """Set parameters on the device."""

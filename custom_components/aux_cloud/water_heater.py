@@ -79,23 +79,23 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
     @property
     def current_temperature(self):
         """Return the current water temperature."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("hp_water_tank_temp", None)
+        return self._get_device_params().get("hp_water_tank_temp", None)
 
     @property
     def target_temperature(self):
         """Return the target water temperature."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("hp_hotwater_temp", None) / 10
+        return self._get_device_params().get("hp_hotwater_temp", None) / 10
 
     @property
     def current_operation(self):
         """Return the current operation mode."""
-        if self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("hp_pwr", 0) == 0:
+        if self._get_device_params().get("hp_pwr", 0) == 0:
             return STATE_OFF
-        if self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("hp_pwr", 0) == 1:
+        if self._get_device_params().get("hp_pwr", 0) == 1:
             return STATE_HEAT_PUMP
         if (
-            self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("hp_pwr", 0) == 1 and
-            self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("hp_fast_hotwater", 0) == 1
+            self._get_device_params().get("hp_pwr", 0) == 1 and
+            self._get_device_params().get("hp_fast_hotwater", 0) == 1
         ):
             return STATE_PERFORMANCE
         return STATE_OFF
@@ -127,8 +127,8 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
             "current_temperature": self.current_temperature,
             "target_temperature": self.target_temperature,
             "operation_mode": self.current_operation,
-            "quiet_mode": self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("qtmode", 0),
-            "eco_mode": self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get("ecomode", 0)
+            "quiet_mode": self._get_device_params().get("qtmode", 0),
+            "eco_mode": self._get_device_params().get("ecomode", 0)
         }
 
     async def async_turn_on(self):
