@@ -6,8 +6,6 @@ _LOGGER = logging.getLogger(__package__)
 DOMAIN = "aux_cloud"
 
 DATA_AUX_CLOUD_CONFIG = "aux_cloud_config"
-DATA_HASS_CONFIG = "aux_cloud_hass_config"
-ATTR_CONFIG_ENTRY_ID = "entry_id"
 
 # Configuration constants
 CONF_FAMILIES = "families"

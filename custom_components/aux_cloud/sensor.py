@@ -14,7 +14,7 @@ from .const import DOMAIN, _LOGGER
 SENSORS: dict[str, dict[str, any]] = {
     "ambient_temperature": {
         "type": "temperature",
-        "required_params": ["envtemp"],
+        "param": "envtemp",
         "description": SensorEntityDescription(
             key="ambient_temperature",
             name="Ambient Temperature",
@@ -23,37 +23,37 @@ SENSORS: dict[str, dict[str, any]] = {
             device_class="temperature",
             native_unit_of_measurement="°C",
         ),
-        "get_fn": lambda d: d["params"]["envtemp"] / 10,
+        "get_fn": lambda d: d.get("params", {}).get("envtemp", 0) / 10,
     },
     "water_tank_temperature": {
         "type": "temperature",
-        "required_params": ["hp_water_tank_temp"],
+        "param": "hp_water_tank_temp",
         "description": SensorEntityDescription(
             key="water_tank_temperature",
             name="Water Tank Temperature",
-            icon="mdi:water-boiler",
+            icon="mdi:thermometer-water",
             translation_key="water_tank_temperature",
             device_class="temperature",
             native_unit_of_measurement="°C",
         ),
-        "get_fn": lambda d: d["params"]["hp_water_tank_temp"],
+        "get_fn": lambda d: d.get("params", {}).get("hp_water_tank_temp", 0),
     },
     "hp_hotwater_temp": {
         "type": "temperature",
-        "required_params": ["hp_hotwater_temp"],
+        "param": "hp_hotwater_temp",
         "description": SensorEntityDescription(
             key="hot_water_temperature",
             name="Hot Water Temperature",
-            icon="mdi:water-boiler",
+            icon="mdi:thermometer-water",
             translation_key="hot_water_temperature",
             device_class="temperature",
             native_unit_of_measurement="°C",
         ),
-        "get_fn": lambda d: d["params"]["hp_hotwater_temp"] / 10,
+        "get_fn": lambda d: d.get("params", {}).get("hp_hotwater_temp", 0) / 10,
     },
     "ac_temp": {
         "type": "temperature",
-        "required_params": ["ac_temp"],
+        "param": "ac_temp",
         "description": SensorEntityDescription(
             key="ac_temperature",
             name="AC Temperature",
@@ -62,9 +62,8 @@ SENSORS: dict[str, dict[str, any]] = {
             device_class="temperature",
             native_unit_of_measurement="°C",
         ),
-        "get_fn": lambda d: d["params"]["ac_temp"] / 10,
+        "get_fn": lambda d: d.get("params", {}).get("ac_temp", 0) / 10,
     },
-    # Add more sensors as needed
 }
 
 async def async_setup_entry(
@@ -83,13 +82,13 @@ async def async_setup_entry(
     for device in coordinator.data["devices"]:
         for entity in SENSORS.values():
             # Add temperature sensors
-            if "params" in device and all(param in device["params"] for param in entity["required_params"]) and entity["type"] == "temperature":
+            if "params" in device and entity["type"] == "temperature" and device.get("params", {}).get(entity['param']) is not None:
                 entities.append(
                     AuxCloudSensor(
                         coordinator,
                         device["endpointId"],
                         entity["description"],
-                        entity["get_fn"]
+                        entity["get_fn"],
                     )
                 )
                 _LOGGER.debug(f"Adding sensor entity for {device['friendlyName']} with option {entity['description'].key}")

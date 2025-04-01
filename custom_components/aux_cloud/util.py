@@ -1,4 +1,4 @@
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.aux_cloud.api.const import AUX_MODEL_TO_NAME
@@ -12,25 +12,25 @@ class BaseEntity(CoordinatorEntity):
         self._device_id = device_id
         self._attr_has_entity_name = True
         self.entity_description = entity_description
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{self.entity_description.key}"
+        self._attr_unique_id = f"{DOMAIN}_{device_id.lstrip('0')}_{self.entity_description.key}"
     
     @property
     def device_info(self):
         """Return the device info."""
         dev = self.coordinator.get_device_by_endpoint_id(self._device_id)
-        return {
-            "identifiers": {(DOMAIN, self._device_id)},
-            "connections": {(CONNECTION_NETWORK_MAC, dev["mac"])} if "mac" in dev else None,
-            "name": self.coordinator.get_device_by_endpoint_id(self._device_id).get('friendlyName', 'AUX'),
-            "manufacturer": "AUX",
-            "model": AUX_MODEL_TO_NAME[dev["productId"]] or "Unknown",
-        }
+        return DeviceInfo(
+          connections={(CONNECTION_NETWORK_MAC, dev["mac"])} if "mac" in dev else None,
+          identifiers={(DOMAIN, self._device_id)},
+          name=dev.get('friendlyName', 'AUX'),
+          manufacturer="AUX",
+          model=AUX_MODEL_TO_NAME[dev["productId"]] or "Unknown",
+        )
 
     def _get_device(self):
         return self.coordinator.get_device_by_endpoint_id(self._device_id)
 
-    def _get_device_params(self, param: str, fallback = None):
-        return self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {}).get(param, fallback)
+    def _get_device_params(self):
+        return self.coordinator.get_device_by_endpoint_id(self._device_id).get("params", {})
     
     async def _set_device_params(self, params: dict):
         """Set parameters on the device."""

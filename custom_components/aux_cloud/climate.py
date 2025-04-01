@@ -3,6 +3,7 @@
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
+    ClimateEntityDescription,
     HVACMode,
     HVACAction,
 )
@@ -12,6 +13,8 @@ from homeassistant.components.climate.const import (
     SWING_HORIZONTAL,
     SWING_VERTICAL,
     SWING_BOTH,
+    PRESET_ECO,
+    PRESET_NONE
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
@@ -20,9 +23,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 
-from custom_components.aux_cloud.api.const import AUX_MODEL_TO_NAME
+from custom_components.aux_cloud.api.const import AUX_PRODUCT_CATEGORY, COOLING, HEATING, POWER_OFF, POWER_ON
+from custom_components.aux_cloud.util import BaseEntity
 
-from .const import DOMAIN, MODE_HEAT, MODE_MAP, MODE_OFF, REVERSE_MODE_MAP, FAN_MODES, _LOGGER
+from .const import DOMAIN, MODE_MAP, REVERSE_MODE_MAP, FAN_MODES, _LOGGER
 
 
 async def async_setup_entry(
@@ -41,9 +45,21 @@ async def async_setup_entry(
         if device.get("productId") == "000000000000000000000000c0620000":
             # Only add climate entities for AUX devices
             entities.append(AuxACClimateEntity(coordinator, device['endpointId']))
-        elif device.get("productId") == "000000000000000000000000c3aa0000":
+        elif device.get("productId") in AUX_PRODUCT_CATEGORY["Heat Pump"]:
             # Add heat pump entities for AUX heat pumps
-            entities.append(AuxHeatPumpClimateEntity(coordinator, device['endpointId']))
+            entities.append(
+              AuxHeatPumpClimateEntity(
+                coordinator,
+                device['endpointId'],
+                ClimateEntityDescription(
+                  key="heat_pump_central_heating",
+                  name="Central Heating",
+                  translation_key="heat_pump",
+                  icon="mdi:hvac",
+                  unit_of_measurement=UnitOfTemperature.CELSIUS,
+                )
+              )
+            )
 
     if entities:
         async_add_entities(entities, True)
@@ -51,83 +67,64 @@ async def async_setup_entry(
         _LOGGER.info("No AUX climate devices added")
 
 
-class AuxHeatPumpClimateEntity(CoordinatorEntity, ClimateEntity):
+class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud heat pump climate entity."""
 
-    _attr_has_entity_name = True
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
-
-    def __init__(self, coordinator, device_id):
+    def __init__(self, coordinator, device_id, entity_description: ClimateEntityDescription):
         """Initialize the heat pump climate entity."""
-        super().__init__(coordinator)
-        self._device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_heat_pump"
-        self._attr_name = f'{coordinator.get_device_by_endpoint_id(device_id).get("friendlyName")} Central Heating'
+        super().__init__(coordinator, device_id, entity_description)
         self._attr_supported_features = (
           ClimateEntityFeature.TARGET_TEMPERATURE
           | ClimateEntityFeature.TURN_ON
           | ClimateEntityFeature.TURN_OFF
+          | ClimateEntityFeature.PRESET_MODE
         )
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
         self._attr_min_temp = 0  # Minimum temperature in Celsius
         self._attr_max_temp = 64  # Maximum temperature in Celsius
         self._attr_target_temperature_step = 1
+        self._attr_temperature_unit = entity_description.unit_of_measurement
+        self.entity_description = ClimateEntityDescription(
+            key="heat_pump_central_heating",
+            name="Central Heating",
+            translation_key="aux_heater",
+        )
+        self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
 
+        icon = self.coordinator.api.url + self._get_device().get("icon")
+        self._attr_entity_picture = icon if icon else None
+        
     @property
-    def device_info(self):
-        """Return device information about this entity."""
-        return {
-          "identifiers": {(DOMAIN, self._device_id)},
-          "connections": {(CONNECTION_NETWORK_MAC, self.coordinator.get_device_by_endpoint_id(self._device_id)["mac"])},
-          "name": self._attr_name,
-          "manufacturer": "AUX",
-          "model": AUX_MODEL_TO_NAME[self.coordinator.get_device_by_endpoint_id(self._device_id)["productId"]] or "Unknown",
-        }
+    def preset_mode(self):
+        """Return the current preset mode."""
+        if self._get_device_params().get("ecomode", False):
+            return PRESET_ECO
+        return PRESET_NONE
 
     @property
     def target_temperature(self):
         """Return the target water temperature."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("ac_temp", None) / 10 if "ac_temp" in self.coordinator.get_device_by_endpoint_id(self._device_id)["params"] else None
+        return self._get_device_params().get("ac_temp", None) / 10 if "ac_temp" in self._get_device_params() else None
 
     @property
     def hvac_mode(self):
         """Return the current operation mode."""
-        if not self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("ac_pwr", False):
+        if not self._get_device_params().get("ac_pwr", False):
             return HVACMode.OFF
         return HVACMode.HEAT
-
-    @property
-    def eco_mode(self):
-        """Return the current eco mode status."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("eco_mode", False)
-
-    async def async_set_temperature(self, **kwargs):
-        """Set new target water temperature."""
-        if ATTR_TEMPERATURE not in kwargs:
-            return
-
-        temperature = kwargs[ATTR_TEMPERATURE]
-        if temperature < self._attr_min_temp:
-            temperature = self._attr_min_temp
-        elif temperature > self._attr_max_temp:
-            temperature = self._attr_max_temp
-
-        await self.coordinator.api.set_device_params(self.coordinator.get_device_by_endpoint_id(self._device_id), {"ac_temp": int(temperature * 10)})
-        await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set new operation mode."""
         if hvac_mode == HVACMode.OFF:
-            params = {"ac_pwr": MODE_OFF}
+            params = POWER_OFF
         elif hvac_mode == HVACMode.HEAT:
-            params = {
-                "ac_mode": MODE_HEAT,
-                "ac_pwr": 1,
-            }
+            params = { **HEATING, **POWER_ON }
+        elif hvac_mode == HVACMode.COOL:
+            params = { **COOLING, **POWER_ON }
         else:
             return
 
-        await self.coordinator.api.set_device_params(self.coordinator.get_device_by_endpoint_id(self._device_id), params)
+        await self._set_device_params(params)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self):
@@ -138,11 +135,14 @@ class AuxHeatPumpClimateEntity(CoordinatorEntity, ClimateEntity):
         """Turn the heat pump off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
 
-    async def async_set_eco_mode(self, eco_mode: bool):
-        """Set eco mode on or off."""
-        await self.coordinator.api.set_device_params(self.coordinator.get_device_by_endpoint_id(self._device_id), {"eco_mode": 1 if eco_mode else 0})
-        await self.coordinator.async_request_refresh()
+    async def async_set_preset_mode(self, preset_mode: str):
+        """Set the preset mode."""
+        if preset_mode == PRESET_ECO:
+            await self._set_device_params({"ecomode": 1 })
+        else:
+            await self._set_device_params({"ecomode": 0 })
 
+        await self.coordinator.async_request_refresh()
 
 class AuxACClimateEntity(CoordinatorEntity, ClimateEntity):
     """AUX Cloud climate entity."""

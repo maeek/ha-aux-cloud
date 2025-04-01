@@ -12,13 +12,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from custom_components.aux_cloud.api.const import AUX_PRODUCT_CATEGORY
 from custom_components.aux_cloud.util import BaseEntity
 
 from .const import DOMAIN, _LOGGER
 
 WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {
   "water_heater": {
-    "required_params": ["hp_hotwater_temp", "hp_pwr", "hp_water_tank_temp"],
     "description": WaterHeaterEntityEntityDescription(
         key="water_heater",
         name="Water Heater",
@@ -42,7 +42,8 @@ async def async_setup_entry(
     # Create water heater entities for each device
     for device in coordinator.data["devices"]:
         for entity in WATER_HEATER_ENTITIES.values():
-            if "params" in device and all(param in device["params"] for param in entity["required_params"]):
+            # Only add water heater entities for devices that are in the AUX "Heat pump" category
+            if device["productId"] in AUX_PRODUCT_CATEGORY["Heat Pump"]:
                 entities.append(
                     AuxWaterHeaterEntity(
                         coordinator,
@@ -69,12 +70,16 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_min_temp = 0  # Minimum temperature in Celsius
         self._attr_max_temp = 75  # Maximum temperature in Celsius
+        self._attr_target_temperature_step = 1
         self._attr_supported_features = (
             WaterHeaterEntityFeature.TARGET_TEMPERATURE
             | WaterHeaterEntityFeature.OPERATION_MODE
             | WaterHeaterEntityFeature.ON_OFF
         )
         self.entity_id = f"water_heater.{self._attr_unique_id}"
+
+        icon = self.coordinator.api.url + self._get_device().get("icon")
+        self._attr_entity_picture = icon if icon else None
 
     @property
     def current_temperature(self):
