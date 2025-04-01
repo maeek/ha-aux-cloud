@@ -58,12 +58,25 @@ SENSORS: dict[str, dict[str, any]] = {
         "description": SensorEntityDescription(
             key="ac_temperature",
             name="AC Temperature",
-            icon="mdi:thermometer",
+            icon="mdi:home-thermometer",
             translation_key="ac_temperature",
             device_class="temperature",
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
         "get_fn": lambda d: d.get("params", {}).get("ac_temp", 0) / 10,
+    },
+    "err_flag": {
+        "type": "diagnostic",
+        "param": "err_flag",
+        "description": SensorEntityDescription(
+            key="err_flag",
+            name="Error Flag",
+            icon="mdi:alert-circle",
+            translation_key="err_flag",
+            device_class="diagnostic",
+            entity_registry_enabled_default=False,
+        ),
+        "get_fn": lambda d: d.get("params", {}).get("err_flag", None),
     },
 }
 
@@ -82,8 +95,7 @@ async def async_setup_entry(
 
     for device in coordinator.data["devices"]:
         for entity in SENSORS.values():
-            # Add temperature sensors
-            if "params" in device and entity["type"] == "temperature" and device.get("params", {}).get(entity['param']) is not None:
+            if "params" in device and device.get("params", {}).get(entity['param']) is not None:
                 entities.append(
                     AuxCloudSensor(
                         coordinator,
