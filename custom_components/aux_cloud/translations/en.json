@@ -53,5 +53,34 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "ambient_temperature": {
+        "name": "Ambient Temperature"
+      },
+      "water_tank_temperature": {
+        "name": "Hot Water Tank Temperature"
+      },
+      "hot_water_temperature": {
+        "name": "Hot Water Temperature"
+      },
+      "ac_temperature": {
+        "name": "AC Temperature"
+      }
+    },
+    "water_heater": {
+      "aux_water": {
+        "name": "Water Heater"
+      }
+    },
+    "climate": {
+      "aux_heater": {
+        "name": "Heater"
+      },
+      "aux_ac": {
+        "name": "Air Conditioner"
+      }
+    }
   }
 }

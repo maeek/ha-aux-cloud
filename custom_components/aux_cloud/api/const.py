@@ -1,3 +1,4 @@
+from enum import IntFlag, StrEnum, auto
 
 # Used to fetch params from the device that are not returned in basic call
 AUX_MODEL_TO_PARAMS = {
@@ -14,6 +15,19 @@ AUX_MODEL_TO_NAME = {
     "000000000000000000000000c0620000": "AUX Air Conditioner",
 }
 
+AC = "Air Conditioner"
+HEAT_PUMP = "Heat Pump"
+
+class AUX_PRODUCT_CATEGORY(auto):
+  HEAT_PUMP = [
+    "000000000000000000000000c3aa0000"
+  ]
+
+  AC = [
+    "000000000000000000000000c0620000"
+  ]
+
+
 POWER_OFF: dict = {"pwr": 0}
 POWER_ON: dict = {"pwr": 1}
 HEATING: dict = {"ac_mode": 1}
@@ -26,7 +40,7 @@ TEMP: dict = {"temp": 240}
 
 
 """
-PARAMETERS NOT TESTED ALL
+AC PARAMETERS NOT TESTED ALL
 'ac_astheat': 0 - Auxiliary heating is off
 'ac_clean': 0 - Self-cleaning function is off
 'ac_errcode1': 0 - No error code (system functioning normally)
@@ -52,4 +66,19 @@ PARAMETERS NOT TESTED ALL
 'sleepdiy': 1 - Custom sleep mode is on
 'temp': 240 - Set temperature (likely 24.0°C)
 'tempunit': 1 - Temperature unit (1 typically means Celsius)
+
+HEAT PUMP PARAMETERS NOT TESTED
+'hp_pwr'
+'hp_water_tank_temp'
+'ac_errcode1'
+'hp_fast_hotwater'
+'err_flag'
+'hp_auto_wtemp'
+'ac_pwr'
+'hp_hotwater_temp'
+'ac_temp'
+'ac_mode'
+'qtmode'
+'ecomode'
+'ver_old'
 """

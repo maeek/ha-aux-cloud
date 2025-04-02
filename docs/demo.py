@@ -5,7 +5,7 @@ import pprint
 
 import yaml
 
-from aux_cloud import AuxCloudAPI
+from custom_components.aux_cloud.api.aux_cloud import AuxCloudAPI
 
 
 def get_config_path():

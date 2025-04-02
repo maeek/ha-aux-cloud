@@ -1,20 +1,32 @@
-"""Water Heater platform for AUX Cloud integration."""
-
 from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
+    WaterHeaterEntityEntityDescription,
+    STATE_HEAT_PUMP,
+    STATE_OFF,
+    STATE_PERFORMANCE
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 
-from custom_components.aux_cloud.api.const import AUX_MODEL_TO_NAME
+from custom_components.aux_cloud.api.const import AUX_PRODUCT_CATEGORY
+from custom_components.aux_cloud.util import BaseEntity
 
 from .const import DOMAIN, _LOGGER
 
+WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {
+  "water_heater": {
+    "description": WaterHeaterEntityEntityDescription(
+        key="water_heater",
+        name="Water Heater",
+        icon="mdi:water-boiler",
+        translation_key="aux_water"
+    )
+  }
+}
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -29,8 +41,18 @@ async def async_setup_entry(
 
     # Create water heater entities for each device
     for device in coordinator.data["devices"]:
-        if "hp_hotwater_temp" in device["params"]:
-            entities.append(AuxWaterHeaterEntity(coordinator, device['endpointId']))
+        for entity in WATER_HEATER_ENTITIES.values():
+            # Only add water heater entities for devices that are in the AUX "Heat pump" category
+            if device["productId"] in AUX_PRODUCT_CATEGORY.HEAT_PUMP:
+                entities.append(
+                    AuxWaterHeaterEntity(
+                        coordinator,
+                        device["endpointId"],
+                        entity_description=entity["description"]
+                    )
+                )
+                _LOGGER.debug(f"Adding water heater entity for {device['friendlyName']}")
+            
 
     if entities:
         async_add_entities(entities, True)
@@ -38,125 +60,83 @@ async def async_setup_entry(
         _LOGGER.info("No AUX water heater devices added")
 
 
-class AuxWaterHeaterEntity(CoordinatorEntity, WaterHeaterEntity):
+class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
     """AUX Cloud water heater entity."""
 
-    _attr_supported_features = (
-        WaterHeaterEntityFeature.TARGET_TEMPERATURE
-        | WaterHeaterEntityFeature.OPERATION_MODE
-    )
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
 
-    def __init__(self, coordinator, device_id):
+    def __init__(self, coordinator, device_id, entity_description: WaterHeaterEntityEntityDescription):
         """Initialize the water heater entity."""
-        super().__init__(coordinator)
-        self._device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_water_heater"
-        self._attr_name = f"{coordinator.get_device_by_endpoint_id(device_id).get('friendlyName', 'AUX')} Water Heater"
+        super().__init__(coordinator, device_id, entity_description)
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_min_temp = 30  # Minimum temperature in Celsius
+        self._attr_min_temp = 0  # Minimum temperature in Celsius
         self._attr_max_temp = 75  # Maximum temperature in Celsius
-
-    @property
-    def device_info(self):
-        """Return the device info."""
-        dev = self.coordinator.get_device_by_endpoint_id(self._device_id)
-        return {
-            "identifiers": {(DOMAIN, self._device_id)},
-            "connections": {(CONNECTION_NETWORK_MAC, dev["mac"])} if "mac" in dev else None,
-            "name": self._attr_name,
-            "manufacturer": "AUX",
-            "model": AUX_MODEL_TO_NAME[dev["productId"]] or "Unknown",
-        }
+        self._attr_target_temperature_step = 1
+        self._attr_supported_features = (
+            WaterHeaterEntityFeature.TARGET_TEMPERATURE
+            | WaterHeaterEntityFeature.OPERATION_MODE
+            | WaterHeaterEntityFeature.ON_OFF
+        )
+        self.entity_id = f"water_heater.{self._attr_unique_id}"
 
     @property
     def current_temperature(self):
         """Return the current water temperature."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_water_tank_temp", None)
+        return self._get_device_params().get("hp_water_tank_temp", None)
 
     @property
     def target_temperature(self):
         """Return the target water temperature."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_hotwater_temp", None) / 10
-
-    @property
-    def is_ecomode_on(self):
-        """Return whether ecomode is on."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("ecomode", 0) == 1
-
-    @property
-    def is_fast_hotwater_on(self):
-        """Return whether fast hot water mode is on."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_fast_hotwater", 0) == 1
-    
-    @property
-    def is_quiet_mode_on(self):
-        """Return whether quiet mode is on."""
-        return self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("qtmode", 0) == 1
+        return self._get_device_params().get("hp_hotwater_temp", None) / 10
 
     @property
     def current_operation(self):
         """Return the current operation mode."""
-        if self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_pwr", 0) == 0:
-            return "off"
-        if self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_fast_hotwater", 0) == 1 and self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_pwr", 0) == 1:
-            return "fast_hotwater"
-        if self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("ecomode", 0) == 1 and self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_pwr", 0) == 1:
-            return "eco"
-        if self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("qtmode", 0) == 1 and self.coordinator.get_device_by_endpoint_id(self._device_id)["params"].get("hp_pwr", 0) == 1:
-            return "quiet"
-        return "normal"
+        if self._get_device_params().get("hp_pwr", 0) == 0:
+            return STATE_OFF
+        if self._get_device_params().get("hp_pwr", 0) == 1:
+            return STATE_HEAT_PUMP
+        if (
+            self._get_device_params().get("hp_pwr", 0) == 1 and
+            self._get_device_params().get("hp_fast_hotwater", 0) == 1
+        ):
+            return STATE_PERFORMANCE
+        return STATE_OFF
 
     async def async_set_temperature(self, **kwargs):
         """Set new target water temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is not None:
-            await self._set_device_param({"hp_hotwater_temp": int(temperature * 10)})
+            await self._set_device_params({"hp_hotwater_temp": int(temperature * 10)})
 
     async def async_set_operation_mode(self, operation_mode):
         """Set the operation mode."""
-        if operation_mode == "off":
-            await self._set_device_param({"hp_pwr": 0})
-        elif operation_mode == "fast_hotwater":
-            await self._set_device_param({"hp_fast_hotwater": 1, "ecomode": 0, "hp_pwr": 1})
-        elif operation_mode == "eco":
-            await self._set_device_param({"ecomode": 1, "hp_fast_hotwater": 0, "hp_pwr": 1})
-        elif operation_mode == "quiet":
-            await self._set_device_param({"qtmode": 1, "hp_fast_hotwater": 0, "hp_pwr": 1})
-        elif operation_mode == "normal":
-            await self._set_device_param({"ecomode": 0, "hp_fast_hotwater": 0, "hp_pwr": 1, "qtmode": 0})
+        if operation_mode == STATE_OFF:
+            await self._set_device_params({"hp_pwr": 0, "hp_fast_hotwater": 0})
+        elif operation_mode == STATE_HEAT_PUMP:
+            await self._set_device_params({"hp_pwr": 1, "hp_fast_hotwater": 0})
+        elif operation_mode == STATE_PERFORMANCE:
+            await self._set_device_params({"hp_pwr": 1, "hp_fast_hotwater": 1})
 
     @property
     def operation_list(self):
         """Return the list of available operation modes."""
-        return ["off", "normal", "eco", "quiet", "fast_hotwater"]
+        return [STATE_OFF, STATE_HEAT_PUMP, STATE_PERFORMANCE]
+    
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return {
+            "current_temperature": self.current_temperature,
+            "target_temperature": self.target_temperature,
+            "operation_mode": self.current_operation,
+            "quiet_mode": self._get_device_params().get("qtmode", 0),
+            "eco_mode": self._get_device_params().get("ecomode", 0)
+        }
 
     async def async_turn_on(self):
         """Turn the water heater on."""
-        await self._set_device_param({"hp_pwr": 1})
+        await self._set_device_params({"hp_pwr": 1})
 
     async def async_turn_off(self):
         """Turn the water heater off."""
-        await self._set_device_param({"hp_pwr": 0})
-
-    async def async_turn_on_ecomode(self):
-        """Turn on ecomode."""
-        await self._set_device_param({"ecomode": 1})
-
-    async def async_turn_off_ecomode(self):
-        """Turn off ecomode."""
-        await self._set_device_param({"ecomode": 0})
-
-    async def async_turn_on_fast_hotwater(self):
-        """Turn on fast hot water mode."""
-        await self._set_device_param({"hp_fast_hotwater": 1})
-
-    async def async_turn_off_fast_hotwater(self):
-        """Turn off fast hot water mode."""
-        await self._set_device_param({"hp_fast_hotwater": 0})
-
-    async def _set_device_param(self, params):
-        """Set parameters on the device."""
-        _LOGGER.debug("Setting %s for device %s", params, self.coordinator.get_device_by_endpoint_id(self._device_id)["friendlyName"])
-        await self.coordinator.api.set_device_params(self.coordinator.get_device_by_endpoint_id(self._device_id), params)
-        await self.coordinator.async_request_refresh()
+        await self._set_device_params({"hp_pwr": 0})
