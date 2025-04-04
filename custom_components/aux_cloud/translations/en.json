@@ -76,10 +76,66 @@
     },
     "climate": {
       "aux_heater": {
-        "name": "Heater"
+        "name": "Heater",
+        "state": {
+          "off": "Off",
+          "heat": "Heating",
+          "cool": "Cooling"
+        }
       },
       "aux_ac": {
         "name": "Air Conditioner"
+      }
+    },
+    "select": {
+      "aux_select_qtmode": {
+        "name": "Quiet Mode",
+        "state": {
+          "off": "Off",
+          "quiet_1": "Quiet Level 1",
+          "quiet_2": "Quiet Level 2"
+        }
+      }
+    },
+    "switch": {
+      "aux_ecomode": {
+        "name": "Ecomode"
+      },
+      "aux_ac_power": {
+        "name": "AC Power"
+      },
+      "aux_hp_power": {
+        "name": "Heat Pump Heater Power"
+      },
+      "aux_water_power": {
+        "name": "Water Heater Power"
+      },
+      "aux_fast_hotwater": {
+        "name": "Fast Hot Water"
+      },
+      "aux_aux_heat": {
+        "name": "Auxiliary Heat"
+      },
+      "aux_self_cleaning": {
+        "name": "Self Cleaning"
+      },
+      "aux_child_lock": {
+        "name": "Child Lock"
+      },
+      "aux_comfortable_wind": {
+        "name": "Comfortable Wind"
+      },
+      "aux_health_mode": {
+        "name": "Health Mode"
+      },
+      "aux_mildew_proof": {
+        "name": "Mildew Proof"
+      },
+      "aux_sleep_mode": {
+        "name": "Sleep Mode"
+      },
+      "aux_screen_display": {
+        "name": "Screen Display"
       }
     }
   }
