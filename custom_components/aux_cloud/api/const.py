@@ -1,13 +1,13 @@
-from enum import IntFlag, StrEnum, auto
+from enum import auto, IntEnum
 
 # Used to fetch params from the device that are not returned in basic call
 AUX_MODEL_TO_PARAMS = {
-  "000000000000000000000000c0620000": [
-    'mode'
-  ],
-  "000000000000000000000000c3aa0000": [
-    'hp_water_tank_temp'
-  ]
+    "000000000000000000000000c0620000": [
+        'mode'
+    ],
+    "000000000000000000000000c3aa0000": [
+        'hp_water_tank_temp'
+    ]
 }
 
 AUX_MODEL_TO_NAME = {
@@ -18,26 +18,35 @@ AUX_MODEL_TO_NAME = {
 AC = "Air Conditioner"
 HEAT_PUMP = "Heat Pump"
 
-class AUX_PRODUCT_CATEGORY(auto):
-  HEAT_PUMP = [
-    "000000000000000000000000c3aa0000"
-  ]
 
-  AC = [
-    "000000000000000000000000c0620000"
-  ]
+class AUX_PRODUCT_CATEGORY(auto):
+    HEAT_PUMP = [
+        "000000000000000000000000c3aa0000"
+    ]
+
+    AC = [
+        "000000000000000000000000c0620000"
+    ]
+
+
+class ACMode(IntEnum):
+    COOLING: int = 0
+    HEATING: int = 1
+    DRYING: int = 2
+    FAN: int = 3
+    AUTO: int = 4
 
 
 POWER_OFF: dict = {"pwr": 0}
 POWER_ON: dict = {"pwr": 1}
-HEATING: dict = {"ac_mode": 1}
-COOLING: dict = {"ac_mode": 0}
+COOLING: dict = {"ac_mode": ACMode.COOLING.value}
+HEATING: dict = {"ac_mode": ACMode.HEATING.value}
+DRYING: dict = {"ac_mode": ACMode.DRYING.value}
+FAN: dict = {"ac_mode": ACMode.FAN.value}
+AUTO: dict = {"ac_mode": ACMode.AUTO.value}
+
 FAN_SPEEDS_LOW: dict = {"ac_mark": 1}
 FAN_SPEEDS_HIGH: dict = {"ac_mark": 4}
-
-# TODO need to be refactored
-TEMP: dict = {"temp": 240}
-
 
 """
 AC PARAMETERS NOT TESTED ALL
