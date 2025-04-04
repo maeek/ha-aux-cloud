@@ -72,11 +72,14 @@ This integration is still in development. Current status:
 - [x] [API] Implement login
 - [x] [API] Implement getting devices information
 - [x] [Home Assistant] Config flow with device selection
-- [ ] [API] Implement updating device state
-- [ ] [Home Assistant] Cloud data fetcher
-- [ ] [Home Assistant] Data coordinator
-- [ ] [Home Assistant] climate entity
+- [x] [API] Implement updating device state
+- [x] [Home Assistant] Cloud data fetcher
+- [x] [Home Assistant] Data coordinator
+- [x] [Home Assistant] climate entity
 - [x] [Home Assistant] sensor entity
+- [x] [Home Assistant] water heater entity
+- [x] [Home Assistant] basic sensor entities
+- [ ] [Home Assistant] switch entity
 - [ ] [Home Assistant] binary sensor entity
 - [ ] [Home Assistant] number entity
 - [ ] [Home Assistant] services
