@@ -25,7 +25,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from custom_components.aux_cloud.api.const import AUX_PRODUCT_CATEGORY, COOLING, HEATING, POWER_OFF, POWER_ON, DRYING, \
     FAN, AUTO, ACMode
 from custom_components.aux_cloud.util import BaseEntity
-from .const import DOMAIN, MODE_MAP, FAN_MODES, _LOGGER
+from .const import DOMAIN, _LOGGER
 
 
 async def async_setup_entry(
@@ -177,7 +177,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         )
         self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.DRY, HVACMode.FAN_ONLY,
                                  HVACMode.AUTO]
-        self._attr_fan_modes = FAN_MODES
+        # self._attr_fan_modes = FAN_MODES
         self._attr_swing_modes = [SWING_OFF, SWING_VERTICAL, SWING_HORIZONTAL, SWING_BOTH]
         self._attr_min_temp = 16
         self._attr_max_temp = 30
@@ -196,21 +196,25 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     @property
     def hvac_mode(self):
         """Return the current operation mode."""
-        mode = self._get_device_params().get("ac_mode", None)
-        match mode:
-            case ACMode.COOLING.value:
-                mode = HVACMode.COOL
-            case ACMode.HEATING.value:
-                mode = HVACMode.HEAT
-            case ACMode.DRYING.value:
-                mode = HVACMode.DRY
-            case ACMode.FAN.value:
-                mode = HVACMode.FAN_ONLY
-            case ACMode.AUTO.value:
-                mode = HVACMode.AUTO
-        if mode is None or not self._get_device_params().get("pwr", False):
-            return HVACMode.OFF
-        return MODE_MAP.get(mode, HVACMode.OFF)
+        if not self._get_device_params().get("pwr", False):
+            current_mode = HVACMode.OFF
+        else:
+            mode = self._get_device_params().get("ac_mode", None)
+            match mode:
+                case ACMode.COOLING.value:
+                    current_mode = HVACMode.COOL
+                case ACMode.HEATING.value:
+                    current_mode = HVACMode.HEAT
+                case ACMode.DRYING.value:
+                    current_mode = HVACMode.DRY
+                case ACMode.FAN.value:
+                    current_mode = HVACMode.FAN_ONLY
+                case ACMode.AUTO.value:
+                    current_mode = HVACMode.AUTO
+                case _:
+                    current_mode = HVACMode.OFF
+
+        return current_mode
 
     @property
     def hvac_action(self):
