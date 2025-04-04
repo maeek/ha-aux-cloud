@@ -4,6 +4,7 @@ import json
 import time
 from typing import TypedDict
 import logging
+import asyncio
 
 import aiohttp
 
@@ -279,56 +280,71 @@ class AuxCloudAPI:
                     dev for dev in devices if dev["endpointId"] in selected_devices
                 ]
 
-            for dev in devices:
-                # Check if the device is online
-                dev_state = await self.query_device_state(
-                    dev["endpointId"], dev["devSession"]
-                )
+            # Create tasks to query the state of all devices
+            state_tasks = [
+                self.query_device_state(dev["endpointId"], dev["devSession"])
+                for dev in devices
+            ]
+
+            # Run all state query tasks concurrently
+            device_states = await asyncio.gather(*state_tasks)
+
+            # Create tasks for fetching device parameters
+            param_tasks = []
+
+            for dev, dev_state in zip(devices, device_states):
                 dev["state"] = dev_state["data"][0]["state"]
 
                 if str(dev["state"]) == "1":
                     _LOGGER.debug(f"Device {dev['endpointId']} is online - {dev}")
                     self.devices.append(dev)
 
-                    dev_params = await self.get_device_params(dev, params=list([]))
-                    dev["params"] = dev_params
+                    # Create tasks for fetching device params
+                    dev_params_task = self.get_device_params(dev, params=list([]))
+                    dev_special_params_task = None
 
-                    # Fetch known params of the device
                     if dev["productId"] in AUX_MODEL_TO_PARAMS:
                         _LOGGER.debug(
                             f"Fetching special params for device {dev['productId']}: {AUX_MODEL_TO_PARAMS[dev['productId']]}"
                         )
-
-                        dev_special_params = await self.get_device_params(
+                        dev_special_params_task = self.get_device_params(
                             dev, params=list(AUX_MODEL_TO_PARAMS[dev["productId"]])
                         )
 
-                        if dev is not None and "params" in dev:
-                            _LOGGER.debug(
-                                f"Device {dev['endpointId']} has params: {dev['params']}"
-                            )
+                    # Add tasks to the list
+                    param_tasks.append((dev, dev_params_task, dev_special_params_task))
 
-                            dev["params"].update(dev_special_params)
+            # Run all parameter-fetching tasks concurrently
+            results = await asyncio.gather(
+                *[
+                    asyncio.gather(dev_params_task, dev_special_params_task)
+                    for _, dev_params_task, dev_special_params_task in param_tasks
+                ]
+            )
 
-                    existing_device = next(
-                        (
-                            d
-                            for d in self.devices
-                            if d["endpointId"] == dev["endpointId"]
-                        ),
-                        None,
-                    )
-                    if existing_device:
-                        # Replace the existing device with the new entry
-                        self.devices.remove(existing_device)
+            # Process the results
+            for (dev, _, _), (dev_params, dev_special_params) in zip(
+                param_tasks, results
+            ):
+                dev["params"] = dev_params
+                if dev_special_params:
+                    dev["params"].update(dev_special_params)
 
-                    # Add the new device entry
-                    dev["last_updated"] = time.strftime(
-                        "%Y-%m-%d %H:%M:%S", time.localtime()
-                    )
-                    self.devices.append(dev)
+                existing_device = next(
+                    (d for d in self.devices if d["endpointId"] == dev["endpointId"]),
+                    None,
+                )
+                if existing_device:
+                    # Replace the existing device with the new entry
+                    self.devices.remove(existing_device)
 
-            return self.devices  # Always return self.devices, even if empty
+                # Add the new device entry
+                dev["last_updated"] = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime()
+                )
+                self.devices.append(dev)
+
+            return self.devices
         else:
             raise Exception(f"Failed to query devices: {json_data}")
 

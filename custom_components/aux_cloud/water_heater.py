@@ -1,7 +1,7 @@
 from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
-    WaterHeaterEntityEntityDescription,
+    WaterHeaterEntityDescription,
     STATE_HEAT_PUMP,
     STATE_OFF,
     STATE_PERFORMANCE,
@@ -31,7 +31,7 @@ from .const import DOMAIN, _LOGGER
 
 WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {
     "water_heater": {
-        "description": WaterHeaterEntityEntityDescription(
+        "description": WaterHeaterEntityDescription(
             key="water_heater",
             name="Water Heater",
             icon="mdi:water-boiler",
@@ -81,7 +81,7 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
         self,
         coordinator,
         device_id,
-        entity_description: WaterHeaterEntityEntityDescription,
+        entity_description: WaterHeaterEntityDescription,
     ):
         """Initialize the water heater entity."""
         super().__init__(coordinator, device_id, entity_description)

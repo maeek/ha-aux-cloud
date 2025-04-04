@@ -1,6 +1,7 @@
 """Aux Cloud integration for Home Assistant."""
 
 from datetime import timedelta
+import asyncio
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -113,31 +114,47 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
                 if not login_success:
                     raise UpdateFailed("Login to AUX Cloud API failed")
 
-            all_devices = []
-
             if self.api.families is None:
                 _LOGGER.debug("Fetching families from AUX Cloud API...")
                 await self.api.get_families()
 
+            # Create a single list of tasks for fetching devices (shared and non-shared)
+            device_tasks = []
+            shared_device_tasks = []
+
             for family_id in self.api.families:
-                devices = (
-                    await self.api.get_devices(
+                device_tasks.append(
+                    self.api.get_devices(
                         family_id,
                         shared=False,
                         selected_devices=self.selected_device_ids,
                     )
-                    or []
                 )
-                shared_devices = (
-                    await self.api.get_devices(
+                shared_device_tasks.append(
+                    self.api.get_devices(
                         family_id,
                         shared=True,
                         selected_devices=self.selected_device_ids,
                     )
-                    or []
                 )
 
-            all_devices = devices + shared_devices
+            # Run all tasks concurrently
+            devices_results = await asyncio.gather(
+                *device_tasks, return_exceptions=True
+            )
+            shared_devices_results = await asyncio.gather(
+                *shared_device_tasks, return_exceptions=True
+            )
+
+            # Process results and handle exceptions
+            all_devices = []
+            for result in devices_results + shared_devices_results:
+                if isinstance(result, Exception):
+                    # Log the error for the specific task
+                    _LOGGER.error(f"Error fetching devices: {result}")
+                    continue  # Skip this result and move to the next one
+                # Add the successful result to the list of all devices
+                all_devices.extend(result or [])
 
             # Filter devices if selected_device_ids is provided
             if self.selected_device_ids:
