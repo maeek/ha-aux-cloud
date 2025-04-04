@@ -43,7 +43,7 @@ SWITCHES = {
     HP_HEATER_POWER: {
         "description": SwitchEntityDescription(
             key=HP_HEATER_POWER,
-            name="Heat Pump Power",
+            name="Heat Pump Heater Power",
             icon="mdi:water-thermometer",
             translation_key="aux_hp_power",
         ),
@@ -156,7 +156,7 @@ async def async_setup_entry(
                         )
                     )
                     _LOGGER.debug(
-                        f"Adding switch entity for {device['friendlyName']} with option {switch["description"].key}"
+                        f"Adding switch entity for {device['friendlyName']} with option {switch['description'].key}"
                     )
 
     if entities:

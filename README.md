@@ -85,6 +85,7 @@ This integration is still in development. Current status:
 - [ ] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
 - [ ] [Home Assistant] services
 - [ ] [Home Assistant] Manual tests
+- [ ] [Home Assistant] Unit tests
 - [x] Documentation
 - [ ] Add to HACS
 - [ ] Translations

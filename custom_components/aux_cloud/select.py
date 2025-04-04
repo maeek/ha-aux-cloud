@@ -11,6 +11,31 @@ from custom_components.aux_cloud.api.const import HP_QUIET_MODE
 from .const import DOMAIN, _LOGGER
 from .util import BaseEntity
 
+SELECTS = {
+    HP_QUIET_MODE: {
+        "description": SelectEntityDescription(
+            key=HP_QUIET_MODE,
+            name="Quiet Mode",
+            icon="mdi:volume-mute",
+            translation_key="aux_select_qtmode",
+        ),
+        "state_icons": {
+            "off": {
+                "value": 0,
+                "icon": "mdi:volume-high",
+            },
+            "quiet_1": {
+                "value": 1,
+                "icon": "mdi:volume-off",
+            },
+            "quiet_2": {
+                "value": 2,
+                "icon": "mdi:volume-mute",
+            },
+        },
+    }
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -25,33 +50,18 @@ async def async_setup_entry(
 
     # Create select entities for each device
     for device in coordinator.data["devices"]:
-        if "params" in device:
-            if HP_QUIET_MODE in device["params"]:
+        for entity in SELECTS.values():
+            if "params" in device and entity["description"].key in device["params"]:
                 entities.append(
                     AuxSelectEntity(
                         coordinator,
                         device["endpointId"],
-                        SelectEntityDescription(
-                            key=HP_QUIET_MODE,
-                            name="Quiet Mode",
-                            icon="mdi:volume-mute",
-                            translation_key="aux_select_qtmode",
-                        ),
-                        {
-                            "off": {
-                                "value": 0,
-                                "icon": "mdi:volume-high",
-                            },
-                            "quiet_1": {
-                                "value": 1,
-                                "icon": "mdi:volume-off",
-                            },
-                            "quiet_2": {
-                                "value": 2,
-                                "icon": "mdi:volume-mute",
-                            },
-                        },
+                        entity_description=entity["description"],
+                        options=entity["state_icons"],
                     )
+                )
+                _LOGGER.debug(
+                    f"Adding select entity for {device['friendlyName']} with option {entity['description'].key}"
                 )
 
     if entities:
