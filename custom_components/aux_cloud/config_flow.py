@@ -1,4 +1,5 @@
 """Config flow to configure Aux Cloud."""
+
 import base64
 import logging
 
@@ -89,9 +90,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             # Log each family
             for family in families:
                 _LOGGER.debug(
-                    "Family: ID=%s, Name=%s",
-                    family['familyid'],
-                    family['name']
+                    "Family: ID=%s, Name=%s", family["familyid"], family["name"]
                 )
 
             # Process families and fetch devices for each family
@@ -99,48 +98,61 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             self._available_devices = []
 
             for family in families:
-                family_id = family['familyid']
-                family_name = family['name']
+                family_id = family["familyid"]
+                family_name = family["name"]
 
                 # Decode base64 name if needed
-                if '_' in family_name:
+                if "_" in family_name:
                     # Assume format is "<base64 encoded name>_<timestamp>"
                     try:
-                        name_part = family_name.split('_')[0]
-                        decoded_name = base64.b64decode(name_part).decode('utf-8')
+                        name_part = family_name.split("_")[0]
+                        decoded_name = base64.b64decode(name_part).decode("utf-8")
                         family_name = decoded_name
-                        _LOGGER.debug("Decoded family name from %s to %s", family['name'], family_name)
+                        _LOGGER.debug(
+                            "Decoded family name from %s to %s",
+                            family["name"],
+                            family_name,
+                        )
                     except Exception as e:
                         _LOGGER.warning(f"Failed to decode family name: {e}")
                         # If decoding fails, use the original name
                         pass
 
                 # Store family info
-                self._families[family_id] = {
-                    'name': family_name,
-                    'devices': []
-                }
+                self._families[family_id] = {"name": family_name, "devices": []}
 
                 # Fetch devices for this family
                 try:
                     devices = await self._aux_cloud.get_devices(family_id) or []
-                    _LOGGER.debug("Family %s: Found %d personal devices", family_id, len(devices))
+                    _LOGGER.debug(
+                        "Family %s: Found %d personal devices", family_id, len(devices)
+                    )
                 except Exception as e:
-                    _LOGGER.warning(f"Failed to fetch personal devices for family {family_id}: {e}")
+                    _LOGGER.warning(
+                        f"Failed to fetch personal devices for family {family_id}: {e}"
+                    )
                     devices = []
 
                 try:
-                    shared_devices = await self._aux_cloud.get_devices(family_id, shared=True) or []
-                    _LOGGER.debug("Family %s: Found %d shared devices", family_id, len(shared_devices))
+                    shared_devices = (
+                        await self._aux_cloud.get_devices(family_id, shared=True) or []
+                    )
+                    _LOGGER.debug(
+                        "Family %s: Found %d shared devices",
+                        family_id,
+                        len(shared_devices),
+                    )
                 except Exception as e:
-                    _LOGGER.warning(f"Failed to fetch shared devices for family {family_id}: {e}")
+                    _LOGGER.warning(
+                        f"Failed to fetch shared devices for family {family_id}: {e}"
+                    )
                     shared_devices = []
 
                 # Process devices
                 all_family_devices = devices + shared_devices
                 for device in all_family_devices:
-                    device_id = device['endpointId']
-                    device_name = device['friendlyName']
+                    device_id = device["endpointId"]
+                    device_name = device["friendlyName"]
 
                     # Log each device's details
                     _LOGGER.debug(
@@ -148,23 +160,25 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                         device_id,
                         device_name,
                         family_name,
-                        device.get('productId', 'Unknown')
+                        device.get("productId", "Unknown"),
                     )
 
-                    if 'params' in device:
-                        _LOGGER.debug("Device %s params: %s", device_id, device.get('params', {}))
+                    if "params" in device:
+                        _LOGGER.debug(
+                            "Device %s params: %s", device_id, device.get("params", {})
+                        )
 
                     device_info = {
-                        'id': device_id,
-                        'name': device_name,
-                        'family_id': family_id,
-                        'family_name': family_name,
-                        'mac': device['mac'],
-                        'product_id': device['productId'],
-                        'room_id': device.get('roomId', ''),
+                        "id": device_id,
+                        "name": device_name,
+                        "family_id": family_id,
+                        "family_name": family_name,
+                        "mac": device["mac"],
+                        "product_id": device["productId"],
+                        "room_id": device.get("roomId", ""),
                     }
 
-                    self._families[family_id]['devices'].append(device_info)
+                    self._families[family_id]["devices"].append(device_info)
                     self._available_devices.append(device_info)
 
             # If no devices were found, display an error
@@ -172,23 +186,32 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("No devices found in any family")
                 return self.async_abort(reason="no_devices_found")
 
-            _LOGGER.debug("Successfully processed %d devices across %d families",
-                          len(self._available_devices), len(self._families))
+            _LOGGER.debug(
+                "Successfully processed %d devices across %d families",
+                len(self._available_devices),
+                len(self._families),
+            )
 
             # Prepare device options for the multi_select
             device_options = {}
             for device in self._available_devices:
-                device_id = device['id']
-                device_name = device['name']
-                family_name = device['family_name']
-                device_options[device_id] = f"{device['name']} ({device['family_name']})"
+                device_id = device["id"]
+                device_name = device["name"]
+                family_name = device["family_name"]
+                device_options[device_id] = (
+                    f"{device['name']} ({device['family_name']})"
+                )
 
             # Proceed to device selection step with a simpler schema using cv.multi_select
             return self.async_show_form(
                 step_id="select_devices",
-                data_schema=vol.Schema({
-                    vol.Required(CONF_SELECTED_DEVICES): cv.multi_select(device_options),
-                }),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_SELECTED_DEVICES): cv.multi_select(
+                            device_options
+                        ),
+                    }
+                ),
                 errors={},
                 description_placeholders={
                     "devices_count": str(len(self._available_devices)),
@@ -217,7 +240,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 selected_devices = []
                 for device_id in selected_device_ids:
                     for device in self._available_devices:
-                        if device['id'] == device_id:
+                        if device["id"] == device_id:
                             selected_devices.append(device)
                             break
 
@@ -240,9 +263,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         # Prepare device options for selection
         device_options = {}
         for device in self._available_devices:
-            device_id = device['id']
-            device_name = device['name']
-            family_name = device['family_name']
+            device_id = device["id"]
+            device_name = device["name"]
+            family_name = device["family_name"]
             device_options[device_id] = f"{device_name} ({family_name})"
 
         # If no devices were found, abort
@@ -252,9 +275,13 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         # Create a simple list of device options
         return self.async_show_form(
             step_id="select_devices",
-            data_schema=vol.Schema({
-                vol.Required(CONF_SELECTED_DEVICES): cv.multi_select(device_options),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SELECTED_DEVICES): cv.multi_select(
+                        device_options
+                    ),
+                }
+            ),
             errors=errors,
             description_placeholders={
                 "devices_count": str(len(self._available_devices)),
@@ -291,13 +318,15 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 all_devices = []
                 for family in families:
-                    family_id = family['familyid']
+                    family_id = family["familyid"]
                     devices = await self._aux_cloud.get_devices(family_id) or []
-                    shared_devices = await self._aux_cloud.get_devices(family_id, shared=True) or []
+                    shared_devices = (
+                        await self._aux_cloud.get_devices(family_id, shared=True) or []
+                    )
                     all_devices.extend(devices + shared_devices)
 
                 # Extract device IDs
-                device_ids = [device['endpointId'] for device in all_devices]
+                device_ids = [device["endpointId"] for device in all_devices]
 
                 config = {
                     CONF_EMAIL: self._email,
@@ -306,8 +335,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 }
 
                 return self.async_create_entry(
-                    title=f"AUX Cloud ({len(device_ids)} devices)",
-                    data=config
+                    title=f"AUX Cloud ({len(device_ids)} devices)", data=config
                 )
 
             except Exception as ex:
@@ -374,29 +402,28 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
             self._available_devices = []
 
             for family in families:
-                family_id = family['familyid']
-                family_name = family['name']
+                family_id = family["familyid"]
+                family_name = family["name"]
 
                 # Store family info
-                self._families[family_id] = {
-                    'name': family_name,
-                    'devices': []
-                }
+                self._families[family_id] = {"name": family_name, "devices": []}
 
                 devices = await self._aux_cloud.get_devices(family_id) or []
-                shared_devices = await self._aux_cloud.get_devices(family_id, shared=True) or []
+                shared_devices = (
+                    await self._aux_cloud.get_devices(family_id, shared=True) or []
+                )
 
                 for device in devices + shared_devices:
-                    device_id = device['endpointId']
-                    device_name = device['friendlyName']
+                    device_id = device["endpointId"]
+                    device_name = device["friendlyName"]
                     device_info = {
-                        'id': device_id,
-                        'name': device_name,
-                        'family_id': family_id,
-                        'family_name': family_name,
+                        "id": device_id,
+                        "name": device_name,
+                        "family_id": family_id,
+                        "family_name": family_name,
                     }
                     self._available_devices.append(device_info)
-                    self._families[family_id]['devices'].append(device_info)
+                    self._families[family_id]["devices"].append(device_info)
 
             # If no devices were found, display an error
             if not self._available_devices:
@@ -405,9 +432,9 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
             # Create options for the form
             device_options = {}
             for device in self._available_devices:
-                device_id = device['id']
-                device_name = device['name']
-                family_name = device['family_name']
+                device_id = device["id"]
+                device_name = device["name"]
+                family_name = device["family_name"]
                 device_options[device_id] = f"{device_name} ({family_name})"
 
             # Get currently selected devices
@@ -415,12 +442,13 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
 
             return self.async_show_form(
                 step_id="init",
-                data_schema=vol.Schema({
-                    vol.Required(
-                        CONF_SELECTED_DEVICES,
-                        default=current_devices
-                    ): cv.multi_select(device_options),
-                }),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_SELECTED_DEVICES, default=current_devices
+                        ): cv.multi_select(device_options),
+                    }
+                ),
                 description_placeholders={
                     "devices_count": str(len(self._available_devices)),
                     "families_count": str(len(self._families)),
