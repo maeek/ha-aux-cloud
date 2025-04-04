@@ -162,3 +162,11 @@ Set a minimum score threshold (useful for CI/CD):
 ```bash
 pylint --fail-under=8.0 custom_components/aux_cloud
 ```
+
+### Code formatting
+
+The project uses [Black](https://pypi.org/project/black/) for code formatting. To format the code, run:
+
+```bash
+black custom_components/aux_cloud
+```
