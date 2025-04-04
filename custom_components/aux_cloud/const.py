@@ -55,4 +55,10 @@ FAN_MODE_AUX_TO_HA = {v: k for k, v in FAN_MODE_HA_TO_AUX.items()}
 MANUFACTURER = "AUX"
 
 # Platforms to set up
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_HEATER, Platform.SELECT]
+PLATFORMS = [
+    Platform.CLIMATE,
+    Platform.SENSOR,
+    Platform.WATER_HEATER,
+    Platform.SELECT,
+    Platform.SWITCH,
+]
