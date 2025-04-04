@@ -86,6 +86,7 @@ This integration is still in development. Current status:
 - [ ] [Home Assistant] services
 - [ ] [Home Assistant] Manual tests
 - [ ] [Home Assistant] Unit tests
+- [ ] [API] WebSocket connection for instant updates
 - [x] Documentation
 - [ ] Add to HACS
 - [ ] Translations
