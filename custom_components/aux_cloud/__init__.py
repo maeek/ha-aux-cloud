@@ -1,4 +1,5 @@
 """Aux Cloud integration for Home Assistant."""
+
 from datetime import timedelta
 
 import voluptuous as vol
@@ -23,12 +24,14 @@ MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=180)
 # Schema to include email and password (device selection is handled in config flow)
 CONFIG_SCHEMA = vol.Schema(
     {
-        DOMAIN: vol.Schema({
-            vol.Required(CONF_EMAIL): cv.string,
-            vol.Required(CONF_PASSWORD): cv.string,
-        })
+        DOMAIN: vol.Schema(
+            {
+                vol.Required(CONF_EMAIL): cv.string,
+                vol.Required(CONF_PASSWORD): cv.string,
+            }
+        )
     },
-    extra=vol.ALLOW_EXTRA
+    extra=vol.ALLOW_EXTRA,
 )
 
 
@@ -43,7 +46,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     hass.data[DATA_AUX_CLOUD_CONFIG] = config.get(DOMAIN, {})
 
-    if not hass.config_entries.async_entries(DOMAIN) and hass.data[DATA_AUX_CLOUD_CONFIG]:
+    if (
+        not hass.config_entries.async_entries(DOMAIN)
+        and hass.data[DATA_AUX_CLOUD_CONFIG]
+    ):
         # Import from configuration.yaml if no config entry exists
         hass.async_create_task(
             hass.config_entries.flow.async_init(
@@ -64,7 +70,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 class AuxCloudCoordinator(DataUpdateCoordinator):
     """DataUpdateCoordinator for AUX Cloud."""
 
-    def __init__(self, hass: HomeAssistant, api: AuxCloudAPI, email: str, password: str, selected_device_ids: list):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api: AuxCloudAPI,
+        email: str,
+        password: str,
+        selected_device_ids: list,
+    ):
         """Initialize the coordinator."""
         super().__init__(
             hass,
@@ -84,7 +97,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
         if not self.devices:
             return None
         for device in self.devices:
-            if device['endpointId'] == endpoint_id:
+            if device["endpointId"] == endpoint_id:
                 return device
         return None
 
@@ -93,11 +106,12 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Updating AUX Cloud data...")
 
         try:
-            # Attempt to log in
-            _LOGGER.debug("Logging into AUX Cloud API...")
-            login_success = await self.api.login(self.email, self.password)
-            if not login_success:
-                raise UpdateFailed("Login to AUX Cloud API failed")
+            if not self.api.is_logged_in():
+                # Attempt to log in
+                _LOGGER.debug("Logging into AUX Cloud API...")
+                login_success = await self.api.login(self.email, self.password)
+                if not login_success:
+                    raise UpdateFailed("Login to AUX Cloud API failed")
 
             all_devices = []
 
@@ -106,28 +120,38 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
                 await self.api.get_families()
 
             for family_id in self.api.families:
-                devices = await self.api.get_devices(family_id, shared=False, selected_devices=self.selected_device_ids) or []
-                shared_devices = await self.api.get_devices(family_id, shared=True, selected_devices=self.selected_device_ids) or []
+                devices = (
+                    await self.api.get_devices(
+                        family_id,
+                        shared=False,
+                        selected_devices=self.selected_device_ids,
+                    )
+                    or []
+                )
+                shared_devices = (
+                    await self.api.get_devices(
+                        family_id,
+                        shared=True,
+                        selected_devices=self.selected_device_ids,
+                    )
+                    or []
+                )
 
             all_devices = devices + shared_devices
 
             # Filter devices if selected_device_ids is provided
             if self.selected_device_ids:
                 self.devices = [
-                    device for device in all_devices
-                    if device['endpointId'] in self.selected_device_ids
+                    device
+                    for device in all_devices
+                    if device["endpointId"] in self.selected_device_ids
                 ]
             else:
                 self.devices = all_devices
 
-            _LOGGER.debug(
-                "Fetched AUX Cloud data: %s devices",
-                len(self.devices)
-            )
+            _LOGGER.debug("Fetched AUX Cloud data: %s devices", len(self.devices))
 
-            return {
-                "devices": self.devices
-            }
+            return {"devices": self.devices}
 
         except Exception as e:
             _LOGGER.error(f"Error updating AUX Cloud data: {e}")

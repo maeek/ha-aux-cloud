@@ -76,10 +76,25 @@
     },
     "climate": {
       "aux_heater": {
-        "name": "Heater"
+        "name": "Heater",
+        "state": {
+          "off": "Off",
+          "heat": "Heating",
+          "cool": "Cooling"
+        }
       },
       "aux_ac": {
         "name": "Air Conditioner"
+      }
+    },
+    "select": {
+      "aux_select_qtmode": {
+        "name": "Quiet Mode",
+        "state": {
+          "off": "Off",
+          "quiet_1": "Quiet Level 1",
+          "quiet_2": "Quiet Level 2"
+        }
       }
     }
   }
