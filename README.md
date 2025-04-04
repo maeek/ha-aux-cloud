@@ -79,10 +79,9 @@ This integration is still in development. Current status:
 - [x] [Home Assistant] sensor entity
 - [x] [Home Assistant] water heater entity
 - [x] [Home Assistant] basic sensor entities
-- [ ] [Home Assistant] switch entity
-- [ ] [Home Assistant] binary sensor entity
-- [ ] [Home Assistant] number entity
+- [x] [Home Assistant] switch entity
 - [ ] [Home Assistant] services
+- [ ] [Home Assistant] Manual tests
 - [x] Documentation
 - [ ] Add to HACS
 - [ ] Translations
