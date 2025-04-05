@@ -16,6 +16,8 @@ from custom_components.aux_cloud.api.const import (
     AC_SLEEP,
     AUX_ECOMODE,
     HP_HEATER_AUTO_WATER_TEMP,
+    HP_HEATER_AUTO_WATER_TEMP_OFF,
+    HP_HEATER_AUTO_WATER_TEMP_ON,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
@@ -73,8 +75,8 @@ SWITCHES = {
             translation_key="aux_auto_wtemp",
         ),
         "custom_mapping": {
-            True: 9,
-            False: 0,
+            True: HP_HEATER_AUTO_WATER_TEMP_ON.get(HP_HEATER_AUTO_WATER_TEMP),
+            False: HP_HEATER_AUTO_WATER_TEMP_OFF.get(HP_HEATER_AUTO_WATER_TEMP),
         },
     },
     AC_AUXILIARY_HEAT: {
@@ -161,7 +163,14 @@ async def async_setup_entry(
                 if switch["description"].key in device["params"]:
                     entities.append(
                         AuxSwitchEntity(
-                            coordinator, device["endpointId"], switch["description"]
+                            coordinator,
+                            device["endpointId"],
+                            switch["description"],
+                            (
+                                switch["custom_mapping"]
+                                if "custom_mapping" in switch
+                                else None
+                            ),
                         )
                     )
                     _LOGGER.debug(
@@ -188,6 +197,12 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
     @property
     def is_on(self):
         """Return the state of the switch."""
+        if self._custom_mapping:
+            # If a custom mapping is provided, use it to determine the state
+            return self._custom_mapping.get(True) == self._get_device_params().get(
+                self._option
+            )
+
         return self._get_device_params().get(self._option) == 1
 
     async def async_turn_on(self):
