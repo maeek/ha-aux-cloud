@@ -146,7 +146,6 @@ class AuxCloudSensor(BaseEntity, SensorEntity, CoordinatorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, device_id, entity_description)
         self._get_value_fn = get_value_fn
-        self._attr_has_entity_name = True
         self.entity_id = f"sensor.{self._attr_unique_id}"
         self.entity_description = entity_description
 
