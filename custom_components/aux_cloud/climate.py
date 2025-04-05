@@ -125,6 +125,7 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_target_temperature_step = 1
         self._attr_temperature_unit = entity_description.unit_of_measurement
         self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
+        self.entity_id = f"climate.{self._attr_unique_id}"
 
     @property
     def preset_mode(self):
@@ -220,6 +221,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_min_temp = 16
         self._attr_max_temp = 30
         self._attr_target_temperature_step = 0.5
+        self.entity_id = f"climate.{self._attr_unique_id}"
 
     @property
     def current_temperature(self):

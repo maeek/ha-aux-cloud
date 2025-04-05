@@ -95,12 +95,14 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
     def get_device_by_endpoint_id(self, endpoint_id: str):
         """Get a device by its endpoint ID."""
-        if not self.devices:
-            return None
-        for device in self.devices:
-            if device["endpointId"] == endpoint_id:
-                return device
-        return None
+        return next(
+            (
+                device
+                for device in self.data.get("devices", [])
+                if device.get("endpointId") == endpoint_id
+            ),
+            None,
+        )
 
     async def _async_update_data(self):
         """Fetch data from AUX Cloud."""
@@ -148,14 +150,12 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
             # Process results and handle exceptions
             all_devices = []
-            for result in devices_results + shared_devices_results:
-                if isinstance(result, Exception):
-                    # Log the error for the specific task
-                    _LOGGER.error(f"Error fetching devices: {result}")
-                    continue  # Skip this result and move to the next one
-                # Add the successful result to the list of all devices
-                all_devices.extend(result or [])
 
+            for result in devices_results + shared_devices_results:
+                for device in result:
+                    if isinstance(device, Exception):
+                        continue
+                    all_devices.append(device)
             # Filter devices if selected_device_ids is provided
             if self.selected_device_ids:
                 self.devices = [
@@ -168,11 +168,12 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
             _LOGGER.debug("Fetched AUX Cloud data: %s devices", len(self.devices))
 
+            self.async_set_updated_data({"devices": self.devices})
+
             return {"devices": self.devices}
 
         except Exception as e:
-            _LOGGER.error(f"Error updating AUX Cloud data: {e}")
-            raise UpdateFailed(f"Error updating AUX Cloud data: {e}")
+            raise UpdateFailed(f"Error updating AUX Cloud data: {e}") from e
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -44,8 +44,10 @@ class BaseEntity(CoordinatorEntity):
 
     @callback
     def _handle_coordinator_update(self):
-        self._device = self.coordinator.get_device_by_endpoint_id(self._device_id)
-        self._attr_available = self._device is not None
+        device_from_coordinator = self.coordinator.get_device_by_endpoint_id(
+            self._device_id
+        )
+        self._device = device_from_coordinator or {}
 
         self.async_write_ha_state()
 

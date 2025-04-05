@@ -65,6 +65,12 @@ class ExpiredTokenError(Exception):
     pass
 
 
+class DeviceQueryError(Exception):
+    """Exception raised when querying devices fails."""
+
+    pass
+
+
 class AuxCloudAPI:
     """
     Class for interacting with AUX cloud services.
@@ -262,6 +268,7 @@ class AuxCloudAPI:
         )
 
         if "status" in json_data and json_data["status"] == 0:
+            self.devices = []
             devices = []  # Initialize with empty list
 
             if "endpoints" in json_data["data"]:
@@ -271,8 +278,6 @@ class AuxCloudAPI:
                 devices = list(
                     map(lambda dev: dev["devinfo"], json_data["data"]["shareFromOther"])
                 )
-
-            self.devices = []
 
             # Filter devices if selected_device_ids is provided to fetch only specific devices
             if selected_devices is not None:
@@ -286,59 +291,87 @@ class AuxCloudAPI:
                 for dev in devices
             ]
 
-            # Run all state query tasks concurrently
-            device_states = await asyncio.gather(*state_tasks)
+            # Wait for all state tasks to complete
+            device_states = await asyncio.gather(*state_tasks, return_exceptions=True)
 
             # Create tasks for fetching device parameters
             param_tasks = []
 
             for dev, dev_state in zip(devices, device_states):
+                if isinstance(dev_state, BaseException):
+                    _LOGGER.debug(
+                        "Unexpected error while quering %s: %s",
+                        dev["endpointId"],
+                        dev_state,
+                    )
+                    continue
+
                 dev["state"] = dev_state["data"][0]["state"]
+                # Initialize params as an empty dictionary
+                dev["params"] = {}
 
-                if str(dev["state"]) == "1":
-                    _LOGGER.debug(f"Device {dev['endpointId']} is online - {dev}")
-                    self.devices.append(dev)
+                _LOGGER.debug(
+                    "Device %s is %s - %s",
+                    dev["endpointId"],
+                    "online" if dev["state"] == 1 else "offline",
+                    dev,
+                )
+                self.devices.append(dev)
 
-                    # Create tasks for fetching device params
-                    dev_params_task = self.get_device_params(dev, params=list([]))
-                    dev_special_params_task = None
+                # Create tasks for fetching device params
+                dev_params_task = self.get_device_params(dev, params=list([]))
+                dev_special_params_task = None
 
-                    if dev["productId"] in AUX_MODEL_TO_PARAMS:
-                        _LOGGER.debug(
-                            f"Fetching special params for device {dev['productId']}: {AUX_MODEL_TO_PARAMS[dev['productId']]}"
-                        )
-                        dev_special_params_task = self.get_device_params(
-                            dev, params=list(AUX_MODEL_TO_PARAMS[dev["productId"]])
-                        )
+                if dev["productId"] in AUX_MODEL_TO_PARAMS:
+                    _LOGGER.debug(
+                        "Fetching special params for device %s: %s",
+                        dev["productId"],
+                        AUX_MODEL_TO_PARAMS[dev["productId"]],
+                    )
+                    dev_special_params_task = self.get_device_params(
+                        dev, params=list(AUX_MODEL_TO_PARAMS[dev["productId"]])
+                    )
 
-                    # Add tasks to the list
-                    param_tasks.append((dev, dev_params_task, dev_special_params_task))
+                # Add tasks to the list
+                param_tasks.append([dev, dev_params_task, dev_special_params_task])
 
-            # Run all parameter-fetching tasks concurrently
+            # Wait for all tasks to complete
             results = await asyncio.gather(
                 *[
-                    asyncio.gather(dev_params_task, dev_special_params_task)
+                    asyncio.gather(
+                        dev_params_task, dev_special_params_task, return_exceptions=True
+                    )
                     for _, dev_params_task, dev_special_params_task in param_tasks
-                ]
+                ],
+                return_exceptions=True,
             )
 
             # Process the results
             for (dev, _, _), (dev_params, dev_special_params) in zip(
                 param_tasks, results
             ):
-                dev["params"] = dev_params
+                if (
+                    dev_params is None
+                    or dev_special_params is None
+                    or isinstance(dev_params, BaseException)
+                    or isinstance(dev_special_params, BaseException)
+                ):
+                    _LOGGER.debug(
+                        "Error fetching device params for %s",
+                        dev["endpointId"],
+                    )
+                    continue
+
+                dev["params"] = dev_params or {}
+
                 if dev_special_params:
                     dev["params"].update(dev_special_params)
 
-                existing_device = next(
-                    (d for d in self.devices if d["endpointId"] == dev["endpointId"]),
-                    None,
-                )
-                if existing_device:
-                    # Replace the existing device with the new entry
-                    self.devices.remove(existing_device)
+                # Update the device entry in the list
+                self.devices = [
+                    d for d in self.devices if d["endpointId"] != dev["endpointId"]
+                ]
 
-                # Add the new device entry
                 dev["last_updated"] = time.strftime(
                     "%Y-%m-%d %H:%M:%S", time.localtime()
                 )
@@ -346,7 +379,7 @@ class AuxCloudAPI:
 
             return self.devices
         else:
-            raise Exception(f"Failed to query devices: {json_data}")
+            raise DeviceQueryError(f"Failed to query devices: {json_data}")
 
     def _get_directive_header(
         self, namespace: str, name: str, message_id_prefix: str, **kwargs: str
@@ -502,13 +535,3 @@ class AuxCloudAPI:
         params = list(values.keys())
         vals = [[{"idx": 1, "val": x}] for x in list(values.values())]
         return await self._act_device_params(device, "set", params, vals)
-
-    async def refresh(self):
-        """
-        Refresh the device list and family data.
-        """
-        for family in self.families:
-            await self.get_devices(family["familyid"])
-            await self.get_devices(family["familyid"], shared=True)
-
-        return True
