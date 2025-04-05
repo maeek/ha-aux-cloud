@@ -22,11 +22,11 @@ from custom_components.aux_cloud.util import BaseEntity
 from .const import DOMAIN, _LOGGER
 
 SENSORS: dict[str, dict[str, any]] = {
-    "ambient_temperature": {
+    AC_TEMPERATURE_AMBIENT: {
         "type": "temperature",
         "param": AC_TEMPERATURE_AMBIENT,
         "description": SensorEntityDescription(
-            key="ambient_temperature",
+            key=AC_TEMPERATURE_AMBIENT,
             name="Ambient Temperature",
             icon="mdi:thermometer",
             translation_key="ambient_temperature",
@@ -35,11 +35,11 @@ SENSORS: dict[str, dict[str, any]] = {
         ),
         "get_fn": lambda d: d.get("params", {}).get(AC_TEMPERATURE_AMBIENT, 0) / 10,
     },
-    "water_tank_temperature": {
+    HP_HOT_WATER_TANK_TEMPERATURE: {
         "type": "temperature",
         "param": HP_HOT_WATER_TANK_TEMPERATURE,
         "description": SensorEntityDescription(
-            key="water_tank_temperature",
+            key=HP_HOT_WATER_TANK_TEMPERATURE,
             name="Water Tank Temperature",
             icon="mdi:thermometer-water",
             translation_key="water_tank_temperature",
@@ -52,7 +52,7 @@ SENSORS: dict[str, dict[str, any]] = {
         "type": "temperature",
         "param": HP_HOT_WATER_TEMPERATURE_TARGET,
         "description": SensorEntityDescription(
-            key="hot_water_temperature",
+            key=HP_HOT_WATER_TEMPERATURE_TARGET,
             name="Hot Water Temperature",
             icon="mdi:thermometer-water",
             translation_key="hot_water_temperature",
@@ -66,7 +66,7 @@ SENSORS: dict[str, dict[str, any]] = {
         "type": "temperature",
         "param": AC_TEMPERATURE_TARGET,
         "description": SensorEntityDescription(
-            key="ac_temperature",
+            key=AC_TEMPERATURE_TARGET,
             name="AC Target Temperature",
             icon="mdi:home-thermometer",
             translation_key="ac_temperature",
@@ -79,7 +79,7 @@ SENSORS: dict[str, dict[str, any]] = {
         "type": "temperature",
         "param": HP_HEATER_TEMPERATURE_TARGET,
         "description": SensorEntityDescription(
-            key="ac_temperature",
+            key=HP_HEATER_TEMPERATURE_TARGET,
             name="HP Target Temperature",
             icon="mdi:home-thermometer",
             translation_key="ac_temperature",
@@ -93,12 +93,11 @@ SENSORS: dict[str, dict[str, any]] = {
         "type": "diagnostic",
         "param": AUX_ERROR_FLAG,
         "description": SensorEntityDescription(
-            key="err_flag",
+            key=AUX_ERROR_FLAG,
             name="Error Flag",
             icon="mdi:alert-circle",
             translation_key="err_flag",
             device_class="diagnostic",
-            entity_registry_enabled_default=False,
         ),
         "get_fn": lambda d: d.get("params", {}).get(AUX_ERROR_FLAG, None),
     },
@@ -124,22 +123,21 @@ async def async_setup_entry(
                 "params" in device
                 and device.get("params", {}).get(entity["param"]) is not None
             ):
-                entities.append(
-                    AuxCloudSensor(
-                        coordinator,
-                        device["endpointId"],
-                        entity["description"],
-                        entity["get_fn"],
-                    )
+                sensor = AuxCloudSensor(
+                    coordinator,
+                    device["endpointId"],
+                    entity["description"],
+                    entity["get_fn"],
                 )
+                entities.append(sensor)
                 _LOGGER.debug(
-                    f"Adding sensor entity for {device['friendlyName']} with option {entity['description'].key}"
+                    f"Adding sensor entity for {device['friendlyName']} with unique_id {sensor.unique_id}"
                 )
 
     async_add_entities(entities, True)
 
 
-class AuxCloudSensor(BaseEntity, SensorEntity, CoordinatorEntity):
+class AuxCloudSensor(BaseEntity, CoordinatorEntity, SensorEntity):
     """Representation of an AUX Cloud temperature sensor."""
 
     def __init__(self, coordinator, device_id, entity_description, get_value_fn):
@@ -147,25 +145,11 @@ class AuxCloudSensor(BaseEntity, SensorEntity, CoordinatorEntity):
         super().__init__(coordinator, device_id, entity_description)
         self._get_value_fn = get_value_fn
         self.entity_id = f"sensor.{self._attr_unique_id}"
-        self.entity_description = entity_description
 
     @property
     def native_value(self):
         """Return the state of the sensor."""
-        _LOGGER.debug(
-            "Reading AUX Cloud sensor value for %s value is %s",
-            self._device.get("friendlyName", "AUX"),
-            self._get_value_fn(self._device_id),
-        )
-        return self._get_value_fn(self._device)
+        if self._device is None:
+            return None
 
-    async def async_update(self):
-        """Get the latest data."""
-        _LOGGER.debug("Updating AUX Cloud sensor")
-        await self.coordinator.async_request_refresh()
-        self.async_write_ha_state()
-
-    @property
-    def state(self):
-        # Use the latest data from the coordinator
         return self._get_value_fn(self._device)

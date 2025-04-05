@@ -15,8 +15,13 @@ class BaseEntity(CoordinatorEntity):
         self._attr_has_entity_name = True
         self.entity_description = entity_description
         self._attr_unique_id = (
-            f"{DOMAIN}_{device_id.lstrip('0')}_{self.entity_description.key}"
+            f"{DOMAIN}_{self._device_id.lstrip('0')}_{self.entity_description.key}"
         )
+
+    @property
+    def unique_id(self):
+        """Return a unique ID for the sensor."""
+        return self._attr_unique_id
 
     @property
     def device_info(self):
