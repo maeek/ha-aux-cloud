@@ -174,8 +174,6 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
         self._device_id = device_id
         self._option = self.entity_description.key
         self._custom_mapping = custom_mapping
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{self._option}"
-        self._attr_has_entity_name = True
         self.entity_id = f"switch.{self._attr_unique_id}"
 
     @property
