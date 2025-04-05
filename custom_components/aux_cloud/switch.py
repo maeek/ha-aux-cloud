@@ -83,7 +83,7 @@ SWITCHES = {
         "description": SwitchEntityDescription(
             key=AC_AUXILIARY_HEAT,
             name="Auxiliary Heat",
-            icon="mdi:water-thermometer",
+            icon="mdi:heat-wave",
             translation_key="aux_aux_heat",
         ),
     },
