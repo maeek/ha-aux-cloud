@@ -38,8 +38,8 @@ class BaseEntity(CoordinatorEntity):
         """Return True if entity is available."""
         return (
             self._device is not None
-            or self._device.get("endpointId") is not None
-            or len(self._device.get("params", {}).keys()) > 0
+            and self._device.get("endpointId") is not None
+            and len(self._device.get("params", {}).keys()) > 0
         )
 
     @callback
