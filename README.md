@@ -80,9 +80,9 @@ This integration is still in development. Current status:
 - [x] [Home Assistant] water heater entity
 - [x] [Home Assistant] basic sensor entities
 - [x] [Home Assistant] switch entity
-- [ ] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
-- [ ] [Home Assistant] Implement optimistic updates - switches change state to previous state and then update the correct state after data coordinator fetches data
-- [ ] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
+- [x] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
+- [x] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
+- [ ] [Home Assistant] Add icon to https://github.com/home-assistant/brands
 - [ ] [Home Assistant] services
 - [ ] [Home Assistant] Manual tests
 - [ ] [Home Assistant] Unit tests
