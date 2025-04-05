@@ -15,6 +15,7 @@ from custom_components.aux_cloud.api.const import (
     AC_SCREEN_DISPLAY,
     AC_SLEEP,
     AUX_ECOMODE,
+    HP_HEATER_AUTO_WATER_TEMP,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
@@ -62,6 +63,14 @@ SWITCHES = {
             name="Fast Hot Water",
             icon="mdi:water-boiler",
             translation_key="aux_fast_hotwater",
+        ),
+    },
+    HP_HEATER_AUTO_WATER_TEMP: {
+        "description": SwitchEntityDescription(
+            key=HP_HEATER_AUTO_WATER_TEMP,
+            name="Auto Water Temperature",
+            icon="mdi:water-thermometer",
+            translation_key="aux_auto_wtemp",
         ),
         "custom_mapping": {
             True: 9,
