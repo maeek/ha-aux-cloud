@@ -8,6 +8,8 @@ from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.device_registry import async_get as async_get_device_registry
+from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
 from .api.aux_cloud import AuxCloudAPI
 from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_FAMILIES, CONF_SELECTED_DEVICES
@@ -372,6 +374,36 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                 if not isinstance(selected_device_ids, list):
                     selected_device_ids = [selected_device_ids]
 
+                # Get previously selected devices
+                previous_device_ids = self.config_entry.data.get(
+                    CONF_SELECTED_DEVICES, []
+                )
+
+                # Find devices to remove (previously selected but not in the new selection)
+                devices_to_remove = set(previous_device_ids) - set(selected_device_ids)
+
+                # Remove entities and devices from Home Assistant
+                device_registry = async_get_device_registry(self.hass)
+                entity_registry = async_get_entity_registry(self.hass)
+
+                device_registry_filtered = [
+                    device
+                    for device in device_registry.devices.values()
+                    if device.identifiers
+                    for identifiers in device.identifiers
+                    if len(identifiers) == 2
+                    and identifiers[0] == DOMAIN
+                    and (device_id := next(iter(identifiers[1:]))) in devices_to_remove
+                ]
+
+                for device in device_registry_filtered:
+                    for entity in list(entity_registry.entities.values()):
+                        if entity.device_id == device.id:
+                            entity_registry.async_remove(entity.entity_id)
+
+                    device_registry.async_remove_device(device.id)
+
+                # Update the config entry with the new selected devices
                 new_data = {
                     **self.config_entry.data,
                     CONF_SELECTED_DEVICES: selected_device_ids,
@@ -379,6 +411,10 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
 
                 self.hass.config_entries.async_update_entry(
                     self.config_entry, data=new_data
+                )
+
+                self.hass.config_entries.async_schedule_reload(
+                    self.config_entry.entry_id
                 )
 
                 return self.async_create_entry(title="", data={})

@@ -86,6 +86,7 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
         self._attr_current_option = self._get_device_params().get(
             self.entity_description.key, None
         )
+        self.entity_id = f"select.{self._attr_unique_id}"
 
     @property
     def current_option(self):

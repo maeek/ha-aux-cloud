@@ -15,8 +15,13 @@ class BaseEntity(CoordinatorEntity):
         self._attr_has_entity_name = True
         self.entity_description = entity_description
         self._attr_unique_id = (
-            f"{DOMAIN}_{device_id.lstrip('0')}_{self.entity_description.key}"
+            f"{DOMAIN}_{self._device_id.lstrip('0')}_{self.entity_description.key}"
         )
+
+    @property
+    def unique_id(self):
+        """Return a unique ID for the sensor."""
+        return self._attr_unique_id
 
     @property
     def device_info(self):
@@ -38,14 +43,16 @@ class BaseEntity(CoordinatorEntity):
         """Return True if entity is available."""
         return (
             self._device is not None
-            or self._device.get("endpointId") is not None
-            or len(self._device.get("params", {}).keys()) > 0
+            and self._device.get("endpointId") is not None
+            and len(self._device.get("params", {}).keys()) > 0
         )
 
     @callback
     def _handle_coordinator_update(self):
-        self._device = self.coordinator.get_device_by_endpoint_id(self._device_id)
-        self._attr_available = self._device is not None
+        device_from_coordinator = self.coordinator.get_device_by_endpoint_id(
+            self._device_id
+        )
+        self._device = device_from_coordinator or {}
 
         self.async_write_ha_state()
 

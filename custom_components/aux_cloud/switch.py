@@ -15,6 +15,9 @@ from custom_components.aux_cloud.api.const import (
     AC_SCREEN_DISPLAY,
     AC_SLEEP,
     AUX_ECOMODE,
+    HP_HEATER_AUTO_WATER_TEMP,
+    HP_HEATER_AUTO_WATER_TEMP_OFF,
+    HP_HEATER_AUTO_WATER_TEMP_ON,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
@@ -63,16 +66,24 @@ SWITCHES = {
             icon="mdi:water-boiler",
             translation_key="aux_fast_hotwater",
         ),
+    },
+    HP_HEATER_AUTO_WATER_TEMP: {
+        "description": SwitchEntityDescription(
+            key=HP_HEATER_AUTO_WATER_TEMP,
+            name="Auto Water Temperature",
+            icon="mdi:water-thermometer",
+            translation_key="aux_auto_wtemp",
+        ),
         "custom_mapping": {
-            True: 9,
-            False: 0,
+            True: HP_HEATER_AUTO_WATER_TEMP_ON.get(HP_HEATER_AUTO_WATER_TEMP),
+            False: HP_HEATER_AUTO_WATER_TEMP_OFF.get(HP_HEATER_AUTO_WATER_TEMP),
         },
     },
     AC_AUXILIARY_HEAT: {
         "description": SwitchEntityDescription(
             key=AC_AUXILIARY_HEAT,
             name="Auxiliary Heat",
-            icon="mdi:water-thermometer",
+            icon="mdi:heat-wave",
             translation_key="aux_aux_heat",
         ),
     },
@@ -152,7 +163,14 @@ async def async_setup_entry(
                 if switch["description"].key in device["params"]:
                     entities.append(
                         AuxSwitchEntity(
-                            coordinator, device["endpointId"], switch["description"]
+                            coordinator,
+                            device["endpointId"],
+                            switch["description"],
+                            (
+                                switch["custom_mapping"]
+                                if "custom_mapping" in switch
+                                else None
+                            ),
                         )
                     )
                     _LOGGER.debug(
@@ -174,12 +192,17 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
         self._device_id = device_id
         self._option = self.entity_description.key
         self._custom_mapping = custom_mapping
-        self._attr_unique_id = f"{DOMAIN}_{device_id}_{self._option}"
-        self._attr_has_entity_name = True
+        self.entity_id = f"switch.{self._attr_unique_id}"
 
     @property
     def is_on(self):
         """Return the state of the switch."""
+        if self._custom_mapping:
+            # If a custom mapping is provided, use it to determine the state
+            return self._custom_mapping.get(True) == self._get_device_params().get(
+                self._option
+            )
+
         return self._get_device_params().get(self._option) == 1
 
     async def async_turn_on(self):

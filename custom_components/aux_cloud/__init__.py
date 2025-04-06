@@ -1,6 +1,7 @@
 """Aux Cloud integration for Home Assistant."""
 
 from datetime import timedelta
+import asyncio
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -94,12 +95,14 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
     def get_device_by_endpoint_id(self, endpoint_id: str):
         """Get a device by its endpoint ID."""
-        if not self.devices:
-            return None
-        for device in self.devices:
-            if device["endpointId"] == endpoint_id:
-                return device
-        return None
+        return next(
+            (
+                device
+                for device in self.data.get("devices", [])
+                if device.get("endpointId") == endpoint_id
+            ),
+            None,
+        )
 
     async def _async_update_data(self):
         """Fetch data from AUX Cloud."""
@@ -113,32 +116,46 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
                 if not login_success:
                     raise UpdateFailed("Login to AUX Cloud API failed")
 
-            all_devices = []
-
             if self.api.families is None:
                 _LOGGER.debug("Fetching families from AUX Cloud API...")
                 await self.api.get_families()
 
+            # Create a single list of tasks for fetching devices (shared and non-shared)
+            device_tasks = []
+            shared_device_tasks = []
+
             for family_id in self.api.families:
-                devices = (
-                    await self.api.get_devices(
+                device_tasks.append(
+                    self.api.get_devices(
                         family_id,
                         shared=False,
                         selected_devices=self.selected_device_ids,
                     )
-                    or []
                 )
-                shared_devices = (
-                    await self.api.get_devices(
+                shared_device_tasks.append(
+                    self.api.get_devices(
                         family_id,
                         shared=True,
                         selected_devices=self.selected_device_ids,
                     )
-                    or []
                 )
 
-            all_devices = devices + shared_devices
+            # Run all tasks concurrently
+            devices_results = await asyncio.gather(
+                *device_tasks, return_exceptions=True
+            )
+            shared_devices_results = await asyncio.gather(
+                *shared_device_tasks, return_exceptions=True
+            )
 
+            # Process results and handle exceptions
+            all_devices = []
+
+            for result in devices_results + shared_devices_results:
+                for device in result:
+                    if isinstance(device, Exception):
+                        continue
+                    all_devices.append(device)
             # Filter devices if selected_device_ids is provided
             if self.selected_device_ids:
                 self.devices = [
@@ -151,11 +168,12 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
             _LOGGER.debug("Fetched AUX Cloud data: %s devices", len(self.devices))
 
+            self.async_set_updated_data({"devices": self.devices})
+
             return {"devices": self.devices}
 
         except Exception as e:
-            _LOGGER.error(f"Error updating AUX Cloud data: {e}")
-            raise UpdateFailed(f"Error updating AUX Cloud data: {e}")
+            raise UpdateFailed(f"Error updating AUX Cloud data: {e}") from e
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
