@@ -10,17 +10,15 @@ from custom_components.aux_cloud.api.aux_cloud import AuxCloudAPI
 
 def get_config_path():
     current_dir = pathlib.Path(__file__).parent
-    custom_components_dir = current_dir.parent.parent
-    return os.path.join(custom_components_dir, 'dev', 'config.yaml')
+    return os.path.join(current_dir, "config.yaml")
 
 
 if __name__ == "__main__":
-
     with open(get_config_path(), "r", encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
-    email: str = config['email']
-    password: str = config['password']
-    shared: bool = config['shared']
+    email: str = config["email"]
+    password: str = config["password"]
+    shared: bool = config["shared"]
 
     # Example usage
 
@@ -31,14 +29,14 @@ if __name__ == "__main__":
         families = await cloud.get_families()
         for family in families:
             print("FamilyId {family['familyid']}:")
-            devices = await cloud.get_devices(family['familyid'], shared)
+            devices = await cloud.get_devices(family["familyid"], shared)
             if devices:
                 print("Devices:")
                 pprint.pprint(devices)
                 for device in devices:
                     state = await cloud.query_device_state(
-                        device['endpointId'],
-                        device['devSession'])
+                        device["endpointId"], device["devSession"]
+                    )
 
                     print("Device state:")
                     pprint.pprint(state)

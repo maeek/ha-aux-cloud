@@ -72,14 +72,21 @@ This integration is still in development. Current status:
 - [x] [API] Implement login
 - [x] [API] Implement getting devices information
 - [x] [Home Assistant] Config flow with device selection
-- [ ] [API] Implement updating device state
-- [ ] [Home Assistant] Cloud data fetcher
-- [ ] [Home Assistant] Data coordinator
-- [ ] [Home Assistant] climate entity
+- [x] [API] Implement updating device state
+- [x] [Home Assistant] Cloud data fetcher
+- [x] [Home Assistant] Data coordinator
+- [x] [Home Assistant] climate entity
 - [x] [Home Assistant] sensor entity
-- [ ] [Home Assistant] binary sensor entity
-- [ ] [Home Assistant] number entity
+- [x] [Home Assistant] water heater entity
+- [x] [Home Assistant] basic sensor entities
+- [x] [Home Assistant] switch entity
+- [ ] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
+- [ ] [Home Assistant] Implement optimistic updates - switches change state to previous state and then update the correct state after data coordinator fetches data
+- [ ] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
 - [ ] [Home Assistant] services
+- [ ] [Home Assistant] Manual tests
+- [ ] [Home Assistant] Unit tests
+- [ ] [API] WebSocket connection for instant updates
 - [x] Documentation
 - [ ] Add to HACS
 - [ ] Translations
@@ -154,4 +161,12 @@ Set a minimum score threshold (useful for CI/CD):
 
 ```bash
 pylint --fail-under=8.0 custom_components/aux_cloud
+```
+
+### Code formatting
+
+The project uses [Black](https://pypi.org/project/black/) for code formatting. To format the code, run:
+
+```bash
+black custom_components/aux_cloud
 ```
