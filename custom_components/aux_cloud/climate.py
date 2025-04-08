@@ -5,6 +5,7 @@ from homeassistant.components.climate import (
     ClimateEntityFeature,
     ClimateEntityDescription,
     HVACMode,
+    HVACAction,
 )
 from homeassistant.components.climate.const import (
     FAN_AUTO,
@@ -163,6 +164,22 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
 
         await self._set_device_params(params)
 
+    @property
+    def hvac_action(self):
+        """Return the current HVAC action."""
+        if self.hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+        if self.hvac_mode == HVACMode.HEAT:
+            return HVACAction.HEATING
+        if self.hvac_mode == HVACMode.COOL:
+            return HVACAction.COOLING
+        if self.hvac_mode == HVACMode.DRY:
+            return HVACAction.DRYING
+        if self.hvac_mode == HVACMode.FAN_ONLY:
+            return HVACAction.FAN
+
+        return HVACAction.IDLE
+
     async def async_turn_on(self):
         """Turn the heat pump on."""
         await self.async_set_hvac_mode(HVACMode.HEAT)
@@ -273,6 +290,22 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             params = {**AC_POWER_ON, AUX_MODE: aux_mode}
 
         await self._set_device_params(params)
+
+    @property
+    def hvac_action(self):
+        """Return the current HVAC action."""
+        if self.hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+        if self.hvac_mode == HVACMode.HEAT:
+            return HVACAction.HEATING
+        if self.hvac_mode == HVACMode.COOL:
+            return HVACAction.COOLING
+        if self.hvac_mode == HVACMode.DRY:
+            return HVACAction.DRYING
+        if self.hvac_mode == HVACMode.FAN_ONLY:
+            return HVACAction.FAN
+
+        return HVACAction.IDLE
 
     @property
     def fan_mode(self):

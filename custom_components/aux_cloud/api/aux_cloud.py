@@ -488,10 +488,8 @@ class AuxCloudAPI:
             }
         }
 
-        # Special case for getting ambient mode
-        if len(params) == 1 and params[0] == "mode":
-            data["directive"]["payload"]["did"] = device["endpointId"]
-            data["directive"]["payload"]["vals"] = [[{"val": 0, "idx": 1}]]
+        data["directive"]["payload"]["did"] = device["endpointId"]
+        data["directive"]["payload"]["vals"] = [[{"val": 0, "idx": 1}]]
 
         json_data = await self._make_request(
             method="POST",
