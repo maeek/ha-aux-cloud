@@ -51,6 +51,7 @@ SPOOF_APP_PLATFORM = "android"
 
 API_SERVER_URL_EU = "https://app-service-deu-f0e9ebbb.smarthomecs.de"
 API_SERVER_URL_USA = "https://app-service-usa-fd7cc04c.smarthomecs.com"
+API_SERVER_URL_CN = "app-service-chn-31a93883.ibroadlink.com"
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -77,7 +78,11 @@ class AuxCloudAPI:
     """
 
     def __init__(self, region: str = "eu"):
-        self.url = API_SERVER_URL_EU if region == "eu" else API_SERVER_URL_USA
+        self.url = (
+            API_SERVER_URL_EU
+            if region == "eu"
+            else API_SERVER_URL_USA if region == "usa" else API_SERVER_URL_CN
+        )
         self.devices = None
         self.families = None
         self.email = None
@@ -115,6 +120,7 @@ class AuxCloudAPI:
         """
         url = f"{self.url}/{endpoint}"
 
+        _LOGGER.debug(f"Region: {self.url}")
         _LOGGER.debug(f"Making {method} request to {endpoint}")
         async with aiohttp.ClientSession() as session:
             async with session.request(

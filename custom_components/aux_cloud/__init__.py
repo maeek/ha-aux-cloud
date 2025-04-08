@@ -5,7 +5,7 @@ import asyncio
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
@@ -177,7 +177,9 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up AUX Cloud via a config entry."""
+    """Set up AUX Cloud from a config entry."""
+    region = entry.data.get(CONF_REGION, "eu")
+    api = AuxCloudAPI(region=region)
     email = entry.data.get(CONF_EMAIL)
     password = entry.data.get(CONF_PASSWORD)
     selected_device_ids = entry.data.get(CONF_SELECTED_DEVICES, [])
@@ -186,7 +188,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Missing required credentials for AUX Cloud")
         return False
 
-    api = AuxCloudAPI()
     coordinator = AuxCloudCoordinator(hass, api, email, password, selected_device_ids)
 
     # Attempt to log in
