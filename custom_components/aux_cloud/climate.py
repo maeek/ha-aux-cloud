@@ -32,7 +32,7 @@ from custom_components.aux_cloud.api.const import (
     AC_SWING_VERTICAL_ON,
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
-    AUX_PRODUCT_CATEGORY,
+    AuxProductCategory,
     AUX_ECOMODE_OFF,
     AUX_ECOMODE_ON,
     AUX_MODE_COOLING,
@@ -71,7 +71,7 @@ async def async_setup_entry(
 
     # Create climate entities for each device
     for device in coordinator.data["devices"]:
-        if device.get("productId") in AUX_PRODUCT_CATEGORY.AC:
+        if device.get("productId") in AuxProductCategory.AC:
             entities.append(
                 AuxACClimateEntity(
                     coordinator,
@@ -85,7 +85,7 @@ async def async_setup_entry(
                     ),
                 )
             )
-        elif device.get("productId") in AUX_PRODUCT_CATEGORY.HEAT_PUMP:
+        elif device.get("productId") in AuxProductCategory.HEAT_PUMP:
             entities.append(
                 AuxHeatPumpClimateEntity(
                     coordinator,

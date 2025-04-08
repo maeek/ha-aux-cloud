@@ -66,10 +66,8 @@ class ExpiredTokenError(Exception):
     pass
 
 
-class DeviceQueryError(Exception):
+class AuxApiError(Exception):
     """Exception raised when querying devices fails."""
-
-    pass
 
 
 class AuxCloudAPI:
@@ -120,8 +118,8 @@ class AuxCloudAPI:
         """
         url = f"{self.url}/{endpoint}"
 
-        _LOGGER.debug(f"Region: {self.url}")
-        _LOGGER.debug(f"Making {method} request to {endpoint}")
+        _LOGGER.debug("Region: %s", self.url)
+        _LOGGER.debug("Making %s request to %s", method, endpoint)
         async with aiohttp.ClientSession() as session:
             async with session.request(
                 method=method,
@@ -139,8 +137,10 @@ class AuxCloudAPI:
                 try:
                     json_data = json.loads(response_text)
                     return json_data
-                except json.JSONDecodeError:
-                    raise Exception(f"Failed to parse JSON response: {response_text}")
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"Failed to parse JSON response: {response_text}"
+                    ) from exc
 
     async def login(self, email: str = None, password: str = None):
         """
@@ -187,10 +187,10 @@ class AuxCloudAPI:
         if "status" in json_data and json_data["status"] == 0:
             self.loginsession = json_data["loginsession"]
             self.userid = json_data["userid"]
-            _LOGGER.debug(f"Login successful: {self.userid}")
+            _LOGGER.debug("Login successful: %s", self.userid)
             return True
-        else:
-            raise Exception(f"Failed to login: {json_data}")
+
+        raise AuxApiError(f"Failed to login: {json_data}")
 
     def is_logged_in(self):
         """
@@ -211,7 +211,7 @@ class AuxCloudAPI:
             headers=self._get_headers(),
             ssl=False,
         )
-        _LOGGER.debug(f"Families response: {json_data}")
+        _LOGGER.debug("Families response: %s", json_data)
 
         if self.families is None:
             self.families = {}
@@ -225,14 +225,14 @@ class AuxCloudAPI:
                     "devices": [],
                 }
             return json_data["data"]["familyList"]
-        else:
-            raise Exception(f"Failed to get families list: {json_data}")
+
+        raise AuxApiError(f"Failed to get families list: {json_data}")
 
     async def get_rooms(self, familyid: str):
         """
         List rooms associated with a family.
         """
-        _LOGGER.debug(f"Getting rooms list for family {familyid}")
+        _LOGGER.debug("Getting rooms list for family %s", familyid)
         json_data = await self._make_request(
             method="POST",
             endpoint="appsync/group/room/query",
@@ -247,8 +247,8 @@ class AuxCloudAPI:
                 )
 
             return json_data["data"]["roomList"]
-        else:
-            raise Exception(f"Failed to query a room: {json_data}")
+
+        raise AuxApiError(f"Failed to query a room: {json_data}")
 
     async def get_devices(
         self,
@@ -380,8 +380,8 @@ class AuxCloudAPI:
                 self.devices.append(dev)
 
             return self.devices
-        else:
-            raise DeviceQueryError(f"Failed to query devices: {json_data}")
+
+        raise AuxApiError(f"Failed to query devices: {json_data}")
 
     def _get_directive_header(
         self, namespace: str, name: str, message_id_prefix: str, **kwargs: str
@@ -432,7 +432,7 @@ class AuxCloudAPI:
         ):
             return json_data["event"]["payload"]
 
-        raise Exception(f"Failed to query device state: {json_data}")
+        raise AuxApiError(f"Failed to query device state: {json_data}")
 
     async def bulk_query_device_state(self, devices: list[dict]):
         """
@@ -473,21 +473,28 @@ class AuxCloudAPI:
         ):
             return json_data["event"]["payload"]
 
-        raise Exception(f"Failed to query device state: {json_data}")
+        raise AuxApiError(f"Failed to query device state: {json_data}")
 
     async def _act_device_params(
-        self, device: dict, act: str, params: list[str] = [], vals: list[str] = []
+        self, device: dict, act: str, params: list[str] = None, vals: list[str] = None
     ):
         """
         Query device parameters. If no parameters are provided, default parameters are queried.
         https://docs-ibroadlink-com.translate.goog/public/configuration-sdk+ctc/message_table/?_x_tr_sl=auto&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp
         """
+        if params is None:
+            params = []
+        if vals is None:
+            vals = []
 
         if act == "set" and len(params) != len(vals):
             raise Exception("Params and Vals must have the same length")
 
         _LOGGER.debug(
-            f"Acting on device {device['endpointId']} with params: {params} and vals: {vals}"
+            "Acting on device %s with params: %s and vals: %s",
+            device["endpointId"],
+            params,
+            vals,
         )
 
         cookie = json.loads(base64.b64decode(device["cookie"].encode()))
@@ -546,7 +553,7 @@ class AuxCloudAPI:
             ssl=False,
         )
 
-        _LOGGER.debug(f"Device params response: {json_data}")
+        _LOGGER.debug("Device params response: %s", json_data)
 
         if (
             "event" in json_data
@@ -560,13 +567,15 @@ class AuxCloudAPI:
                 response_dict[response["params"][i]] = response["vals"][i][0]["val"]
 
             return response_dict
-        else:
-            raise Exception(f"Failed to query device state: {data}")
 
-    async def get_device_params(self, device: dict, params: list[str] = []):
+        raise AuxApiError(f"Failed to query device state: {data}")
+
+    async def get_device_params(self, device: dict, params: list[str] = None):
         """
         Query device parameters. If no parameters are provided, default parameters are queried.
         """
+        if params is None:
+            params = []
         return await self._act_device_params(device, "get", params)
 
     async def set_device_params(self, device: dict, values: dict):

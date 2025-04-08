@@ -15,7 +15,7 @@ AC = "Air Conditioner"
 HEAT_PUMP = "Heat Pump"
 
 
-class AUX_PRODUCT_CATEGORY(auto):
+class AuxProductCategory(auto):
     HEAT_PUMP = ["000000000000000000000000c3aa0000"]
 
     AC = ["000000000000000000000000c0620000"]
