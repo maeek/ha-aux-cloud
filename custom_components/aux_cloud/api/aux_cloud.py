@@ -285,28 +285,24 @@ class AuxCloudAPI:
                     dev for dev in devices if dev["endpointId"] in selected_devices
                 ]
 
-            # Create tasks to query the state of all devices
-            state_tasks = [
-                self.query_device_state(dev["endpointId"], dev["devSession"])
-                for dev in devices
-            ]
-
             # Wait for all state tasks to complete
-            device_states = await asyncio.gather(*state_tasks, return_exceptions=True)
+            device_states = await self.bulk_query_device_state(devices)
 
             # Create tasks for fetching device parameters
             param_tasks = []
 
-            for dev, dev_state in zip(devices, device_states):
-                if isinstance(dev_state, BaseException):
-                    _LOGGER.debug(
-                        "Unexpected error while quering %s: %s",
-                        dev["endpointId"],
-                        dev_state,
-                    )
-                    continue
-
-                dev["state"] = dev_state["data"][0]["state"]
+            for dev in devices:
+                dev["state"] = next(
+                    (
+                        dev_state["state"]
+                        for dev_state in device_states["data"]
+                        if dev_state["did"] == dev["endpointId"]
+                    ),
+                    0,
+                )
+                _LOGGER.debug(
+                    f"Device states response {dev['endpointId']}: {dev['state']}"
+                )
                 # Initialize params as an empty dictionary
                 dev["params"] = {}
 
@@ -412,6 +408,47 @@ class AuxCloudAPI:
                     timstamp=f"{timestamp}",
                 ),
                 "payload": {"studata": queried_device, "msgtype": "batch"},
+            }
+        }
+
+        json_data = await self._make_request(
+            method="POST",
+            endpoint="device/control/v2/querystate",
+            data=data,
+            headers=self._get_headers(),
+            ssl=False,
+        )
+
+        if (
+            "event" in json_data
+            and "payload" in json_data["event"]
+            and json_data["event"]["payload"]["status"] == 0
+        ):
+            return json_data["event"]["payload"]
+
+        raise Exception(f"Failed to query device state: {json_data}")
+
+    async def bulk_query_device_state(self, devices: list[dict]):
+        """
+        Query device state (On/Off)
+        """
+        timestamp = int(time.time())
+        queried_devices = [
+            {"did": dev["endpointId"], "devSession": dev["devSession"]}
+            for dev in devices
+        ]
+        data = {
+            "directive": {
+                "header": self._get_directive_header(
+                    namespace="DNA.QueryState",
+                    name="queryState",
+                    # Original header name
+                    messageType="controlgw.batch",
+                    message_id_prefix=self.userid,
+                    # Original header name, probably can be skipped
+                    timstamp=f"{timestamp}",
+                ),
+                "payload": {"studata": queried_devices, "msgtype": "batch"},
             }
         }
 
