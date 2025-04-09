@@ -1,9 +1,9 @@
 {
-  "name": "aux_cloud",
+  "name": "AUX Cloud",
   "content_in_root": false,
-  "render_readme": true,
   "domains": [
     "cloud"
   ],
+  "render_readme": true,
   "zip_release": false
 }
