@@ -1,6 +1,7 @@
 # AUX Cloud Integration for Home Assistant
 
-> **⚠️ Warning:** This integration is currently a work in progress. Some features may not be fully implemented or stable.
+> [!WARNING]
+> This integration is currently a work in progress. Some features may not be fully implemented or stable.
 
 Unofficial integration for Aux Cloud connected appliances like air conditioners and heat pumps. Aux Cloud is a service
 based on the Broadlink platform that allows you to control your appliances from anywhere. This is a cloud alternative
@@ -22,7 +23,8 @@ to control AUX heat pumps. The implementation of API requests are based on publi
 1. Make sure you have [HACS](https://hacs.xyz/) installed
 2. Go to HACS > Integrations
 3. Click the "+" button and search for "AUX Cloud"
-  > Note: the integration is not available in HACS yet. You can install it by adding custom repository instead.
+  > [!NOTE]
+  > The integration is not available in HACS yet. You can install it by adding custom repository instead.
 4. Install the integration
 5. Restart Home Assistant
 
@@ -45,7 +47,8 @@ The recommended way to set up this integration is through the Home Assistant UI:
 5. Select your region (e.g., Europe, USA or China - based on your AUX Cloud account)
 6. Select which devices you want to add to Home Assistant
 
-  > Note: Make sure that your devices are online when setting up the integration. If you add a device that is offline, it will not add all the entities. You will need to reload the integration manually.
+  > [!TIP]
+  > Make sure that your devices are online when setting up the integration. If you add a device that is offline, it will not add all the entities. You will need to reload the integration manually.
 
 Your credentials will be stored securely in Home Assistant's `.storage/core.config_entries` storage.
 
@@ -72,7 +75,8 @@ If you encounter issues:
 
 - **Adding devices that are offline**: If you add a device that is offline, it will not add all the entities. You will need to reload the integration manually
 - **Logging in in the App**: The login process in the app will log out any existgin sessions (at least on Android). If you log in in the app, reload the integration.
-  > **Note**: There are plans to implement automatic relogging if the request fails due to session expiry.
+> [!NOTE]
+> There are plans to implement automatic relogging if the request fails due to session expiry.
 
 ## Development
 
@@ -93,6 +97,7 @@ This integration is still in development. Current status:
 - [x] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
 - [x] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
 - [ ] [Home Assistant] Add icon to https://github.com/home-assistant/brands
+- [ ] [API] Implement session check and re-login
 - [ ] [Home Assistant] services
 - [ ] [Home Assistant] Manual tests
 - [ ] [Home Assistant] Unit tests
