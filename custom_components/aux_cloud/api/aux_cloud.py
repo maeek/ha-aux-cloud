@@ -51,7 +51,7 @@ SPOOF_APP_PLATFORM = "android"
 
 API_SERVER_URL_EU = "https://app-service-deu-f0e9ebbb.smarthomecs.de"
 API_SERVER_URL_USA = "https://app-service-usa-fd7cc04c.smarthomecs.com"
-API_SERVER_URL_CN = "app-service-chn-31a93883.ibroadlink.com"
+API_SERVER_URL_CN = "https://app-service-chn-31a93883.ibroadlink.com"
 
 _LOGGER = logging.getLogger(__package__)
 
