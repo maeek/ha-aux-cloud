@@ -1,9 +1,7 @@
 {
   "name": "AUX Cloud",
   "content_in_root": false,
-  "domains": [
-    "cloud"
-  ],
   "render_readme": true,
-  "zip_release": false
+  "zip_release": false,
+  "homeassistant": "2025.4.0"
 }
