@@ -5,7 +5,7 @@ import logging
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, OptionsFlow
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import async_get as async_get_device_registry
@@ -27,6 +27,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         self._aux_cloud = None
         self._email = None
         self._password = None
+        self._region = "eu"
         self._families = {}
         self._available_devices = []
 
@@ -47,12 +48,18 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             if DATA_AUX_CLOUD_CONFIG in self.hass.data
             else ""
         )
+        stored_region = (
+            self.hass.data[DATA_AUX_CLOUD_CONFIG].get(CONF_REGION)
+            if DATA_AUX_CLOUD_CONFIG in self.hass.data
+            else "eu"
+        )
 
         if user_input is not None:
             self._email = user_input[CONF_EMAIL]
             self._password = user_input[CONF_PASSWORD]
+            self._region = user_input[CONF_REGION]
 
-            self._aux_cloud = AuxCloudAPI()
+            self._aux_cloud = AuxCloudAPI(region=self._region)
 
             try:
                 await self._aux_cloud.login(self._email, self._password)
@@ -64,18 +71,19 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 _LOGGER.error(f"Login failed: {ex}")
                 errors["base"] = "user_login_failed"
 
-        data_schema = {
-            vol.Required(CONF_EMAIL, default=stored_email): str,
-            vol.Required(CONF_PASSWORD, default=stored_password): str,
-        }
-
-        # Broken
-        # if self.show_advanced_options:
-        #     data_schema["region"] = vol.In(["eu", "us"], default="eu")
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_EMAIL, default=stored_email): str,
+                vol.Required(CONF_PASSWORD, default=stored_password): str,
+                vol.Required(CONF_REGION, default=stored_region): vol.In(
+                    ["eu", "usa", "cn"]
+                ),
+            }
+        )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(data_schema),
+            data_schema=data_schema,
             errors=errors,
         )
 
@@ -250,6 +258,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 config = {
                     CONF_EMAIL: self._email,
                     CONF_PASSWORD: self._password,
+                    CONF_REGION: self._region,
                     CONF_SELECTED_DEVICES: selected_device_ids,
                     CONF_FAMILIES: self._families,
                 }
@@ -301,6 +310,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         if import_info and CONF_EMAIL in import_info and CONF_PASSWORD in import_info:
             self._email = import_info[CONF_EMAIL]
             self._password = import_info[CONF_PASSWORD]
+            self._region = import_info.get(CONF_REGION, "eu")
 
             # Show a message in logs recommending UI configuration
             _LOGGER.info(
@@ -312,7 +322,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             # Create a config entry directly from the imported data
             # For imports, we'll fetch and include all devices
             try:
-                self._aux_cloud = AuxCloudAPI()
+                self._aux_cloud = AuxCloudAPI(region=self._region)
                 await self._aux_cloud.login(self._email, self._password)
 
                 # Fetch all families and devices
@@ -333,6 +343,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 config = {
                     CONF_EMAIL: self._email,
                     CONF_PASSWORD: self._password,
+                    CONF_REGION: self._region,
                     CONF_SELECTED_DEVICES: device_ids,
                 }
 
@@ -424,12 +435,13 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
         # Fetch all devices to allow re-selection
         email = self.config_entry.data.get(CONF_EMAIL)
         password = self.config_entry.data.get(CONF_PASSWORD)
+        region = self.config_entry.data.get(CONF_REGION, "eu")
 
         if not email or not password:
             return self.async_abort(reason="missing_credentials")
 
         try:
-            self._aux_cloud = AuxCloudAPI()
+            self._aux_cloud = AuxCloudAPI(region=region)
             await self._aux_cloud.login(email, password)
 
             # Fetch all families and devices

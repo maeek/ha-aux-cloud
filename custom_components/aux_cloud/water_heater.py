@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.aux_cloud.api.const import (
-    AUX_PRODUCT_CATEGORY,
+    AuxProductCategory,
     AUX_ECOMODE,
     HP_HOT_WATER_TANK_TEMPERATURE,
     HP_HOT_WATER_TEMPERATURE_TARGET,
@@ -56,7 +56,7 @@ async def async_setup_entry(
     for device in coordinator.data["devices"]:
         for entity in WATER_HEATER_ENTITIES.values():
             # Only add water heater entities for devices that are in the AUX "Heat pump" category
-            if device["productId"] in AUX_PRODUCT_CATEGORY.HEAT_PUMP:
+            if device["productId"] in AuxProductCategory.HEAT_PUMP:
                 entities.append(
                     AuxWaterHeaterEntity(
                         coordinator,
