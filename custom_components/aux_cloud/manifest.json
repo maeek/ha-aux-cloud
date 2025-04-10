@@ -8,8 +8,7 @@
   "issue_tracker": "https://github.com/maeek/ha-aux-cloud/issues",
   "loggers": [],
   "requirements": [
-    "aiohttp==3.11.16",
-    "asyncio==3.4.3",
+    "aiohttp",
     "pycryptodome==3.21.0"
   ],
   "version": "0.1.0",

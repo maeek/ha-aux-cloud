@@ -3,3 +3,4 @@ __pycache__
 pipfile
 pipfile.lock
 .idea
+/config.yaml

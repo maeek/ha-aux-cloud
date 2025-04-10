@@ -13,6 +13,8 @@ from custom_components.aux_cloud.api.const import (
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
     AUX_ERROR_FLAG,
+    AUX_MODEL_PARAMS_LIST,
+    AUX_MODEL_SPECIAL_PARAMS_LIST,
     HP_HOT_WATER_TANK_TEMPERATURE,
     HP_HOT_WATER_TEMPERATURE_TARGET,
     HP_HEATER_TEMPERATURE_TARGET,
@@ -117,9 +119,17 @@ async def async_setup_entry(
     _LOGGER.debug("Setting up AUX Cloud sensors %s", coordinator.data["devices"])
     for device in coordinator.data["devices"]:
         for entity in SENSORS.values():
-            if (
-                "params" in device
-                and device.get("params", {}).get(entity["param"]) is not None
+            if "productId" in device and (
+                (
+                    device["productId"] in AUX_MODEL_PARAMS_LIST
+                    and entity["param"]
+                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
+                )
+                or (
+                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
+                    and entity["param"]
+                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                )
             ):
                 sensor = AuxCloudSensor(
                     coordinator,
