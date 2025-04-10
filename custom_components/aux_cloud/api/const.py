@@ -163,6 +163,8 @@ AUX_MODEL_PARAMS_LIST = {
         AC_TEMPERATURE_AMBIENT,
         AC_POWER_LIMIT,
         AC_POWER_LIMIT_SWITCH,
+        AC_CHILD_LOCK,
+        AC_COMFORTABLE_WIND,
         "new_type",
         "ac_tempconvert",
         "sleepdiy",
