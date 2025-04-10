@@ -74,7 +74,6 @@ If you encounter issues:
 
 ## Known Issues
 
-- **Adding devices that are offline**: If you add a device that is offline, it will not add all the entities. You will need to reload the integration manually
 - **Logging in in the App**: The login process in the app will log out any existing sessions (at least on Android). If you log in the app, reload the integration.
 
 > [!NOTE]
