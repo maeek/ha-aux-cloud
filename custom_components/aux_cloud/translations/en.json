@@ -33,9 +33,6 @@
     },
     "progress": {
       "fetching_devices": "Fetching your devices... This may take a moment."
-    },
-    "info": {
-      "configuration_recommendation": "For better security, it is recommended to configure this integration through the UI where credentials are stored encrypted."
     }
   },
   "options": {
