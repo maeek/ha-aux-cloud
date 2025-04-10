@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
     AUX_ERROR_FLAG,
@@ -19,7 +19,7 @@ from custom_components.aux_cloud.api.const import (
     HP_HOT_WATER_TEMPERATURE_TARGET,
     HP_HEATER_TEMPERATURE_TARGET,
 )
-from custom_components.aux_cloud.util import BaseEntity
+from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
 
 SENSORS: dict[str, dict[str, any]] = {

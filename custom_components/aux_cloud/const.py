@@ -8,7 +8,7 @@ from homeassistant.components.climate import (
     FAN_AUTO,
 )
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AC_MODE_AUTO,
     AC_MODE_COOLING,
     AC_MODE_DRY,

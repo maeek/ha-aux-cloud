@@ -4,7 +4,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AC_AUXILIARY_HEAT,
     AC_CHILD_LOCK,
     AC_CLEAN,
@@ -24,7 +24,7 @@ from custom_components.aux_cloud.api.const import (
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
 )
-from custom_components.aux_cloud.util import BaseEntity
+from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
 
 SWITCHES = {

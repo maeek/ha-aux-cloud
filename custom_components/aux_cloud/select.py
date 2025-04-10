@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AUX_MODEL_PARAMS_LIST,
     AUX_MODEL_SPECIAL_PARAMS_LIST,
     HP_QUIET_MODE,

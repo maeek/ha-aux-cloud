@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AC_FAN_SPEED,
     AUX_MODE,
     AC_SWING_HORIZONTAL,
@@ -47,7 +47,7 @@ from custom_components.aux_cloud.api.const import (
     AC_POWER_ON,
     ACFanSpeed,
 )
-from custom_components.aux_cloud.util import BaseEntity
+from .util import BaseEntity
 
 from .const import (
     DOMAIN,
