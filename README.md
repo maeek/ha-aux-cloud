@@ -19,12 +19,13 @@ to control AUX heat pumps. The implementation of API requests are based on publi
 
 ## HACS Installation (Recommended)
 
-
 1. Make sure you have [HACS](https://hacs.xyz/) installed
 2. Go to HACS > Integrations
 3. Click the "+" button and search for "AUX Cloud"
+
   > [!NOTE]
   > The integration is not available in HACS yet. You can install it by adding custom repository instead.
+
 4. Install the integration
 5. Restart Home Assistant
 
@@ -74,9 +75,12 @@ If you encounter issues:
 ## Known Issues
 
 - **Adding devices that are offline**: If you add a device that is offline, it will not add all the entities. You will need to reload the integration manually
-- **Logging in in the App**: The login process in the app will log out any existgin sessions (at least on Android). If you log in in the app, reload the integration.
+- **Logging in in the App**: The login process in the app will log out any existing sessions (at least on Android). If you log in the app, reload the integration.
+
 > [!NOTE]
 > There are plans to implement automatic relogging if the request fails due to session expiry.
+
+- **Shared devices**: If your account have shared devices, you might encounter an issue that `Platform aux_cloud does not generate unique ids`, check your HA logs and transfer ownership of the device to your account.
 
 ## Development
 
