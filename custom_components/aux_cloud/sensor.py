@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from homeassistant.const import UnitOfTemperature
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -18,7 +18,6 @@ from custom_components.aux_cloud.api.const import (
     HP_HEATER_TEMPERATURE_TARGET,
 )
 from custom_components.aux_cloud.util import BaseEntity
-
 from .const import DOMAIN, _LOGGER
 
 SENSORS: dict[str, dict[str, any]] = {
@@ -115,8 +114,7 @@ async def async_setup_entry(
 
     entities = []
 
-    _LOGGER.debug(f"Setting up AUX Cloud sensors {coordinator.data['devices']}")
-
+    _LOGGER.debug("Setting up AUX Cloud sensors %s", coordinator.data["devices"])
     for device in coordinator.data["devices"]:
         for entity in SENSORS.values():
             if (
@@ -131,7 +129,9 @@ async def async_setup_entry(
                 )
                 entities.append(sensor)
                 _LOGGER.debug(
-                    f"Adding sensor entity for {device['friendlyName']} with unique_id {sensor.unique_id}"
+                    "Adding sensor entity for %s with unique_id %s",
+                    device["friendlyName"],
+                    sensor.unique_id,
                 )
 
     async_add_entities(entities, True)

@@ -6,8 +6,8 @@ from homeassistant.components.water_heater import (
     STATE_OFF,
     STATE_PERFORMANCE,
 )
-from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -26,7 +26,6 @@ from custom_components.aux_cloud.api.const import (
     HP_QUIET_MODE,
 )
 from custom_components.aux_cloud.util import BaseEntity
-
 from .const import DOMAIN, _LOGGER
 
 WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {
@@ -65,7 +64,8 @@ async def async_setup_entry(
                     )
                 )
                 _LOGGER.debug(
-                    f"Adding water heater entity for {device['friendlyName']}"
+                    "Adding water heater entity for %s",
+                    device["friendlyName"],
                 )
 
     if entities:

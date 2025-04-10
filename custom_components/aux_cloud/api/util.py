@@ -4,6 +4,7 @@ from Crypto.Cipher import AES
 
 
 def encrypt_aes_cbc_zero_padding(iv: bytes, key: bytes, data: bytes):
+    """Encrypt data using AES-CBC zero-padding."""
     try:
         cipher = AES.new(key, AES.MODE_CBC, iv)
         padded_data = data
