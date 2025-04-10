@@ -1,7 +1,7 @@
 """Aux Cloud integration for Home Assistant."""
 
-from datetime import timedelta
 import asyncio
+from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -197,7 +197,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Login to AUX Cloud API failed")
             return False
     except Exception as e:
-        _LOGGER.error(f"Exception during login: {e}")
+        _LOGGER.error("Exception during login: %s", e)
         return False
 
     # Perform an initial update

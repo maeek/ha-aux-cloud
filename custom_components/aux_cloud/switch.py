@@ -23,7 +23,6 @@ from custom_components.aux_cloud.api.const import (
     HP_WATER_POWER,
 )
 from custom_components.aux_cloud.util import BaseEntity
-
 from .const import DOMAIN, _LOGGER
 
 SWITCHES = {
@@ -174,9 +173,10 @@ async def async_setup_entry(
                         )
                     )
                     _LOGGER.debug(
-                        f"Adding switch entity for {device['friendlyName']} with option {switch['description'].key}"
+                        "Adding switch entity for %s with option %s",
+                        device["friendlyName"],
+                        switch["description"].key,
                     )
-
     if entities:
         async_add_entities(entities, True)
     else:
@@ -221,4 +221,4 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
 
             await self._set_device_params({self._option: int(state)})
         except Exception as ex:
-            _LOGGER.error(f"Failed to set switch state for {self._device_id}: {ex}")
+            _LOGGER.error("Failed to set switch state for %s: %s", self._device_id, ex)

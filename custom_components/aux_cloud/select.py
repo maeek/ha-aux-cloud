@@ -7,7 +7,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from custom_components.aux_cloud.api.const import HP_QUIET_MODE
-
 from .const import DOMAIN, _LOGGER
 from .util import BaseEntity
 
@@ -61,9 +60,10 @@ async def async_setup_entry(
                     )
                 )
                 _LOGGER.debug(
-                    f"Adding select entity for {device['friendlyName']} with option {entity['description'].key}"
+                    "Adding select entity for %s with option %s",
+                    device["friendlyName"],
+                    entity["description"].key,
                 )
-
     if entities:
         async_add_entities(entities, True)
     else:

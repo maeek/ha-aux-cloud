@@ -68,7 +68,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_fetch_devices()
 
             except Exception as ex:
-                _LOGGER.error(f"Login failed: {ex}")
+                _LOGGER.error("Login failed: %s", ex)
                 errors["base"] = "user_login_failed"
 
         data_schema = vol.Schema(
@@ -124,7 +124,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                             family_name,
                         )
                     except Exception as e:
-                        _LOGGER.warning(f"Failed to decode family name: {e}")
+                        _LOGGER.warning("Failed to decode family name: %s", e)
                         # If decoding fails, use the original name
                         pass
 
@@ -154,7 +154,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     )
                 except Exception as e:
                     _LOGGER.warning(
-                        f"Failed to fetch shared devices for family {family_id}: {e}"
+                        "Failed to fetch shared devices for family %s: %s",
+                        family_id,
+                        e,
                     )
                     shared_devices = []
 
@@ -230,7 +232,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             )
 
         except Exception as ex:
-            _LOGGER.error(f"Error fetching devices: {ex}")
+            _LOGGER.error("Error fetching devices: %s", ex)
             # Always return a flow result, never None
             return self.async_abort(reason="fetch_devices_failed")
 
@@ -268,7 +270,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 return self.async_create_entry(title=title, data=config)
             except Exception as ex:
-                _LOGGER.error(f"Error creating entry: {ex}")
+                _LOGGER.error("Error creating entry: %s", ex)
                 errors["base"] = "unknown"
 
         # Prepare device options for selection
@@ -352,7 +354,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 )
 
             except Exception as ex:
-                _LOGGER.error(f"Import failed: {ex}")
+                _LOGGER.error("Import failed: %s", ex)
                 return self.async_abort(reason="user_login_failed")
 
         # If import data is incomplete, show the form
@@ -430,8 +432,7 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
 
                 return self.async_create_entry(title="", data={})
             except Exception as ex:
-                _LOGGER.error(f"Error updating config entry: {ex}")
-
+                _LOGGER.error("Error updating config entry: %s", ex)
         # Fetch all devices to allow re-selection
         email = self.config_entry.data.get(CONF_EMAIL)
         password = self.config_entry.data.get(CONF_PASSWORD)

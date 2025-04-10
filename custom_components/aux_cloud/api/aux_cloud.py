@@ -1,10 +1,10 @@
+import asyncio
 import base64
 import hashlib
 import json
+import logging
 import time
 from typing import TypedDict
-import logging
-import asyncio
 
 import aiohttp
 
@@ -39,8 +39,9 @@ AES_INITIAL_VECTOR = bytes(
         ]
     ]
 )
-
+# pylint: disable=line-too-long
 LICENSE = "PAFbJJ3WbvDxH5vvWezXN5BujETtH/iuTtIIW5CE/SeHN7oNKqnEajgljTcL0fBQQWM0XAAAAAAnBhJyhMi7zIQMsUcwR/PEwGA3uB5HLOnr+xRrci+FwHMkUtK7v4yo0ZHa+jPvb6djelPP893k7SagmffZmOkLSOsbNs8CAqsu8HuIDs2mDQAAAAA="
+# pylint: enable=line-too-long
 LICENSE_ID = "3c015b249dd66ef0f11f9bef59ecd737"
 COMPANY_ID = "48eb1b36cf0202ab2ef07b880ecda60d"
 
