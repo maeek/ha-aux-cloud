@@ -15,9 +15,6 @@ from custom_components.aux_cloud.api.const import (
     AC_MODE_FAN,
     AC_MODE_HEATING,
     AUX_MODE,
-    HP_MODE_AUTO,
-    HP_MODE_COOLING,
-    HP_MODE_HEATING,
     ACFanSpeed,
 )
 
