@@ -17,9 +17,6 @@ from .api.const import (
     AUX_ECOMODE,
     AUX_MODEL_PARAMS_LIST,
     AUX_MODEL_SPECIAL_PARAMS_LIST,
-    HP_HEATER_AUTO_WATER_TEMP,
-    HP_HEATER_AUTO_WATER_TEMP_OFF,
-    HP_HEATER_AUTO_WATER_TEMP_ON,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
@@ -67,18 +64,6 @@ SWITCHES = {
             icon="mdi:water-boiler",
             translation_key="aux_fast_hotwater",
         ),
-    },
-    HP_HEATER_AUTO_WATER_TEMP: {
-        "description": SwitchEntityDescription(
-            key=HP_HEATER_AUTO_WATER_TEMP,
-            name="Auto Water Temperature",
-            icon="mdi:water-thermometer",
-            translation_key="aux_auto_wtemp",
-        ),
-        "custom_mapping": {
-            True: HP_HEATER_AUTO_WATER_TEMP_ON.get(HP_HEATER_AUTO_WATER_TEMP),
-            False: HP_HEATER_AUTO_WATER_TEMP_OFF.get(HP_HEATER_AUTO_WATER_TEMP),
-        },
     },
     AC_AUXILIARY_HEAT: {
         "description": SwitchEntityDescription(

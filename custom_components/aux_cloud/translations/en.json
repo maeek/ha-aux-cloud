@@ -92,6 +92,21 @@
           "quiet_1": "Quiet Level 1",
           "quiet_2": "Quiet Level 2"
         }
+      },
+      "aux_select_auto_water_temp": {
+        "name": "Auto Water Temperature",
+        "state": {
+          "off": "Off",
+          "level_1": "Setting 1",
+          "level_2": "Setting 2",
+          "level_3": "Setting 3",
+          "level_4": "Setting 4",
+          "level_5": "Setting 5",
+          "level_6": "Setting 6",
+          "level_7": "Setting 7",
+          "level_8": "Setting 8",
+          "user_defined": "User Defined"
+        }
       }
     },
     "switch": {
@@ -133,6 +148,17 @@
       },
       "aux_screen_display": {
         "name": "Screen Display"
+      },
+      "aux_power_limit": {
+        "name": "Power Limit"
+      }
+    },
+    "number": {
+      "aux_power_limit_percentage": {
+        "name": "Power Limit Percentage",
+        "state": {
+          "unit_of_measurement": "%"
+        }
       }
     }
   }

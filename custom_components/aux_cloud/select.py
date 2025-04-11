@@ -9,6 +9,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api.const import (
     AUX_MODEL_PARAMS_LIST,
     AUX_MODEL_SPECIAL_PARAMS_LIST,
+    HP_HEATER_AUTO_WATER_TEMP,
     HP_QUIET_MODE,
 )
 
@@ -37,7 +38,57 @@ SELECTS = {
                 "icon": "mdi:volume-mute",
             },
         },
-    }
+    },
+    HP_HEATER_AUTO_WATER_TEMP: {
+        "description": SelectEntityDescription(
+            key=HP_HEATER_AUTO_WATER_TEMP,
+            name="Auto Water Temperature",
+            icon="mdi:water-thermometer",
+            translation_key="aux_select_auto_water_temp",
+        ),
+        "state_icons": {
+            "off": {
+                "value": 0,
+                "icon": "mdi:water-off",
+            },
+            "level_1": {
+                "value": 1,
+                "icon": "mdi:numeric-1",
+            },
+            "level_2": {
+                "value": 2,
+                "icon": "mdi:numeric-2",
+            },
+            "level_3": {
+                "value": 3,
+                "icon": "mdi:numeric-3",
+            },
+            "level_4": {
+                "value": 4,
+                "icon": "mdi:numeric-4",
+            },
+            "level_5": {
+                "value": 5,
+                "icon": "mdi:numeric-5",
+            },
+            "level_6": {
+                "value": 6,
+                "icon": "mdi:numeric-6",
+            },
+            "level_7": {
+                "value": 7,
+                "icon": "mdi:numeric-7",
+            },
+            "level_8": {
+                "value": 8,
+                "icon": "mdi:numeric-8",
+            },
+            "user_defined": {
+                "value": 9,
+                "icon": "mdi:account-cog",
+            },
+        },
+    },
 }
 
 
