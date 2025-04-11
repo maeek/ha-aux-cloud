@@ -61,4 +61,5 @@ PLATFORMS = [
     Platform.WATER_HEATER,
     Platform.SELECT,
     Platform.SWITCH,
+    Platform.NUMBER,
 ]

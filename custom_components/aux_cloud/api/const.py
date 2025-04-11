@@ -114,8 +114,12 @@ HP_HEATER_POWER_ON = {HP_HEATER_POWER: 1}
 HP_HEATER_TEMPERATURE_TARGET = "ac_temp"
 
 HP_HEATER_AUTO_WATER_TEMP = "hp_auto_wtemp"
-HP_HEATER_AUTO_WATER_TEMP_ON = {HP_HEATER_AUTO_WATER_TEMP: 9}
-HP_HEATER_AUTO_WATER_TEMP_OFF = {HP_HEATER_AUTO_WATER_TEMP: 0}
+"""
+Auto water temperature control for heat pump.
+    0 - Off
+    1...8 - Predefined controls
+    9 - User defined control - set manually on heat pump
+"""
 
 HP_WATER_POWER = "hp_pwr"
 HP_WATER_POWER_OFF = {HP_WATER_POWER: 0}

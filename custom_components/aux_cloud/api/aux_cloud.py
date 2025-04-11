@@ -360,7 +360,7 @@ class AuxCloudAPI:
                     or isinstance(dev_params, BaseException)
                     or isinstance(dev_special_params, BaseException)
                 ):
-                    _LOGGER.debug(
+                    _LOGGER.error(
                         "Error fetching device params for %s",
                         dev["endpointId"],
                     )
