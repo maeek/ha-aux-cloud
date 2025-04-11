@@ -8,8 +8,8 @@ from typing import TypedDict
 
 import aiohttp
 
-from custom_components.aux_cloud.api.const import AUX_MODEL_SPECIAL_PARAMS_LIST
-from custom_components.aux_cloud.api.util import encrypt_aes_cbc_zero_padding
+from .const import AUX_MODEL_SPECIAL_PARAMS_LIST
+from .util import encrypt_aes_cbc_zero_padding
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"
 PASSWORD_ENCRYPT_KEY = "4969fj#k23#"
@@ -20,23 +20,23 @@ AES_INITIAL_VECTOR = bytes(
     [
         (b + 256) % 256
         for b in [
-            -22,
-            -86,
-            -86,
-            58,
-            -69,
-            88,
-            98,
-            -94,
-            25,
-            24,
-            -75,
-            119,
-            29,
-            22,
-            21,
-            -86,
-        ]
+        -22,
+        -86,
+        -86,
+        58,
+        -69,
+        88,
+        98,
+        -94,
+        25,
+        24,
+        -75,
+        119,
+        29,
+        22,
+        21,
+        -86,
+    ]
     ]
 )
 # pylint: disable=line-too-long
@@ -105,14 +105,14 @@ class AuxCloudAPI:
         }
 
     async def _make_request(
-        self,
-        method: str,
-        endpoint: str,
-        headers: dict = None,
-        data: dict = None,
-        data_raw: str = None,
-        params: dict = None,
-        ssl: bool = False,
+            self,
+            method: str,
+            endpoint: str,
+            headers: dict = None,
+            data: dict = None,
+            data_raw: str = None,
+            params: dict = None,
+            ssl: bool = False,
     ):
         """
         Helper method to make HTTP requests and handle responses.
@@ -123,16 +123,16 @@ class AuxCloudAPI:
         _LOGGER.debug("Making %s request to %s", method, endpoint)
         async with aiohttp.ClientSession() as session:
             async with session.request(
-                method=method,
-                url=url,
-                headers=headers,
-                data=(
-                    data_raw
-                    if data_raw
-                    else json.dumps(data, separators=(",", ":")) if data else None
-                ),
-                params=params,
-                ssl=ssl,
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    data=(
+                            data_raw
+                            if data_raw
+                            else json.dumps(data, separators=(",", ":")) if data else None
+                    ),
+                    params=params,
+                    ssl=ssl,
             ) as response:
                 response_text = await response.text()
                 try:
@@ -252,11 +252,11 @@ class AuxCloudAPI:
         raise AuxApiError(f"Failed to query a room: {json_data}")
 
     async def get_devices(
-        self,
-        familyid: str,
-        shared=False,
-        # List of device endpointIds to fetch from the server
-        selected_devices: list[str] = None,
+            self,
+            familyid: str,
+            shared=False,
+            # List of device endpointIds to fetch from the server
+            selected_devices: list[str] = None,
     ):
         """
         List devices associated with a family.
@@ -308,7 +308,7 @@ class AuxCloudAPI:
                     0,
                 )
                 _LOGGER.debug(
-                    f"Device states response {dev['endpointId']}: {dev['state']}"
+                    "Device states response %s: %s", dev['endpointId'], dev['state']
                 )
                 # Initialize params as an empty dictionary
                 dev["params"] = {}
@@ -352,13 +352,13 @@ class AuxCloudAPI:
 
             # Process the results
             for (dev, _, _), (dev_params, dev_special_params) in zip(
-                param_tasks, results
+                    param_tasks, results
             ):
                 if (
-                    dev_params is None
-                    or dev_special_params is None
-                    or isinstance(dev_params, BaseException)
-                    or isinstance(dev_special_params, BaseException)
+                        dev_params is None
+                        or dev_special_params is None
+                        or isinstance(dev_params, BaseException)
+                        or isinstance(dev_special_params, BaseException)
                 ):
                     _LOGGER.debug(
                         "Error fetching device params for %s",
@@ -386,7 +386,7 @@ class AuxCloudAPI:
         raise AuxApiError(f"Failed to query devices: {json_data}")
 
     def _get_directive_header(
-        self, namespace: str, name: str, message_id_prefix: str, **kwargs: str
+            self, namespace: str, name: str, message_id_prefix: str, **kwargs: str
     ):
         timestamp = int(time.time())
         return {
@@ -428,9 +428,9 @@ class AuxCloudAPI:
         )
 
         if (
-            "event" in json_data
-            and "payload" in json_data["event"]
-            and json_data["event"]["payload"]["status"] == 0
+                "event" in json_data
+                and "payload" in json_data["event"]
+                and json_data["event"]["payload"]["status"] == 0
         ):
             return json_data["event"]["payload"]
 
@@ -469,16 +469,16 @@ class AuxCloudAPI:
         )
 
         if (
-            "event" in json_data
-            and "payload" in json_data["event"]
-            and json_data["event"]["payload"]["status"] == 0
+                "event" in json_data
+                and "payload" in json_data["event"]
+                and json_data["event"]["payload"]["status"] == 0
         ):
             return json_data["event"]["payload"]
 
         raise AuxApiError(f"Failed to query device state: {json_data}")
 
     async def _act_device_params(
-        self, device: dict, act: str, params: list[str] = None, vals: list[str] = None
+            self, device: dict, act: str, params: list[str] = None, vals: list[str] = None
     ):
         """
         Query device parameters. If no parameters are provided, default parameters are queried.
@@ -561,9 +561,9 @@ class AuxCloudAPI:
         _LOGGER.debug("Device params response: %s", json_data)
 
         if (
-            "event" in json_data
-            and "payload" in json_data["event"]
-            and "data" in json_data["event"]["payload"]
+                "event" in json_data
+                and "payload" in json_data["event"]
+                and "data" in json_data["event"]["payload"]
         ):
             response = json.loads(json_data["event"]["payload"]["data"])
             response_dict = {}

@@ -11,7 +11,6 @@ from .api.const import (
     AUX_MODEL_SPECIAL_PARAMS_LIST,
     HP_QUIET_MODE,
 )
-
 from .const import DOMAIN, _LOGGER
 from .util import BaseEntity
 
@@ -42,9 +41,9 @@ SELECTS = {
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AUX select platform."""
     data = hass.data[DOMAIN][entry.entry_id]
@@ -56,16 +55,16 @@ async def async_setup_entry(
     for device in coordinator.data["devices"]:
         for entity in SELECTS.values():
             if "productId" in device and (
-                (
-                    device["productId"] in AUX_MODEL_PARAMS_LIST
-                    and entity["description"].key
-                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
-                )
-                or (
-                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
-                    and entity["description"].key
-                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
-                )
+                    (
+                            device["productId"] in AUX_MODEL_PARAMS_LIST
+                            and entity["description"].key
+                            in AUX_MODEL_PARAMS_LIST.get(device["productId"])
+                    )
+                    or (
+                            device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
+                            and entity["description"].key
+                            in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                    )
             ):
                 entities.append(
                     AuxSelectEntity(
@@ -90,11 +89,11 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
     """AUX Cloud select entity."""
 
     def __init__(
-        self,
-        coordinator,
-        device_id,
-        entity_description: SelectEntityDescription,
-        options,
+            self,
+            coordinator,
+            device_id,
+            entity_description: SelectEntityDescription,
+            options,
     ):
         super().__init__(coordinator, device_id, entity_description)
         self._options = options
@@ -118,7 +117,7 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
     async def async_select_option(self, option: str):
         new_option = self._options.get(option).get("value", None)
         if option not in self._attr_options:
-            _LOGGER.error(f"Invalid option selected: {option}={new_option}")
+            _LOGGER.error("Invalid option selected: %s=%s", option, new_option)
             return
 
         await self._set_device_params({self.entity_description.key: new_option})
