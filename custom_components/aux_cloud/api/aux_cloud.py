@@ -8,7 +8,7 @@ from typing import TypedDict
 
 import aiohttp
 
-from custom_components.aux_cloud.api.const import AUX_MODEL_TO_PARAMS
+from custom_components.aux_cloud.api.const import AUX_MODEL_SPECIAL_PARAMS_LIST
 from custom_components.aux_cloud.api.util import encrypt_aes_cbc_zero_padding
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"
@@ -325,14 +325,15 @@ class AuxCloudAPI:
                 dev_params_task = self.get_device_params(dev, params=list([]))
                 dev_special_params_task = None
 
-                if dev["productId"] in AUX_MODEL_TO_PARAMS:
+                if dev["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST:
                     _LOGGER.debug(
                         "Fetching special params for device %s: %s",
                         dev["productId"],
-                        AUX_MODEL_TO_PARAMS[dev["productId"]],
+                        AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]],
                     )
                     dev_special_params_task = self.get_device_params(
-                        dev, params=list(AUX_MODEL_TO_PARAMS[dev["productId"]])
+                        dev,
+                        params=list(AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]]),
                     )
 
                 # Add tasks to the list

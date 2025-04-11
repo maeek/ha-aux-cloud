@@ -4,7 +4,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AC_AUXILIARY_HEAT,
     AC_CHILD_LOCK,
     AC_CLEAN,
@@ -15,6 +15,8 @@ from custom_components.aux_cloud.api.const import (
     AC_SCREEN_DISPLAY,
     AC_SLEEP,
     AUX_ECOMODE,
+    AUX_MODEL_PARAMS_LIST,
+    AUX_MODEL_SPECIAL_PARAMS_LIST,
     HP_HEATER_AUTO_WATER_TEMP,
     HP_HEATER_AUTO_WATER_TEMP_OFF,
     HP_HEATER_AUTO_WATER_TEMP_ON,
@@ -22,7 +24,7 @@ from custom_components.aux_cloud.api.const import (
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
 )
-from custom_components.aux_cloud.util import BaseEntity
+from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
 
 SWITCHES = {
@@ -157,26 +159,37 @@ async def async_setup_entry(
     entities = []
 
     for device in coordinator.data["devices"]:
-        if "params" in device:
-            for switch in SWITCHES.values():
-                if switch["description"].key in device["params"]:
-                    entities.append(
-                        AuxSwitchEntity(
-                            coordinator,
-                            device["endpointId"],
-                            switch["description"],
-                            (
-                                switch["custom_mapping"]
-                                if "custom_mapping" in switch
-                                else None
-                            ),
-                        )
+        for switch in SWITCHES.values():
+            if "productId" in device and (
+                (
+                    device["productId"] in AUX_MODEL_PARAMS_LIST
+                    and switch["description"].key
+                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
+                )
+                or (
+                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
+                    and switch["description"].key
+                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                )
+            ):
+                entities.append(
+                    AuxSwitchEntity(
+                        coordinator,
+                        device["endpointId"],
+                        switch["description"],
+                        (
+                            switch["custom_mapping"]
+                            if "custom_mapping" in switch
+                            else None
+                        ),
                     )
-                    _LOGGER.debug(
-                        "Adding switch entity for %s with option %s",
-                        device["friendlyName"],
-                        switch["description"].key,
-                    )
+                )
+                _LOGGER.debug(
+                    "Adding switch entity for %s with option %s",
+                    device["friendlyName"],
+                    switch["description"].key,
+                )
+
     if entities:
         async_add_entities(entities, True)
     else:

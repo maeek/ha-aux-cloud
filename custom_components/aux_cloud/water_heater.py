@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
     AuxProductCategory,
     AUX_ECOMODE,
     HP_HOT_WATER_TANK_TEMPERATURE,
@@ -25,7 +25,7 @@ from custom_components.aux_cloud.api.const import (
     HP_WATER_POWER_ON,
     HP_QUIET_MODE,
 )
-from custom_components.aux_cloud.util import BaseEntity
+from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
 
 WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {

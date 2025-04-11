@@ -22,7 +22,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import (
+from .api.const import (
+    AC_FAN_SPEED,
     AUX_MODE,
     AC_SWING_HORIZONTAL,
     AC_SWING_HORIZONTAL_OFF,
@@ -32,11 +33,11 @@ from custom_components.aux_cloud.api.const import (
     AC_SWING_VERTICAL_ON,
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
+    HP_MODE_COOLING,
+    HP_MODE_HEATING,
     AuxProductCategory,
     AUX_ECOMODE_OFF,
     AUX_ECOMODE_ON,
-    AUX_MODE_COOLING,
-    AUX_MODE_HEATING,
     HP_HEATER_TEMPERATURE_TARGET,
     HP_HEATER_POWER,
     HP_HEATER_POWER_OFF,
@@ -46,13 +47,13 @@ from custom_components.aux_cloud.api.const import (
     AC_POWER_ON,
     ACFanSpeed,
 )
-from custom_components.aux_cloud.util import BaseEntity
+from .util import BaseEntity
 
 from .const import (
     DOMAIN,
     FAN_MODE_HA_TO_AUX,
     FAN_MODE_AUX_TO_HA,
-    MODE_MAP_AUX_TO_HA,
+    MODE_MAP_AUX_AC_TO_HA,
     MODE_MAP_HA_TO_AUX,
     _LOGGER,
 )
@@ -156,9 +157,9 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         if hvac_mode == HVACMode.OFF:
             params = HP_HEATER_POWER_OFF
         elif hvac_mode == HVACMode.HEAT:
-            params = {**AUX_MODE_HEATING, **HP_HEATER_POWER_ON}
+            params = {**HP_MODE_HEATING, **HP_HEATER_POWER_ON}
         elif hvac_mode == HVACMode.COOL:
-            params = {**AUX_MODE_COOLING, **HP_HEATER_POWER_ON}
+            params = {**HP_MODE_COOLING, **HP_HEATER_POWER_ON}
         else:
             return
 
@@ -227,7 +228,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
         )
-        self._attr_hvac_modes = [HVACMode.OFF, *MODE_MAP_AUX_TO_HA.values()]
+        self._attr_hvac_modes = [HVACMode.OFF, *MODE_MAP_AUX_AC_TO_HA.values()]
         self._attr_fan_modes = list(FAN_MODE_HA_TO_AUX.keys())
         self._attr_swing_modes = [
             SWING_OFF,
@@ -277,7 +278,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         mode = self._get_device_params().get(AUX_MODE, None)
         if mode is None or not self._get_device_params().get(AC_POWER, False):
             return HVACMode.OFF
-        return MODE_MAP_AUX_TO_HA.get(mode, HVACMode.OFF)
+        return MODE_MAP_AUX_AC_TO_HA.get(mode, HVACMode.OFF)
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set new operation mode."""
@@ -319,9 +320,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         if fan_mode is None:
             return
 
-        await self._set_device_params(
-            {ACFanSpeed.PARAM_NAME: FAN_MODE_HA_TO_AUX[fan_mode]}
-        )
+        await self._set_device_params({AC_FAN_SPEED: FAN_MODE_HA_TO_AUX[fan_mode]})
 
     @property
     def swing_mode(self):

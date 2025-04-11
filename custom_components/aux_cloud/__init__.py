@@ -20,7 +20,7 @@ from .const import (
     CONF_SELECTED_DEVICES,
 )
 
-MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=180)
+MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
 
 # Schema to include email and password (device selection is handled in config flow)
 CONFIG_SCHEMA = vol.Schema(

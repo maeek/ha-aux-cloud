@@ -2,8 +2,8 @@ from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from custom_components.aux_cloud.api.const import AUX_MODEL_TO_NAME
-from custom_components.aux_cloud.const import _LOGGER, DOMAIN, MANUFACTURER
+from .api.const import AUX_MODEL_TO_NAME
+from .const import _LOGGER, DOMAIN, MANUFACTURER
 
 
 class BaseEntity(CoordinatorEntity):

@@ -1,11 +1,5 @@
 from enum import auto
 
-# Used to fetch params from the device that are not returned in basic call
-AUX_MODEL_TO_PARAMS = {
-    "000000000000000000000000c0620000": ["mode"],
-    "000000000000000000000000c3aa0000": ["hp_water_tank_temp"],
-}
-
 AUX_MODEL_TO_NAME = {
     "000000000000000000000000c3aa0000": "AUX Heat Pump",
     "000000000000000000000000c0620000": "AUX Air Conditioner",
@@ -23,11 +17,6 @@ class AuxProductCategory(auto):
 
 # Common constants
 AUX_MODE = "ac_mode"
-AUX_MODE_COOLING = {AUX_MODE: 0}
-AUX_MODE_HEATING = {AUX_MODE: 1}
-AUX_MODE_DRY = {AUX_MODE: 2}
-AUX_MODE_FAN = {AUX_MODE: 3}
-AUX_MODE_AUTO = {AUX_MODE: 4}
 
 AUX_ECOMODE = "ecomode"
 AUX_ECOMODE_OFF = {AUX_ECOMODE: 0}
@@ -41,6 +30,12 @@ AC_POWER_ON = {AC_POWER: 1}
 
 AC_TEMPERATURE_TARGET = "temp"
 AC_TEMPERATURE_AMBIENT = "envtemp"
+
+AC_MODE_COOLING = {AUX_MODE: 0}
+AC_MODE_HEATING = {AUX_MODE: 1}
+AC_MODE_DRY = {AUX_MODE: 2}
+AC_MODE_FAN = {AUX_MODE: 3}
+AC_MODE_AUTO = {AUX_MODE: 4}
 
 AC_SWING_VERTICAL = "ac_vdir"
 AC_SWING_VERTICAL_ON = {AC_SWING_VERTICAL: 1}
@@ -87,6 +82,11 @@ AC_POWER_LIMIT_SWITCH = "pwrlimitswitch"
 AC_POWER_LIMIT_OFF = {AC_POWER_LIMIT: 0}
 AC_POWER_LIMIT_ON = {AC_POWER_LIMIT: 1}
 
+# This is a special parameter that allows for fetching envtemp from the AC
+AC_MODE_SPECIAL = "mode"
+
+AC_FAN_SPEED = "ac_mark"
+
 
 class ACFanSpeed(auto):
     PARAM_NAME = "ac_mark"
@@ -103,6 +103,10 @@ class ACFanSpeed(auto):
 
 
 # Heat Pump constants
+HP_MODE_AUTO = {AUX_MODE: 0}
+HP_MODE_COOLING = {AUX_MODE: 1}
+HP_MODE_HEATING = {AUX_MODE: 4}
+
 HP_HEATER_POWER = "ac_pwr"
 HP_HEATER_POWER_OFF = {HP_HEATER_POWER: 0}
 HP_HEATER_POWER_ON = {HP_HEATER_POWER: 1}
@@ -125,6 +129,57 @@ HP_HOT_WATER_TEMPERATURE_TARGET = "hp_hotwater_temp"
 HP_WATER_FAST_HOTWATER = "hp_fast_hotwater"
 HP_WATER_FAST_HOTWATER_ON = {HP_WATER_FAST_HOTWATER: 1}
 HP_WATER_FAST_HOTWATER_OFF = {HP_WATER_FAST_HOTWATER: 0}
+
+
+AUX_MODEL_PARAMS_LIST = {
+    "000000000000000000000000c3aa0000": [
+        "ac_errcode1",
+        AUX_MODE,
+        HP_HEATER_POWER,
+        HP_HEATER_TEMPERATURE_TARGET,
+        AUX_ECOMODE,
+        AUX_ERROR_FLAG,
+        HP_HEATER_AUTO_WATER_TEMP,
+        HP_WATER_FAST_HOTWATER,
+        HP_HOT_WATER_TEMPERATURE_TARGET,
+        HP_WATER_POWER,
+        HP_QUIET_MODE,
+    ],
+    "000000000000000000000000c0620000": [
+        AC_AUXILIARY_HEAT,
+        AC_CLEAN,
+        AC_SWING_HORIZONTAL,
+        AC_HEALTH,
+        AC_FAN_SPEED,
+        AUX_MODE,
+        AC_SLEEP,
+        AC_SWING_VERTICAL,
+        AUX_ECOMODE,
+        AUX_ERROR_FLAG,
+        AC_MILDEW_PROOF,
+        AC_POWER,
+        AC_SCREEN_DISPLAY,
+        AC_TEMPERATURE_TARGET,
+        AC_TEMPERATURE_AMBIENT,
+        AC_POWER_LIMIT,
+        AC_POWER_LIMIT_SWITCH,
+        AC_CHILD_LOCK,
+        AC_COMFORTABLE_WIND,
+        "new_type",
+        "ac_tempconvert",
+        "sleepdiy",
+        "ac_errcode1",
+        "tempunit",
+        "tenelec",  # Unknown, might be available when the device is in specific state
+    ],
+}
+
+# Used to fetch params from the device that are not returned in basic call
+AUX_MODEL_SPECIAL_PARAMS_LIST = {
+    "000000000000000000000000c3aa0000": [HP_HOT_WATER_TANK_TEMPERATURE],
+    "000000000000000000000000c0620000": [AC_MODE_SPECIAL],
+}
+
 
 """
 AC PARAMETERS NOT TESTED ALL
