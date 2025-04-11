@@ -82,7 +82,6 @@ class AuxNumberEntity(BaseEntity, CoordinatorEntity, NumberEntity):
     ):
         """Initialize the number entity."""
         super().__init__(coordinator, device_id, entity_description)
-        self._device_id = device_id
         self._option = self.entity_description.key
         self._attr_min_value = min_value
         self._attr_max_value = max_value
