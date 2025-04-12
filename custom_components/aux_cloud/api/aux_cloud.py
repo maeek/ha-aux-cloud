@@ -308,7 +308,7 @@ class AuxCloudAPI:
                     0,
                 )
                 _LOGGER.debug(
-                    "Device states response %s: %s", dev['endpointId'], dev['state']
+                    "Device states response %s: %s", dev["endpointId"], dev["state"]
                 )
                 # Initialize params as an empty dictionary
                 dev["params"] = {}
