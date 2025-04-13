@@ -139,7 +139,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     )
                 except Exception as e:
                     _LOGGER.warning(
-                        f"Failed to fetch personal devices for family {family_id}: {e}"
+                        "Failed to fetch personal devices for family %s: %s",
+                        family_id,
+                        e,
                     )
                     devices = []
 
@@ -504,5 +506,5 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                 },
             )
         except Exception as ex:
-            _LOGGER.error(f"Error fetching devices: {ex}")
+            _LOGGER.error("Error fetching devices: %s", ex)
             return self.async_abort(reason="fetch_devices_failed")

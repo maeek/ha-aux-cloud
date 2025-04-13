@@ -12,7 +12,6 @@ from .api.const import (
     HP_HEATER_AUTO_WATER_TEMP,
     HP_QUIET_MODE,
 )
-
 from .const import DOMAIN, _LOGGER
 from .util import BaseEntity
 
@@ -169,7 +168,7 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
     async def async_select_option(self, option: str):
         new_option = self._options.get(option).get("value", None)
         if option not in self._attr_options:
-            _LOGGER.error(f"Invalid option selected: {option}={new_option}")
+            _LOGGER.error("Invalid option selected: %s=%s", option, new_option)
             return
 
         await self._set_device_params({self.entity_description.key: new_option})

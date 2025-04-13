@@ -8,8 +8,8 @@ from typing import TypedDict
 
 import aiohttp
 
-from custom_components.aux_cloud.api.const import AUX_MODEL_SPECIAL_PARAMS_LIST
-from custom_components.aux_cloud.api.util import encrypt_aes_cbc_zero_padding
+from .const import AUX_MODEL_SPECIAL_PARAMS_LIST
+from .util import encrypt_aes_cbc_zero_padding
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"
 PASSWORD_ENCRYPT_KEY = "4969fj#k23#"
@@ -308,7 +308,7 @@ class AuxCloudAPI:
                     0,
                 )
                 _LOGGER.debug(
-                    f"Device states response {dev['endpointId']}: {dev['state']}"
+                    "Device states response %s: %s", dev["endpointId"], dev["state"]
                 )
                 # Initialize params as an empty dictionary
                 dev["params"] = {}
