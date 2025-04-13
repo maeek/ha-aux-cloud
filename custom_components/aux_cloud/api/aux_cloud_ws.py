@@ -32,7 +32,7 @@ class AuxCloudWebSocket:
 
     async def initialize_websocket(self):
         """
-        Initialize the WebSocket connection to receive real-time updates.
+        Initialize the WebSocket connection and authenticate to the API
         """
         url = f"{self.websocket_url}/appsync/apprelay/relayconnect"
 
@@ -64,9 +64,6 @@ class AuxCloudWebSocket:
             await self._schedule_reconnect()
 
     async def _listen_to_websocket(self):
-        """
-        Listen for messages from the WebSocket and notify listeners.
-        """
         try:
             async for msg in self.websocket:
                 if msg.type == aiohttp.WSMsgType.TEXT:
@@ -74,10 +71,10 @@ class AuxCloudWebSocket:
                     status = data.get("status", -1)
                     msgtype = data.get("msgtype", None)
 
-                    if status != 0:
+                    if status != 0 and (msgtype == "initk" or msgtype == "pingk"):
                         await self.close_websocket()
                         await self._schedule_reconnect()
-                        _LOGGER.error(
+                        _LOGGER.debug(
                             "Received websocket message status %s, reconnecting...",
                             status,
                         )
@@ -85,7 +82,7 @@ class AuxCloudWebSocket:
 
                     # Used only to authenticate the websocket API
                     if msgtype == "initk":
-                        _LOGGER.debug("WebSocket API initialized.")
+                        _LOGGER.info("WebSocket API initialized.")
                         self.api_initialized = True
                         continue
 
@@ -97,7 +94,7 @@ class AuxCloudWebSocket:
                     _LOGGER.debug("WebSocket message received: %s", msg.data)
                     await self._notify_listeners(data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    _LOGGER.error("WebSocket error: %s", msg.data)
+                    _LOGGER.debug("WebSocket error: %s", msg.data)
                     break
         except Exception as e:
             _LOGGER.error("WebSocket connection lost: %s", e)
@@ -122,9 +119,6 @@ class AuxCloudWebSocket:
                 await self._schedule_reconnect()
 
     async def _keepalive_loop(self):
-        """
-        Periodically send keep-alive messages to the WebSocket server.
-        """
         while not self.websocket.closed:
             await self._keepalive_websocket()
             await asyncio.sleep(10)  # Send keep-alive every 10 seconds
@@ -140,28 +134,19 @@ class AuxCloudWebSocket:
                 _LOGGER.error("Error in WebSocket listener: %s", e)
 
     def add_websocket_listener(self, listener: callable):
-        """
-        Add a listener to be notified of WebSocket messages.
-        """
         self._listeners.append(listener)
 
     async def _schedule_reconnect(self):
-        """
-        Schedule a reconnect attempt after a delay.
-        """
         if self._reconnect_task is None:
             self._stop_reconnect.clear()
             self._reconnect_task = asyncio.create_task(self._reconnect())
 
     async def _reconnect(self):
-        """
-        Attempt to reconnect the WebSocket.
-        """
         while not self._stop_reconnect.is_set():
-            _LOGGER.info("Attempting to reconnect WebSocket...")
+            _LOGGER.debug("Attempting to reconnect WebSocket...")
             try:
                 await self.initialize_websocket()
-                _LOGGER.info("Reconnected to WebSocket.")
+                _LOGGER.debug("Reconnected to WebSocket.")
                 self._reconnect_task = None
                 return
             except Exception as e:
@@ -169,9 +154,6 @@ class AuxCloudWebSocket:
                 await asyncio.sleep(10)  # Retry after 10 seconds
 
     async def send_data(self, data: dict):
-        """
-        Send JSON data via the WebSocket connection.
-        """
         if not self.websocket or self.websocket.closed:
             raise Exception("WebSocket is not connected.")
 
@@ -196,4 +178,4 @@ class AuxCloudWebSocket:
         if self.websocket:
             await self.websocket.close()
             self.websocket = None
-            _LOGGER.info("WebSocket connection closed.")
+            _LOGGER.warning("WebSocket connection closed.")
