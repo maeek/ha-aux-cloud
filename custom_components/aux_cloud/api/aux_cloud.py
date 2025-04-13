@@ -10,6 +10,7 @@ import aiohttp
 
 from .const import AUX_MODEL_SPECIAL_PARAMS_LIST
 from .util import encrypt_aes_cbc_zero_padding
+from .aux_cloud_ws import AuxCloudWebSocket
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"
 PASSWORD_ENCRYPT_KEY = "4969fj#k23#"
@@ -82,12 +83,15 @@ class AuxCloudAPI:
             if region == "eu"
             else API_SERVER_URL_USA if region == "usa" else API_SERVER_URL_CN
         )
+        self.region = region
         self.devices = None
         self.families = None
         self.email = None
         self.password = None
         self.loginsession = None
         self.userid = None
+
+        self.ws_api = None
 
     def _get_headers(self, **kwargs: str):
         return {
@@ -590,3 +594,27 @@ class AuxCloudAPI:
         params = list(values.keys())
         vals = [[{"idx": 1, "val": x}] for x in list(values.values())]
         return await self._act_device_params(device, "set", params, vals)
+
+    async def initialize_websocket(self):
+        """
+        Initialize the WebSocket connection to receive real-time updates.
+        """
+        if not self.is_logged_in():
+            raise AuxApiError("Cannot initialize WebSocket without being logged in.")
+
+        self.ws_api = AuxCloudWebSocket(
+            region=self.region,
+            headers=self._get_headers(CompanyId=COMPANY_ID, Origin=self.url),
+            loginsession=self.loginsession,
+            userid=self.userid,
+        )
+        await self.ws_api.initialize_websocket()
+
+        timeout = 10  # Timeout in seconds
+        start_time = time.time()
+        while not self.ws_api.api_initialized:
+            if time.time() - start_time > timeout:
+                raise TimeoutError("WebSocket API initialization timed out.")
+
+            _LOGGER.debug("Waiting for WebSocket API to initialize...")
+            await asyncio.sleep(1)
