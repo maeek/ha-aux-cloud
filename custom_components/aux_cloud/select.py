@@ -41,9 +41,9 @@ SELECTS = {
 
 
 async def async_setup_entry(
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AUX select platform."""
     data = hass.data[DOMAIN][entry.entry_id]
@@ -55,16 +55,16 @@ async def async_setup_entry(
     for device in coordinator.data["devices"]:
         for entity in SELECTS.values():
             if "productId" in device and (
-                    (
-                            device["productId"] in AUX_MODEL_PARAMS_LIST
-                            and entity["description"].key
-                            in AUX_MODEL_PARAMS_LIST.get(device["productId"])
-                    )
-                    or (
-                            device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
-                            and entity["description"].key
-                            in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
-                    )
+                (
+                    device["productId"] in AUX_MODEL_PARAMS_LIST
+                    and entity["description"].key
+                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
+                )
+                or (
+                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
+                    and entity["description"].key
+                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                )
             ):
                 entities.append(
                     AuxSelectEntity(
@@ -89,11 +89,11 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
     """AUX Cloud select entity."""
 
     def __init__(
-            self,
-            coordinator,
-            device_id,
-            entity_description: SelectEntityDescription,
-            options,
+        self,
+        coordinator,
+        device_id,
+        entity_description: SelectEntityDescription,
+        options,
     ):
         super().__init__(coordinator, device_id, entity_description)
         self._options = options

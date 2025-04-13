@@ -147,7 +147,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 try:
                     shared_devices = (
-                            await self._aux_cloud.get_devices(family_id, shared=True) or []
+                        await self._aux_cloud.get_devices(family_id, shared=True) or []
                     )
                     _LOGGER.debug(
                         "Family %s: Found %d shared devices",
@@ -337,7 +337,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     family_id = family["familyid"]
                     devices = await self._aux_cloud.get_devices(family_id) or []
                     shared_devices = (
-                            await self._aux_cloud.get_devices(family_id, shared=True) or []
+                        await self._aux_cloud.get_devices(family_id, shared=True) or []
                     )
                     all_devices.extend(devices + shared_devices)
 
@@ -407,8 +407,8 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                     if device.identifiers
                     for identifiers in device.identifiers
                     if len(identifiers) == 2
-                       and identifiers[0] == DOMAIN
-                       and (device_id := next(iter(identifiers[1:]))) in devices_to_remove
+                    and identifiers[0] == DOMAIN
+                    and (device_id := next(iter(identifiers[1:]))) in devices_to_remove
                 ]
 
                 for device in device_registry_filtered:
@@ -461,7 +461,7 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
 
                 devices = await self._aux_cloud.get_devices(family_id) or []
                 shared_devices = (
-                        await self._aux_cloud.get_devices(family_id, shared=True) or []
+                    await self._aux_cloud.get_devices(family_id, shared=True) or []
                 )
 
                 for device in devices + shared_devices:
