@@ -87,7 +87,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_fetch_devices(self, user_input=None):
+    async def async_step_fetch_devices(self):
         """Fetch all families and devices."""
         if self._aux_cloud is None:
             return self.async_abort(reason="login_required")
@@ -126,7 +126,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     except Exception as e:
                         _LOGGER.warning("Failed to decode family name: %s", e)
                         # If decoding fails, use the original name
-                        pass
 
                 # Store family info
                 self._families[family_id] = {"name": family_name, "devices": []}

@@ -1,7 +1,8 @@
 import asyncio
 import json
-import time
 import logging
+import time
+
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class AuxCloudWebSocket:
                     status = data.get("status", -1)
                     msgtype = data.get("msgtype", None)
 
-                    if status != 0 and (msgtype == "initk" or msgtype == "pingk"):
+                    if status != 0 and msgtype in {"initk", "pingk"}:
                         await self.close_websocket()
                         await self._schedule_reconnect()
                         _LOGGER.debug(
@@ -134,6 +135,11 @@ class AuxCloudWebSocket:
                 _LOGGER.error("Error in WebSocket listener: %s", e)
 
     def add_websocket_listener(self, listener: callable):
+        """
+        Register a listener to receive WebSocket messages.
+
+        :param listener: The callable to register as a listener.
+        """
         self._listeners.append(listener)
 
     async def _schedule_reconnect(self):
@@ -154,6 +160,12 @@ class AuxCloudWebSocket:
                 await asyncio.sleep(10)  # Retry after 10 seconds
 
     async def send_data(self, data: dict):
+        """
+        Send a JSON-serialized dictionary to the WebSocket server.
+
+        :param data: The dictionary to send.
+        :raises Exception: If the WebSocket is not connected.
+        """
         if not self.websocket or self.websocket.closed:
             raise Exception("WebSocket is not connected.")
 
