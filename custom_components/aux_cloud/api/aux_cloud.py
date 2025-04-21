@@ -326,18 +326,19 @@ class AuxCloudAPI:
                 self.devices.append(dev)
 
                 # Create tasks for fetching device params
-                dev_params_task = self.get_device_params(dev, params=list([]))
+                dev_params_task = asyncio.create_task(
+                    self.get_device_params(dev, params=list([]))
+                )
                 dev_special_params_task = None
 
                 if dev["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST:
-                    _LOGGER.debug(
-                        "Fetching special params for device %s: %s",
-                        dev["productId"],
-                        AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]],
-                    )
-                    dev_special_params_task = self.get_device_params(
-                        dev,
-                        params=list(AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]]),
+                    dev_special_params_task = asyncio.create_task(
+                        self.get_device_params(
+                            dev,
+                            params=list(
+                                AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]]
+                            ),
+                        )
                     )
 
                 # Add tasks to the list

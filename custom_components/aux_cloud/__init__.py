@@ -126,17 +126,21 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
             for family_id in self.api.families:
                 device_tasks.append(
-                    self.api.get_devices(
-                        family_id,
-                        shared=False,
-                        selected_devices=self.selected_device_ids,
+                    asyncio.create_task(
+                        self.api.get_devices(
+                            family_id,
+                            shared=False,
+                            selected_devices=self.selected_device_ids,
+                        )
                     )
                 )
                 shared_device_tasks.append(
-                    self.api.get_devices(
-                        family_id,
-                        shared=True,
-                        selected_devices=self.selected_device_ids,
+                    asyncio.create_task(
+                        self.api.get_devices(
+                            family_id,
+                            shared=True,
+                            selected_devices=self.selected_device_ids,
+                        )
                     )
                 )
 
