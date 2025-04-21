@@ -348,7 +348,9 @@ class AuxCloudAPI:
             results = await asyncio.gather(
                 *[
                     asyncio.gather(
-                        dev_params_task, dev_special_params_task, return_exceptions=True
+                        dev_params_task,
+                        *(dev_special_params_task,) if dev_special_params_task else (),
+                        return_exceptions=True,
                     )
                     for _, dev_params_task, dev_special_params_task in param_tasks
                 ],
@@ -356,15 +358,13 @@ class AuxCloudAPI:
             )
 
             # Process the results
-            for (dev, _, _), (dev_params, dev_special_params) in zip(
-                param_tasks, results
+            for i, (dev, dev_params_task, dev_special_params_task) in enumerate(
+                param_tasks
             ):
-                if (
-                    dev_params is None
-                    or dev_special_params is None
-                    or isinstance(dev_params, BaseException)
-                    or isinstance(dev_special_params, BaseException)
-                ):
+                dev_params = results[i][0]
+                dev_special_params = results[i][1] if len(results[i]) > 1 else None
+
+                if dev_params is None or isinstance(dev_params, BaseException):
                     _LOGGER.error(
                         "Error fetching device params for %s",
                         dev["endpointId"],
