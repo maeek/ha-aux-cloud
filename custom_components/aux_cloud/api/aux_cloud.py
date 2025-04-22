@@ -84,7 +84,6 @@ class AuxCloudAPI:
             else API_SERVER_URL_USA if region == "usa" else API_SERVER_URL_CN
         )
         self.region = region
-        self.devices = None
         self.families = None
         self.email = None
         self.password = None
@@ -123,8 +122,8 @@ class AuxCloudAPI:
         """
         url = f"{self.url}/{endpoint}"
 
-        _LOGGER.debug("Region: %s", self.url)
-        _LOGGER.debug("Making %s request to %s", method, endpoint)
+        # _LOGGER.debug("Region: %s", self.url)
+        # _LOGGER.debug("Making %s request to %s", method, endpoint)
         async with aiohttp.ClientSession() as session:
             async with session.request(
                 method=method,
@@ -192,7 +191,7 @@ class AuxCloudAPI:
         if "status" in json_data and json_data["status"] == 0:
             self.loginsession = json_data["loginsession"]
             self.userid = json_data["userid"]
-            _LOGGER.debug("Login successful: %s", self.userid)
+            # _LOGGER.debug("Login successful: %s", self.userid)
             return True
 
         raise AuxApiError(f"Failed to login: {json_data}")
@@ -208,7 +207,7 @@ class AuxCloudAPI:
         """
         List families associated with the user.
         """
-        _LOGGER.debug("Getting families list")
+        # _LOGGER.debug("Getting families list")
 
         json_data = await self._make_request(
             method="POST",
@@ -216,7 +215,7 @@ class AuxCloudAPI:
             headers=self._get_headers(),
             ssl=False,
         )
-        _LOGGER.debug("Families response: %s", json_data)
+        # _LOGGER.debug("Families response: %s", json_data)
 
         if self.families is None:
             self.families = {}
@@ -237,7 +236,7 @@ class AuxCloudAPI:
         """
         List rooms associated with a family.
         """
-        _LOGGER.debug("Getting rooms list for family %s", familyid)
+        # _LOGGER.debug("Getting rooms list for family %s", familyid)
         json_data = await self._make_request(
             method="POST",
             endpoint="appsync/group/room/query",
@@ -279,13 +278,11 @@ class AuxCloudAPI:
         )
 
         if "status" in json_data and json_data["status"] == 0:
-            self.devices = []
-            devices = []  # Initialize with empty list
+            devices = []
 
             if "endpoints" in json_data["data"]:
                 devices = json_data["data"]["endpoints"] or []
             elif "shareFromOther" in json_data["data"]:
-                # _LOGGER.info(f"Shared devices found: {json_data['data']}")
                 devices = list(
                     map(lambda dev: dev["devinfo"], json_data["data"]["shareFromOther"])
                 )
@@ -311,9 +308,6 @@ class AuxCloudAPI:
                     ),
                     0,
                 )
-                _LOGGER.debug(
-                    "Device states response %s: %s", dev["endpointId"], dev["state"]
-                )
                 # Initialize params as an empty dictionary
                 dev["params"] = {}
 
@@ -323,7 +317,6 @@ class AuxCloudAPI:
                     "online" if dev["state"] == 1 else "offline",
                     dev,
                 )
-                self.devices.append(dev)
 
                 # Create tasks for fetching device params
                 dev_params_task = asyncio.create_task(
@@ -331,7 +324,7 @@ class AuxCloudAPI:
                 )
                 dev_special_params_task = None
 
-                if AuxProducts.get_special_params_list(dev["productId"]):
+                if AuxProducts.get_special_params_list(dev["productId"]) is not None:
                     dev_special_params_task = asyncio.create_task(
                         self.get_device_params(
                             dev,
@@ -376,17 +369,11 @@ class AuxCloudAPI:
                 if dev_special_params:
                     dev["params"].update(dev_special_params)
 
-                # Update the device entry in the list
-                self.devices = [
-                    d for d in self.devices if d["endpointId"] != dev["endpointId"]
-                ]
-
                 dev["last_updated"] = time.strftime(
                     "%Y-%m-%d %H:%M:%S", time.localtime()
                 )
-                self.devices.append(dev)
 
-            return self.devices
+            return devices
 
         raise AuxApiError(f"Failed to query devices: {json_data}")
 
