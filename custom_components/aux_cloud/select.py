@@ -7,8 +7,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api.const import (
-    AUX_MODEL_PARAMS_LIST,
-    AUX_MODEL_SPECIAL_PARAMS_LIST,
+    AuxProducts,
     HP_HEATER_AUTO_WATER_TEMP,
     HP_QUIET_MODE,
 )
@@ -104,17 +103,17 @@ async def async_setup_entry(
 
     # Create select entities for each device
     for device in coordinator.data["devices"]:
+        supported_params = AuxProducts.get_params_list(device["productId"])
+        supported_special_params = AuxProducts.get_special_params_list(
+            device["productId"]
+        )
+
         for entity in SELECTS.values():
             if "productId" in device and (
-                (
-                    device["productId"] in AUX_MODEL_PARAMS_LIST
-                    and entity["description"].key
-                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
-                )
+                (supported_params and entity["description"].key in supported_params)
                 or (
-                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
-                    and entity["description"].key
-                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                    supported_special_params
+                    and entity["description"].key in supported_special_params
                 )
             ):
                 entities.append(

@@ -6,8 +6,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api.const import (
     AC_POWER_LIMIT,
-    AUX_MODEL_PARAMS_LIST,
-    AUX_MODEL_SPECIAL_PARAMS_LIST,
+    AuxProducts,
 )
 from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
@@ -39,33 +38,33 @@ async def async_setup_entry(
     entities = []
 
     for device in coordinator.data["devices"]:
-        for number in NUMBERS.values():
+        supported_params = AuxProducts.get_params_list(device["productId"])
+        supported_special_params = AuxProducts.get_special_params_list(
+            device["productId"]
+        )
+
+        for entity in NUMBERS.values():
             if "productId" in device and (
-                (
-                    device["productId"] in AUX_MODEL_PARAMS_LIST
-                    and number["description"].key
-                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
-                )
+                (supported_params and entity["description"].key in supported_params)
                 or (
-                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
-                    and number["description"].key
-                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                    supported_special_params
+                    and entity["description"].key in supported_special_params
                 )
             ):
                 entities.append(
                     AuxNumberEntity(
                         coordinator,
                         device["endpointId"],
-                        number["description"],
-                        number["min_value"],
-                        number["max_value"],
-                        number["step"],
+                        entity["description"],
+                        entity["min_value"],
+                        entity["max_value"],
+                        entity["step"],
                     )
                 )
                 _LOGGER.debug(
                     "Adding number entity for %s with option %s",
                     device["friendlyName"],
-                    number["description"].key,
+                    entity["description"].key,
                 )
 
     if entities:

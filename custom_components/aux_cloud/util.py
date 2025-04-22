@@ -2,7 +2,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import AUX_MODEL_TO_NAME
+from .api.const import AuxProducts
 from .const import _LOGGER, DOMAIN, MANUFACTURER
 
 
@@ -35,7 +35,7 @@ class BaseEntity(CoordinatorEntity):
             identifiers={(DOMAIN, self._device_id)},
             name=self._device.get("friendlyName", "AUX"),
             manufacturer=MANUFACTURER,
-            model=AUX_MODEL_TO_NAME.get(self._device.get("productId", None), "Unknown"),
+            model=AuxProducts.get_device_name(self._device.get("productId", None)),
         )
 
     @property

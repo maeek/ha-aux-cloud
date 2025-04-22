@@ -8,7 +8,7 @@ from typing import TypedDict
 
 import aiohttp
 
-from .const import AUX_MODEL_SPECIAL_PARAMS_LIST
+from .const import AuxProducts
 from .util import encrypt_aes_cbc_zero_padding
 from .aux_cloud_ws import AuxCloudWebSocket
 
@@ -331,12 +331,12 @@ class AuxCloudAPI:
                 )
                 dev_special_params_task = None
 
-                if dev["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST:
+                if AuxProducts.get_special_params_list(dev["productId"]):
                     dev_special_params_task = asyncio.create_task(
                         self.get_device_params(
                             dev,
-                            params=list(
-                                AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]]
+                            params=AuxProducts.get_special_params_list(
+                                dev["productId"]
                             ),
                         )
                     )
