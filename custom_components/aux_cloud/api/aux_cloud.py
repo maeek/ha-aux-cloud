@@ -78,11 +78,11 @@ class AuxCloudAPI:
     """
 
     def __init__(self, region: str = "eu"):
-        self.url = (
-            API_SERVER_URL_EU
-            if region == "eu"
-            else API_SERVER_URL_USA if region == "usa" else API_SERVER_URL_CN
-        )
+        self.url = {
+            "eu": API_SERVER_URL_EU,
+            "usa": API_SERVER_URL_USA,
+            "cn": API_SERVER_URL_CN,
+        }.get(region, API_SERVER_URL_EU)
         self.region = region
         self.families = None
         self.email = None
@@ -122,8 +122,7 @@ class AuxCloudAPI:
         """
         url = f"{self.url}/{endpoint}"
 
-        # _LOGGER.debug("Region: %s", self.url)
-        # _LOGGER.debug("Making %s request to %s", method, endpoint)
+        _LOGGER.debug("Making %s request to %s", method, endpoint)
         async with aiohttp.ClientSession() as session:
             async with session.request(
                 method=method,
@@ -191,7 +190,7 @@ class AuxCloudAPI:
         if "status" in json_data and json_data["status"] == 0:
             self.loginsession = json_data["loginsession"]
             self.userid = json_data["userid"]
-            # _LOGGER.debug("Login successful: %s", self.userid)
+            _LOGGER.debug("Login successful: %s", self.userid)
             return True
 
         raise AuxApiError(f"Failed to login: {json_data}")
@@ -207,7 +206,7 @@ class AuxCloudAPI:
         """
         List families associated with the user.
         """
-        # _LOGGER.debug("Getting families list")
+        _LOGGER.debug("Getting families list")
 
         json_data = await self._make_request(
             method="POST",
@@ -215,7 +214,7 @@ class AuxCloudAPI:
             headers=self._get_headers(),
             ssl=False,
         )
-        # _LOGGER.debug("Families response: %s", json_data)
+        _LOGGER.debug("Families response: %s", json_data)
 
         if self.families is None:
             self.families = {}
@@ -236,7 +235,7 @@ class AuxCloudAPI:
         """
         List rooms associated with a family.
         """
-        # _LOGGER.debug("Getting rooms list for family %s", familyid)
+        _LOGGER.debug("Getting rooms list for family %s", familyid)
         json_data = await self._make_request(
             method="POST",
             endpoint="appsync/group/room/query",
