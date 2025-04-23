@@ -1,19 +1,5 @@
 from enum import auto
 
-AUX_MODEL_TO_NAME = {
-    "000000000000000000000000c3aa0000": "AUX Heat Pump",
-    "000000000000000000000000c0620000": "AUX Air Conditioner",
-}
-
-AC = "Air Conditioner"
-HEAT_PUMP = "Heat Pump"
-
-
-class AuxProductCategory(auto):
-    HEAT_PUMP = ["000000000000000000000000c3aa0000"]
-
-    AC = ["000000000000000000000000c0620000"]
-
 
 # Common constants
 AUX_MODE = "ac_mode"
@@ -135,21 +121,24 @@ HP_WATER_FAST_HOTWATER_ON = {HP_WATER_FAST_HOTWATER: 1}
 HP_WATER_FAST_HOTWATER_OFF = {HP_WATER_FAST_HOTWATER: 0}
 
 
-AUX_MODEL_PARAMS_LIST = {
-    "000000000000000000000000c3aa0000": [
-        "ac_errcode1",
-        AUX_MODE,
-        HP_HEATER_POWER,
-        HP_HEATER_TEMPERATURE_TARGET,
-        AUX_ECOMODE,
-        AUX_ERROR_FLAG,
-        HP_HEATER_AUTO_WATER_TEMP,
-        HP_WATER_FAST_HOTWATER,
-        HP_HOT_WATER_TEMPERATURE_TARGET,
-        HP_WATER_POWER,
-        HP_QUIET_MODE,
-    ],
-    "000000000000000000000000c0620000": [
+class AuxProducts:
+    class DeviceType:
+        AC_GENERIC = [
+            "000000000000000000000000c0620000",
+            "0000000000000000000000002a4e0000",
+        ]
+
+        HEAT_PUMP = ["000000000000000000000000c3aa0000"]
+
+    @staticmethod
+    def get_device_name(product_id):
+        if product_id in AuxProducts.DeviceType.AC_GENERIC:
+            return "AUX Air Conditioner"
+        elif AuxProducts.DeviceType.HEAT_PUMP:
+            return "AUX Heat Pump"
+        return "Unknown"
+
+    AC_PARAMS = [
         AC_AUXILIARY_HEAT,
         AC_CLEAN,
         AC_SWING_HORIZONTAL,
@@ -175,14 +164,43 @@ AUX_MODEL_PARAMS_LIST = {
         "ac_errcode1",
         "tempunit",
         "tenelec",  # Unknown, might be available when the device is in specific state
-    ],
-}
+    ]
 
-# Used to fetch params from the device that are not returned in basic call
-AUX_MODEL_SPECIAL_PARAMS_LIST = {
-    "000000000000000000000000c3aa0000": [HP_HOT_WATER_TANK_TEMPERATURE],
-    "000000000000000000000000c0620000": [AC_MODE_SPECIAL],
-}
+    AC_SPECIAL_PARAMS = [AC_MODE_SPECIAL]
+
+    HP_PARAMS = [
+        "ac_errcode1",
+        AUX_MODE,
+        HP_HEATER_POWER,
+        HP_HEATER_TEMPERATURE_TARGET,
+        AUX_ECOMODE,
+        AUX_ERROR_FLAG,
+        HP_HEATER_AUTO_WATER_TEMP,
+        HP_WATER_FAST_HOTWATER,
+        HP_HOT_WATER_TEMPERATURE_TARGET,
+        HP_WATER_POWER,
+        HP_QUIET_MODE,
+    ]
+
+    HP_SPECIAL_PARAMS = [HP_HOT_WATER_TANK_TEMPERATURE]
+
+    @staticmethod
+    def get_params_list(product_id):
+        if product_id in AuxProducts.DeviceType.AC_GENERIC:
+            return AuxProducts.AC_PARAMS
+        elif product_id in AuxProducts.DeviceType.HEAT_PUMP:
+            return AuxProducts.HP_PARAMS
+        else:
+            return None
+
+    @staticmethod
+    def get_special_params_list(product_id):
+        if product_id in AuxProducts.DeviceType.AC_GENERIC:
+            return AuxProducts.AC_SPECIAL_PARAMS
+        elif product_id in AuxProducts.DeviceType.HEAT_PUMP:
+            return AuxProducts.HP_SPECIAL_PARAMS
+        else:
+            return None
 
 
 """

@@ -8,7 +8,7 @@ from typing import TypedDict
 
 import aiohttp
 
-from .const import AUX_MODEL_SPECIAL_PARAMS_LIST
+from .const import AuxProducts
 from .util import encrypt_aes_cbc_zero_padding
 from .aux_cloud_ws import AuxCloudWebSocket
 
@@ -78,13 +78,12 @@ class AuxCloudAPI:
     """
 
     def __init__(self, region: str = "eu"):
-        self.url = (
-            API_SERVER_URL_EU
-            if region == "eu"
-            else API_SERVER_URL_USA if region == "usa" else API_SERVER_URL_CN
-        )
+        self.url = {
+            "eu": API_SERVER_URL_EU,
+            "usa": API_SERVER_URL_USA,
+            "cn": API_SERVER_URL_CN,
+        }.get(region, API_SERVER_URL_EU)
         self.region = region
-        self.devices = None
         self.families = None
         self.email = None
         self.password = None
@@ -123,7 +122,6 @@ class AuxCloudAPI:
         """
         url = f"{self.url}/{endpoint}"
 
-        _LOGGER.debug("Region: %s", self.url)
         _LOGGER.debug("Making %s request to %s", method, endpoint)
         async with aiohttp.ClientSession() as session:
             async with session.request(
@@ -279,13 +277,11 @@ class AuxCloudAPI:
         )
 
         if "status" in json_data and json_data["status"] == 0:
-            self.devices = []
-            devices = []  # Initialize with empty list
+            devices = []
 
             if "endpoints" in json_data["data"]:
                 devices = json_data["data"]["endpoints"] or []
             elif "shareFromOther" in json_data["data"]:
-                # _LOGGER.info(f"Shared devices found: {json_data['data']}")
                 devices = list(
                     map(lambda dev: dev["devinfo"], json_data["data"]["shareFromOther"])
                 )
@@ -311,9 +307,6 @@ class AuxCloudAPI:
                     ),
                     0,
                 )
-                _LOGGER.debug(
-                    "Device states response %s: %s", dev["endpointId"], dev["state"]
-                )
                 # Initialize params as an empty dictionary
                 dev["params"] = {}
 
@@ -323,21 +316,21 @@ class AuxCloudAPI:
                     "online" if dev["state"] == 1 else "offline",
                     dev,
                 )
-                self.devices.append(dev)
 
                 # Create tasks for fetching device params
-                dev_params_task = self.get_device_params(dev, params=list([]))
+                dev_params_task = asyncio.create_task(
+                    self.get_device_params(dev, params=list([]))
+                )
                 dev_special_params_task = None
 
-                if dev["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST:
-                    _LOGGER.debug(
-                        "Fetching special params for device %s: %s",
-                        dev["productId"],
-                        AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]],
-                    )
-                    dev_special_params_task = self.get_device_params(
-                        dev,
-                        params=list(AUX_MODEL_SPECIAL_PARAMS_LIST[dev["productId"]]),
+                if AuxProducts.get_special_params_list(dev["productId"]) is not None:
+                    dev_special_params_task = asyncio.create_task(
+                        self.get_device_params(
+                            dev,
+                            params=AuxProducts.get_special_params_list(
+                                dev["productId"]
+                            ),
+                        )
                     )
 
                 # Add tasks to the list
@@ -347,7 +340,9 @@ class AuxCloudAPI:
             results = await asyncio.gather(
                 *[
                     asyncio.gather(
-                        dev_params_task, dev_special_params_task, return_exceptions=True
+                        dev_params_task,
+                        *(dev_special_params_task,) if dev_special_params_task else (),
+                        return_exceptions=True,
                     )
                     for _, dev_params_task, dev_special_params_task in param_tasks
                 ],
@@ -355,15 +350,13 @@ class AuxCloudAPI:
             )
 
             # Process the results
-            for (dev, _, _), (dev_params, dev_special_params) in zip(
-                param_tasks, results
+            for i, (dev, dev_params_task, dev_special_params_task) in enumerate(
+                param_tasks
             ):
-                if (
-                    dev_params is None
-                    or dev_special_params is None
-                    or isinstance(dev_params, BaseException)
-                    or isinstance(dev_special_params, BaseException)
-                ):
+                dev_params = results[i][0]
+                dev_special_params = results[i][1] if len(results[i]) > 1 else None
+
+                if dev_params is None or isinstance(dev_params, BaseException):
                     _LOGGER.error(
                         "Error fetching device params for %s",
                         dev["endpointId"],
@@ -375,17 +368,11 @@ class AuxCloudAPI:
                 if dev_special_params:
                     dev["params"].update(dev_special_params)
 
-                # Update the device entry in the list
-                self.devices = [
-                    d for d in self.devices if d["endpointId"] != dev["endpointId"]
-                ]
-
                 dev["last_updated"] = time.strftime(
                     "%Y-%m-%d %H:%M:%S", time.localtime()
                 )
-                self.devices.append(dev)
 
-            return self.devices
+            return devices
 
         raise AuxApiError(f"Failed to query devices: {json_data}")
 
