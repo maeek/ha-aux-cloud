@@ -35,7 +35,7 @@ from .api.const import (
     AC_TEMPERATURE_TARGET,
     HP_MODE_COOLING,
     HP_MODE_HEATING,
-    AuxProductCategory,
+    AuxProducts,
     AUX_ECOMODE_OFF,
     AUX_ECOMODE_ON,
     HP_HEATER_TEMPERATURE_TARGET,
@@ -72,7 +72,7 @@ async def async_setup_entry(
 
     # Create climate entities for each device
     for device in coordinator.data["devices"]:
-        if device.get("productId") in AuxProductCategory.AC:
+        if device.get("productId") in AuxProducts.DeviceType.AC_GENERIC:
             entities.append(
                 AuxACClimateEntity(
                     coordinator,
@@ -86,7 +86,7 @@ async def async_setup_entry(
                     ),
                 )
             )
-        elif device.get("productId") in AuxProductCategory.HEAT_PUMP:
+        elif device.get("productId") in AuxProducts.DeviceType.HEAT_PUMP:
             entities.append(
                 AuxHeatPumpClimateEntity(
                     coordinator,

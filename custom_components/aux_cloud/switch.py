@@ -16,8 +16,7 @@ from .api.const import (
     AC_SCREEN_DISPLAY,
     AC_SLEEP,
     AUX_ECOMODE,
-    AUX_MODEL_PARAMS_LIST,
-    AUX_MODEL_SPECIAL_PARAMS_LIST,
+    AuxProducts,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
@@ -153,27 +152,27 @@ async def async_setup_entry(
     entities = []
 
     for device in coordinator.data["devices"]:
-        for switch in SWITCHES.values():
+        supported_params = AuxProducts.get_params_list(device["productId"])
+        supported_special_params = AuxProducts.get_special_params_list(
+            device["productId"]
+        )
+
+        for entity in SWITCHES.values():
             if "productId" in device and (
-                (
-                    device["productId"] in AUX_MODEL_PARAMS_LIST
-                    and switch["description"].key
-                    in AUX_MODEL_PARAMS_LIST.get(device["productId"])
-                )
+                (supported_params and entity["description"].key in supported_params)
                 or (
-                    device["productId"] in AUX_MODEL_SPECIAL_PARAMS_LIST
-                    and switch["description"].key
-                    in AUX_MODEL_SPECIAL_PARAMS_LIST.get(device["productId"])
+                    supported_special_params
+                    and entity["description"].key in supported_special_params
                 )
             ):
                 entities.append(
                     AuxSwitchEntity(
                         coordinator,
                         device["endpointId"],
-                        switch["description"],
+                        entity["description"],
                         (
-                            switch["custom_mapping"]
-                            if "custom_mapping" in switch
+                            entity["custom_mapping"]
+                            if "custom_mapping" in entity
                             else None
                         ),
                     )
@@ -181,7 +180,7 @@ async def async_setup_entry(
                 _LOGGER.debug(
                     "Adding switch entity for %s with option %s",
                     device["friendlyName"],
-                    switch["description"].key,
+                    entity["description"].key,
                 )
 
     if entities:

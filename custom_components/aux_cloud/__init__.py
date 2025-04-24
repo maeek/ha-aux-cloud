@@ -91,7 +91,6 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
         self.password = password
         self.selected_device_ids = selected_device_ids
         self.devices = []
-        _LOGGER.debug("AUX Cloud Coordinator initialized with email: %s", email)
 
     def get_device_by_endpoint_id(self, endpoint_id: str):
         """Get a device by its endpoint ID."""
@@ -122,7 +121,6 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
 
             # Create a single list of tasks for fetching devices (shared and non-shared)
             device_tasks = []
-            shared_device_tasks = []
 
             for family_id in self.api.families:
                 device_tasks.append(
@@ -132,7 +130,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
                         selected_devices=self.selected_device_ids,
                     )
                 )
-                shared_device_tasks.append(
+                device_tasks.append(
                     self.api.get_devices(
                         family_id,
                         shared=True,
@@ -144,28 +142,21 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
             devices_results = await asyncio.gather(
                 *device_tasks, return_exceptions=True
             )
-            shared_devices_results = await asyncio.gather(
-                *shared_device_tasks, return_exceptions=True
-            )
 
             # Process results and handle exceptions
             all_devices = []
 
-            for result in devices_results + shared_devices_results:
+            for result in devices_results:
                 for device in result:
                     if isinstance(device, Exception):
                         continue
-                    all_devices.append(device)
-            # Filter devices if selected_device_ids is provided
-            if self.selected_device_ids:
-                self.devices = [
-                    device
-                    for device in all_devices
-                    if device["endpointId"] in self.selected_device_ids
-                ]
-            else:
-                self.devices = all_devices
+                    if (
+                        device["endpointId"] in self.selected_device_ids
+                        or not self.selected_device_ids
+                    ):
+                        all_devices.append(device)
 
+            self.devices = all_devices
             _LOGGER.debug("Fetched AUX Cloud data: %s devices", len(self.devices))
 
             self.async_set_updated_data({"devices": self.devices})
