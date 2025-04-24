@@ -99,7 +99,7 @@ This integration is still in development. Current status:
 - [x] [Home Assistant] switch entity
 - [x] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
 - [x] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
-- [ ] [Home Assistant] Add an icon to https://github.com/home-assistant/brands
+- [x] [Home Assistant] Add an icon to https://github.com/home-assistant/brands
 - [ ] [API] Implement session check and re-login
 - [ ] [Home Assistant] services
 - [ ] [Home Assistant] Manual tests
