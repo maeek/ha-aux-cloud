@@ -21,8 +21,8 @@ from .api.const import (
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
 )
-from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
+from .util import BaseEntity
 
 SWITCHES = {
     AUX_ECOMODE: {
@@ -211,11 +211,11 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
 
         return self._get_device_params().get(self._option) == 1
 
-    async def async_turn_on(self):
+    async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
         await self._send_command(True)
 
-    async def async_turn_off(self):
+    async def async_turn_off(self, **kwargs):
         """Turn the switch off."""
         await self._send_command(False)
 

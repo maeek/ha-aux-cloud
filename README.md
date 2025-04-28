@@ -6,14 +6,14 @@
 Unofficial integration for Aux Cloud connected appliances like air conditioners and heat pumps. Aux Cloud is a service
 based on the Broadlink platform that allows you to control your appliances from anywhere. This is a cloud alternative
 to [replacing wifi module in your AC](https://github.com/GrKoR/esphome_aux_ac_component). This integration will also allow you
-to control AUX heat pumps. The implementation of API requests are based on public resources from [Broadlink documentation](https://docs.ibroadlink.com/public/appsdk/sdk_others/dnacontrol/) and reverse engineering.
+to control AUX heat pumps. The implementation of API requests is based on public resources from [Broadlink documentation](https://docs.ibroadlink.com/public/appsdk/sdk_others/dnacontrol/) and reverse engineering.
 
 ## Features
 
 - Control AUX air conditioners and heat pumps from Home Assistant
 - View device status and sensor readings
 - Support for both personal and shared devices
-- Secure credential storage(when configured through UI)
+- Secure credential storage (when configured through UI)
 
 ## Installation
 
@@ -68,18 +68,18 @@ control them through:
 If you encounter issues:
 
 1. Check the Home Assistant logs for error messages
-2. Verify your AUX Cloud credentials and selected region are correct
+2. Verify your AUX Cloud credentials and selected region is correct
 3. Ensure your devices are online and accessible through the AUX Cloud app
 4. If you've recently changed your password, you'll need to reconfigure the integration
 
 ## Known Issues
 
-- **Logging in in the App**: The login process in the app will log out any existing sessions (at least on Android). If you log in the app, reload the integration.
+- **Logging in the App**: The login process in the app will log out any existing sessions (at least on Android). If you log in the app, reload the integration.
 
 > [!NOTE]
 > There are plans to implement automatic relogging if the request fails due to session expiry.
 
-- **Shared devices**: If your account have shared devices, you might encounter an issue that `Platform aux_cloud does not generate unique ids`, check your HA logs and transfer ownership of the device to your account.
+- **Shared devices**: If your account has shared devices, you might encounter an issue that `Platform aux_cloud does not generate unique ids`, check your HA logs and transfer ownership of the device to your account.
 
 ## Development
 
@@ -87,7 +87,7 @@ This integration is still in development. Current status:
 
 - [x] Reverse engineer the AUX Cloud API
 - [x] [API] Implement login
-- [x] [API] Implement getting devices information
+- [x] [API] Implement getting devices' information
 - [x] [Home Assistant] Config flow with device selection
 - [x] [API] Implement updating device state
 - [x] [Home Assistant] Cloud data fetcher
@@ -99,7 +99,7 @@ This integration is still in development. Current status:
 - [x] [Home Assistant] switch entity
 - [x] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
 - [x] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
-- [ ] [Home Assistant] Add icon to https://github.com/home-assistant/brands
+- [x] [Home Assistant] Add an icon to https://github.com/home-assistant/brands
 - [ ] [API] Implement session check and re-login
 - [ ] [Home Assistant] services
 - [ ] [Home Assistant] Manual tests
@@ -120,6 +120,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Testing
 
 This document describes how to run tests and perform code quality checks for the AUX Cloud Integration.
+
+## Devices
+
+Integration support and was tested on devices:
+- AC:
+  1. AUX Freedom
 
 ## Prerequisites
 

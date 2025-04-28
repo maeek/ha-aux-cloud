@@ -25,8 +25,8 @@ from .api.const import (
     HP_WATER_POWER_ON,
     HP_QUIET_MODE,
 )
-from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
+from .util import BaseEntity
 
 WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {
     "water_heater": {
@@ -159,10 +159,10 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
             "ecomode": self._get_device_params().get(AUX_ECOMODE, 0),
         }
 
-    async def async_turn_on(self):
+    async def async_turn_on(self, **kwargs) -> None:
         """Turn the water heater on."""
         await self._set_device_params(HP_WATER_POWER_ON)
 
-    async def async_turn_off(self):
+    async def async_turn_off(self, **kwargs) -> None:
         """Turn the water heater off."""
         await self._set_device_params(HP_WATER_POWER_OFF)
