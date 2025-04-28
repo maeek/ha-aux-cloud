@@ -134,7 +134,7 @@ class AuxProducts:
     def get_device_name(product_id):
         if product_id in AuxProducts.DeviceType.AC_GENERIC:
             return "AUX Air Conditioner"
-        elif AuxProducts.DeviceType.HEAT_PUMP:
+        if AuxProducts.DeviceType.HEAT_PUMP:
             return "AUX Heat Pump"
         return "Unknown"
 
@@ -188,19 +188,17 @@ class AuxProducts:
     def get_params_list(product_id):
         if product_id in AuxProducts.DeviceType.AC_GENERIC:
             return AuxProducts.AC_PARAMS
-        elif product_id in AuxProducts.DeviceType.HEAT_PUMP:
+        if product_id in AuxProducts.DeviceType.HEAT_PUMP:
             return AuxProducts.HP_PARAMS
-        else:
-            return None
+        return None
 
     @staticmethod
     def get_special_params_list(product_id):
         if product_id in AuxProducts.DeviceType.AC_GENERIC:
             return AuxProducts.AC_SPECIAL_PARAMS
-        elif product_id in AuxProducts.DeviceType.HEAT_PUMP:
+        if product_id in AuxProducts.DeviceType.HEAT_PUMP:
             return AuxProducts.HP_SPECIAL_PARAMS
-        else:
-            return None
+        return None
 
 
 """

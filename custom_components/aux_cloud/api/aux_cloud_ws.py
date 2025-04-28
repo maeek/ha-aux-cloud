@@ -155,7 +155,7 @@ class AuxCloudWebSocket:
                 _LOGGER.debug("Reconnected to WebSocket.")
                 self._reconnect_task = None
                 return
-            except Exception as e:
+            except (ConnectionError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 _LOGGER.error("Reconnect failed: %s", e)
                 await asyncio.sleep(10)  # Retry after 10 seconds
 
@@ -164,10 +164,10 @@ class AuxCloudWebSocket:
         Send a JSON-serialized dictionary to the WebSocket server.
 
         :param data: The dictionary to send.
-        :raises Exception: If the WebSocket is not connected.
+        :raises ConnectionError: If the WebSocket is not connected.
         """
         if not self.websocket or self.websocket.closed:
-            raise Exception("WebSocket is not connected.")
+            raise ConnectionError("WebSocket is not connected.")
 
         try:
             # Convert the dictionary to a JSON string
