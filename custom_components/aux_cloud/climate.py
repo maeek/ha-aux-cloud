@@ -1,5 +1,7 @@
 """Climate platform for AUX Cloud integration."""
 
+import asyncio
+
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
@@ -47,8 +49,6 @@ from .api.const import (
     AC_POWER_ON,
     ACFanSpeed,
 )
-from .util import BaseEntity
-
 from .const import (
     DOMAIN,
     FAN_MODE_HA_TO_AUX,
@@ -57,6 +57,7 @@ from .const import (
     MODE_MAP_HA_TO_AUX,
     _LOGGER,
 )
+from .util import BaseEntity
 
 
 async def async_setup_entry(
@@ -211,6 +212,11 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             {HP_HEATER_TEMPERATURE_TARGET: int(temperature * 10)}
         )
 
+    async def async_set_fan_mode(self, fan_mode):
+        """Set new fan mode."""
+        _LOGGER.warning("Fan mode setting is not supported for heat pump devices")
+        return
+
 
 class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud climate entity."""
@@ -356,9 +362,21 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         await self._set_device_params(params)
 
     async def async_turn_on(self):
-        """Turn the entity on."""
+        """Async turn the entity on."""
         await self._set_device_params(AC_POWER_ON)
 
+    def turn_on(self, **kwargs):
+        """Async turn the entity on."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_on(), self.hass.loop
+        ).result()
+
     async def async_turn_off(self):
-        """Turn the entity off."""
+        """Async turn the entity off."""
         await self._set_device_params(AC_POWER_OFF)
+
+    def turn_off(self, **kwargs):
+        """Turn the entity off."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_off(), self.hass.loop
+        ).result()
