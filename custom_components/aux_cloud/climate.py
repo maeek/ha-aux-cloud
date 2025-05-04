@@ -83,7 +83,6 @@ async def async_setup_entry(
                         name="Air Conditioner",
                         translation_key="aux_ac",
                         icon="mdi:air-conditioner",
-                        unit_of_measurement=UnitOfTemperature.CELSIUS,
                     ),
                 )
             )
@@ -97,7 +96,6 @@ async def async_setup_entry(
                         name="Central Heating",
                         translation_key="aux_heater",
                         icon="mdi:hvac",
-                        unit_of_measurement=UnitOfTemperature.CELSIUS,
                     ),
                 )
             )
@@ -126,7 +124,7 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_min_temp = 0  # Minimum temperature in Celsius
         self._attr_max_temp = 64  # Maximum temperature in Celsius
         self._attr_target_temperature_step = 1
-        self._attr_temperature_unit = entity_description.unit_of_measurement
+        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
         self.entity_id = f"climate.{self._attr_unique_id}"
 
@@ -226,7 +224,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     ):
         """Initialize the climate entity."""
         super().__init__(coordinator, device_id, entity_description)
-        self._attr_temperature_unit = entity_description.unit_of_measurement
+        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.FAN_MODE
