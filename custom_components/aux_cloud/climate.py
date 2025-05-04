@@ -319,8 +319,23 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             self._get_device_params().get(ACFanSpeed.PARAM_NAME), FAN_AUTO
         )
 
+    def set_fan_mode(self, fan_mode: str):
+        """Aet new fan mode."""
+        # Convert Home Assistant fan mode to AUX fan mode
+        aux_fan_mode = FAN_MODE_HA_TO_AUX.get(fan_mode)
+
+        if aux_fan_mode is None:
+            _LOGGER.error("Unsupported fan mode: %s", fan_mode)
+            return None
+
+        # Set the fan mode parameter in the device
+        return asyncio.run_coroutine_threadsafe(
+            self._set_device_params({ACFanSpeed.PARAM_NAME: aux_fan_mode}),
+            self.hass.loop,
+        ).result()
+
     async def async_set_fan_mode(self, fan_mode):
-        """Set new fan mode."""
+        """Async set new fan mode."""
         if fan_mode is None:
             return
 

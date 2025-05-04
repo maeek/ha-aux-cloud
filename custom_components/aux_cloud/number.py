@@ -8,8 +8,8 @@ from .api.const import (
     AC_POWER_LIMIT,
     AuxProducts,
 )
-from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
+from .util import BaseEntity
 
 NUMBERS = {
     AC_POWER_LIMIT: {
@@ -87,10 +87,10 @@ class AuxNumberEntity(BaseEntity, CoordinatorEntity, NumberEntity):
         self._attr_step = step
         self.entity_id = f"number.{self._attr_unique_id}"
 
-    @property
-    def value(self):
-        """Return the current value of the number."""
-        return self._get_device_params().get(self._option, 0)
+    # @property
+    # def value(self):
+    #     """Return the current value of the number."""
+    #     return self._get_device_params().get(self._option, 0)
 
     async def async_set_value(self, value: float):
         """Set the value of the number."""
