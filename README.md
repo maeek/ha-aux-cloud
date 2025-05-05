@@ -125,7 +125,7 @@ This document describes how to run tests and perform code quality checks for the
 
 Integration support and was tested on devices:
 - AC:
-  1. AUX Freedom
+  1. AUX Freedom model AUX-12F2H/I
 
 ## Prerequisites
 
@@ -153,14 +153,6 @@ Run tests and show coverage information:
 pytest --cov=custom_components
 ```
 
-### Additional Testing Options
-
-Run specific test file:
-
-```bash
-pytest tests/test_init.py
-```
-
 ## Code Quality Checks with pylint
 
 ### Basic pylint Check
@@ -169,20 +161,6 @@ Run pylint on the entire component:
 
 ```bash
 pylint custom_components/aux_cloud
-```
-
-### Targeted pylint Checks
-
-Check a specific file:
-
-```bash
-pylint custom_components/aux_cloud/api/aux_cloud.py
-```
-
-Set a minimum score threshold (useful for CI/CD):
-
-```bash
-pylint --fail-under=8.0 custom_components/aux_cloud
 ```
 
 ### Code formatting
