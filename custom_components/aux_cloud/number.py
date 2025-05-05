@@ -87,12 +87,7 @@ class AuxNumberEntity(BaseEntity, CoordinatorEntity, NumberEntity):
         self._attr_step = step
         self.entity_id = f"number.{self._attr_unique_id}"
 
-    # @property
-    # def value(self):
-    #     """Return the current value of the number."""
-    #     return self._get_device_params().get(self._option, 0)
-
-    async def async_set_value(self, value: float):
+    async def set_native_value(self, value: float):
         """Set the value of the number."""
         try:
             await self._set_device_params({self._option: int(value)})
