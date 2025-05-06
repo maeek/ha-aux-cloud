@@ -10,7 +10,7 @@ from custom_components.aux_cloud.api.aux_cloud import AuxCloudAPI
 
 def get_config_path():
     current_dir = pathlib.Path(__file__).parent
-    return os.path.join(current_dir, "config.yaml")
+    return os.path.join(current_dir, "docs", "dev", "config.yaml")
 
 
 if __name__ == "__main__":
@@ -49,10 +49,10 @@ if __name__ == "__main__":
                     # await cloud.set_device_params(device, TEMP)
                     # await cloud.set_device_params(device, FAN_SPEEDS_HIGH)
 
-                    params = await cloud.get_device_params(device)
+                    # params = await cloud.get_device_params(device)
 
-                    print("Device params after set:")
-                    pprint.pprint(params)
+                    # print("Device params after set:")
+                    # pprint.pprint(params)
 
                 print("")
 
