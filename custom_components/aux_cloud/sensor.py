@@ -162,8 +162,3 @@ class AuxCloudSensor(BaseEntity, CoordinatorEntity, SensorEntity):
             return None
 
         return self._get_value_fn(self._device)
-
-    # @property
-    # def state(self):
-    #     """Return the state of the sensor."""
-    #     return self.native_value

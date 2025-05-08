@@ -126,6 +126,8 @@ This document describes how to run tests and perform code quality checks for the
 Integration support and was tested on devices:
 - AC:
   1. AUX Freedom model AUX-12F2H/I
+- Heat pump:
+  1. AUX ACHP-HO8/4R3HA-I
 
 ## Prerequisites
 
