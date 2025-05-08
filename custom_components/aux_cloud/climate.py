@@ -1,5 +1,7 @@
 """Climate platform for AUX Cloud integration."""
 
+import asyncio
+
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
@@ -47,8 +49,6 @@ from .api.const import (
     AC_POWER_ON,
     ACFanSpeed,
 )
-from .util import BaseEntity
-
 from .const import (
     DOMAIN,
     FAN_MODE_HA_TO_AUX,
@@ -57,6 +57,7 @@ from .const import (
     MODE_MAP_HA_TO_AUX,
     _LOGGER,
 )
+from .util import BaseEntity
 
 
 async def async_setup_entry(
@@ -209,6 +210,11 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             {HP_HEATER_TEMPERATURE_TARGET: int(temperature * 10)}
         )
 
+    async def async_set_fan_mode(self, fan_mode):
+        """Set new fan mode."""
+        _LOGGER.warning("Fan mode setting is not supported for heat pump devices")
+        return
+
 
 class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud climate entity."""
@@ -313,8 +319,23 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             self._get_device_params().get(ACFanSpeed.PARAM_NAME), FAN_AUTO
         )
 
+    def set_fan_mode(self, fan_mode: str):
+        """Aet new fan mode."""
+        # Convert Home Assistant fan mode to AUX fan mode
+        aux_fan_mode = FAN_MODE_HA_TO_AUX.get(fan_mode)
+
+        if aux_fan_mode is None:
+            _LOGGER.error("Unsupported fan mode: %s", fan_mode)
+            return None
+
+        # Set the fan mode parameter in the device
+        return asyncio.run_coroutine_threadsafe(
+            self._set_device_params({ACFanSpeed.PARAM_NAME: aux_fan_mode}),
+            self.hass.loop,
+        ).result()
+
     async def async_set_fan_mode(self, fan_mode):
-        """Set new fan mode."""
+        """Async set new fan mode."""
         if fan_mode is None:
             return
 
@@ -354,9 +375,21 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         await self._set_device_params(params)
 
     async def async_turn_on(self):
-        """Turn the entity on."""
+        """Async turn the entity on."""
         await self._set_device_params(AC_POWER_ON)
 
+    def turn_on(self, **kwargs):
+        """Async turn the entity on."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_on(), self.hass.loop
+        ).result()
+
     async def async_turn_off(self):
-        """Turn the entity off."""
+        """Async turn the entity off."""
         await self._set_device_params(AC_POWER_OFF)
+
+    def turn_off(self, **kwargs):
+        """Turn the entity off."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_off(), self.hass.loop
+        ).result()

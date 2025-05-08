@@ -1,5 +1,5 @@
 [MAIN]
-fail-under=9.0
+fail-under=9.5
 limit-inference-results=120
 
 # List of plugins (as comma separated values of python module names) to load,
@@ -362,7 +362,8 @@ disable=missing-class-docstring,
         deprecated-pragma,
         use-symbolic-message-instead,
         use-implicit-booleaness-not-comparison-to-string,
-        use-implicit-booleaness-not-comparison-to-zero
+        use-implicit-booleaness-not-comparison-to-zero,
+        broad-exception-caught
 
 # Enable the message, report, category or checker with the given id(s). You can
 # either give multiple identifier separated by comma (,) or put this option

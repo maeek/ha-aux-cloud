@@ -18,8 +18,8 @@ from .api.const import (
     HP_HOT_WATER_TEMPERATURE_TARGET,
     HP_HEATER_TEMPERATURE_TARGET,
 )
-from .util import BaseEntity
 from .const import DOMAIN, _LOGGER
+from .util import BaseEntity
 
 SENSORS: dict[str, dict[str, any]] = {
     AC_TEMPERATURE_AMBIENT: {
@@ -162,8 +162,3 @@ class AuxCloudSensor(BaseEntity, CoordinatorEntity, SensorEntity):
             return None
 
         return self._get_value_fn(self._device)
-
-    @property
-    def state(self):
-        """Return the state of the sensor."""
-        return self.native_value

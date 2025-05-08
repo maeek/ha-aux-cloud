@@ -132,6 +132,7 @@ class AuxProducts:
 
     @staticmethod
     def get_device_name(product_id):
+        """A utility method to determine the device name based on a given product ID."""
         if product_id in AuxProducts.DeviceType.AC_GENERIC:
             return "AUX Air Conditioner"
         if AuxProducts.DeviceType.HEAT_PUMP:
