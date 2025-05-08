@@ -188,6 +188,18 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         """Turn the heat pump off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
 
+    def turn_on(self):
+        """Turn the entity on."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_on(), self.hass.loop
+        ).result()
+
+    def turn_off(self):
+        """Turn the entity off."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_off(), self.hass.loop
+        ).result()
+
     async def async_set_preset_mode(self, preset_mode: str):
         """Set the preset mode."""
         if preset_mode == PRESET_ECO:
@@ -378,17 +390,17 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         """Async turn the entity on."""
         await self._set_device_params(AC_POWER_ON)
 
-    def turn_on(self, **kwargs):
+    async def async_turn_off(self):
+        """Async turn the entity off."""
+        await self._set_device_params(AC_POWER_OFF)
+
+    def turn_on(self):
         """Async turn the entity on."""
         return asyncio.run_coroutine_threadsafe(
             self.async_turn_on(), self.hass.loop
         ).result()
 
-    async def async_turn_off(self):
-        """Async turn the entity off."""
-        await self._set_device_params(AC_POWER_OFF)
-
-    def turn_off(self, **kwargs):
+    def turn_off(self):
         """Turn the entity off."""
         return asyncio.run_coroutine_threadsafe(
             self.async_turn_off(), self.hass.loop

@@ -1,3 +1,5 @@
+import asyncio
+
 from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
@@ -166,3 +168,15 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the water heater off."""
         await self._set_device_params(HP_WATER_POWER_OFF)
+
+    def turn_on(self, **kwargs) -> None:
+        """Turn the water heater on."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_on(**kwargs), self.hass.loop
+        ).result()
+
+    def turn_off(self, **kwargs) -> None:
+        """Turn the water heater off."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_turn_off(**kwargs), self.hass.loop
+        ).result()

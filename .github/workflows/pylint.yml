@@ -26,4 +26,4 @@ jobs:
     - name: Run pylint
       run: |
         source venv/bin/activate
-        pylint custom_components/aux_cloud --fail-under=8.0
+        pylint custom_components/aux_cloud --fail-under=9.5
