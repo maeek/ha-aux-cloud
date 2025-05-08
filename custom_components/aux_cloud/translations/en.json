@@ -155,10 +155,7 @@
     },
     "number": {
       "aux_power_limit_percentage": {
-        "name": "Power Limit Percentage",
-        "state": {
-          "unit_of_measurement": "%"
-        }
+        "name": "Power Limit Percentage"
       }
     }
   }
