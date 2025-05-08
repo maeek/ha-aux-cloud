@@ -4,11 +4,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import (
-    AC_POWER_LIMIT,
-    AuxProducts,
-)
-from .const import DOMAIN, _LOGGER
+from .api.const import AC_POWER_LIMIT, AuxProducts
+from .const import _LOGGER, DOMAIN
 from .util import BaseEntity
 
 NUMBERS = {
@@ -17,11 +14,12 @@ NUMBERS = {
             key=AC_POWER_LIMIT,
             name="Power Limit Percentage",
             icon="mdi:percent",
+            native_max_value=90,
+            native_min_value=0,
+            native_step=1,
+            native_unit_of_measurement="%",
             translation_key="aux_power_limit_percentage",
-        ),
-        "min_value": 0,
-        "max_value": 90,
-        "step": 1,
+        )
     },
 }
 
@@ -56,9 +54,6 @@ async def async_setup_entry(
                         coordinator,
                         device["endpointId"],
                         entity["description"],
-                        entity["min_value"],
-                        entity["max_value"],
-                        entity["step"],
                     )
                 )
                 _LOGGER.debug(
@@ -76,24 +71,19 @@ async def async_setup_entry(
 class AuxNumberEntity(BaseEntity, CoordinatorEntity, NumberEntity):
     """AUX Cloud number entity."""
 
-    def __init__(
-        self, coordinator, device_id, entity_description, min_value, max_value, step
-    ):
+    def __init__(self, coordinator, device_id, entity_description) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, device_id, entity_description)
         self._option = self.entity_description.key
-        self._attr_min_value = min_value
-        self._attr_max_value = max_value
-        self._attr_step = step
         self.entity_id = f"number.{self._attr_unique_id}"
 
     @property
-    def value(self):
-        """Return the current value of the number."""
+    def native_value(self):
+        """Return the current native value of the number."""
         return self._get_device_params().get(self._option, 0)
 
-    async def async_set_value(self, value: float):
-        """Set the value of the number."""
+    async def async_set_native_value(self, value: float):
+        """Set the native value of the number."""
         try:
             await self._set_device_params({self._option: int(value)})
         except Exception as ex:

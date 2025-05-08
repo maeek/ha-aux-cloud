@@ -1,0 +1,29 @@
+name: Lint with Pylint
+
+on:
+  pull_request:
+    branches: [ main ]  # or your default branch
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.13
+
+    - name: Install dependencies
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.test.txt
+
+    - name: Run pylint
+      run: |
+        source venv/bin/activate
+        pylint custom_components/aux_cloud --fail-under=8.0
