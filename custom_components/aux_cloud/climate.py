@@ -288,6 +288,12 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
 
         await self._set_device_params({AC_TEMPERATURE_TARGET: int(temperature * 10)})
 
+    def set_temperature(self, **kwargs):
+        """Set new target temperature."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_set_temperature(**kwargs), self.hass.loop
+        ).result()
+
     @property
     def hvac_mode(self):
         """Return the current operation mode."""
@@ -297,7 +303,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         return MODE_MAP_AUX_AC_TO_HA.get(mode, HVACMode.OFF)
 
     async def async_set_hvac_mode(self, hvac_mode):
-        """Set new operation mode."""
+        """Set a new operation mode."""
         if hvac_mode == HVACMode.OFF:
             params = AC_POWER_OFF
         else:
@@ -307,6 +313,12 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             params = {**AC_POWER_ON, AUX_MODE: aux_mode}
 
         await self._set_device_params(params)
+
+    def set_hvac_mode(self, hvac_mode):
+        """Set a new operation mode."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_set_hvac_mode(hvac_mode), self.hass.loop
+        ).result()
 
     @property
     def hvac_action(self):

@@ -1,0 +1,162 @@
+{
+  "config": {
+    "flow_title": "AUX Cloud: {name}",
+    "abort": {
+      "single_instance_allowed": "Już skonfigurowano. Możliwa tylko jedna konfiguracja.",
+      "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
+      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud.",
+      "login_required": "Wymagane logowanie przed wyborem urządzenia."
+    },
+    "error": {
+      "user_login_failed": "Logowanie nie powiodło się. Sprawdź swoje dane logowania.",
+      "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
+      "invalid_auth": "Nieprawidłowa autoryzacja",
+      "unknown": "Nieoczekiwany błąd"
+    },
+    "step": {
+      "user": {
+        "title": "Logowanie do AUX Cloud",
+        "description": "Wprowadź dane logowania do konta AUX Cloud",
+        "data": {
+          "email": "Email",
+          "password": "Hasło",
+          "region": "Region"
+        }
+      },
+      "select_devices": {
+        "title": "Wybierz urządzenia AUX Cloud",
+        "description": "Znaleziono {devices_count} urządzeń w {families_count} domach. Wybierz urządzenia, które chcesz dodać do Home Assistant.",
+        "data": {
+          "selected_devices": "Wybierz urządzenia"
+        }
+      }
+    },
+    "progress": {
+      "fetching_devices": "Pobieranie urządzeń... To może chwilę potrwać."
+    }
+  },
+  "options": {
+    "abort": {
+      "missing_credentials": "Brak danych logowania. Skonfiguruj ponownie integrację.",
+      "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
+      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud."
+    },
+    "step": {
+      "init": {
+        "title": "Aktualizuj urządzenia AUX Cloud",
+        "description": "Wybierz, które urządzenia chcesz monitorować i kontrolować za pomocą Home Assistant.",
+        "data": {
+          "selected_devices": "Wybierz urządzenia"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ambient_temperature": {
+        "name": "Temperatura otoczenia"
+      },
+      "water_tank_temperature": {
+        "name": "Temperatura zbiornika c.w.u."
+      },
+      "hot_water_temperature": {
+        "name": "Temperatura ciepłej wody"
+      },
+      "ac_temperature": {
+        "name": "Temperatura klimatyzatora"
+      }
+    },
+    "water_heater": {
+      "aux_water": {
+        "name": "Podgrzewacz wody"
+      }
+    },
+    "climate": {
+      "aux_heater": {
+        "name": "Grzejnik",
+        "state": {
+          "off": "Wyłączony",
+          "heat": "Ogrzewanie",
+          "cool": "Chłodzenie"
+        }
+      },
+      "aux_ac": {
+        "name": "Klimatyzator"
+      }
+    },
+    "select": {
+      "aux_select_qtmode": {
+        "name": "Tryb cichy",
+        "state": {
+          "off": "Wyłączony",
+          "quiet_1": "Cichy poziom 1",
+          "quiet_2": "Cichy poziom 2"
+        }
+      },
+      "aux_select_auto_water_temp": {
+        "name": "Automatyczna temperatura wody",
+        "state": {
+          "off": "Wyłączony",
+          "level_1": "Ustawienie 1",
+          "level_2": "Ustawienie 2",
+          "level_3": "Ustawienie 3",
+          "level_4": "Ustawienie 4",
+          "level_5": "Ustawienie 5",
+          "level_6": "Ustawienie 6",
+          "level_7": "Ustawienie 7",
+          "level_8": "Ustawienie 8",
+          "user_defined": "Ustawione przez użytkownika"
+        }
+      }
+    },
+    "switch": {
+      "aux_ecomode": {
+        "name": "Tryb ekonomiczny"
+      },
+      "aux_ac_power": {
+        "name": "Zasilanie klimatyzatora"
+      },
+      "aux_hp_power": {
+        "name": "Zasilanie pompy ciepła"
+      },
+      "aux_water_power": {
+        "name": "Zasilanie podgrzewacza wody"
+      },
+      "aux_fast_hotwater": {
+        "name": "Szybka ciepła woda"
+      },
+      "aux_aux_heat": {
+        "name": "Ogrzewanie pomocnicze"
+      },
+      "aux_self_cleaning": {
+        "name": "Samoczyszczenie"
+      },
+      "aux_child_lock": {
+        "name": "Blokada rodzicielska"
+      },
+      "aux_comfortable_wind": {
+        "name": "Komfortowy nawiew"
+      },
+      "aux_health_mode": {
+        "name": "Tryb zdrowia"
+      },
+      "aux_mildew_proof": {
+        "name": "Ochrona przed pleśnią"
+      },
+      "aux_sleep_mode": {
+        "name": "Tryb nocny"
+      },
+      "aux_screen_display": {
+        "name": "Wyświetlacz"
+      },
+      "aux_power_limit": {
+        "name": "Ograniczenie mocy"
+      }
+    },
+    "number": {
+      "aux_power_limit_percentage": {
+        "name": "Procent ograniczenia mocy"
+      }
+    }
+  }
+}
