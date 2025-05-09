@@ -123,12 +123,18 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
         return STATE_OFF
 
     async def async_set_temperature(self, **kwargs):
-        """Set new target water temperature."""
+        """Set a new target water temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is not None:
             await self._set_device_params(
                 {HP_HOT_WATER_TEMPERATURE_TARGET: int(temperature * 10)}
             )
+
+    def set_temperature(self, **kwargs) -> None:
+        """Set a new target water temperature."""
+        asyncio.run_coroutine_threadsafe(
+            self.async_set_temperature(**kwargs), self.hass.loop
+        ).result()
 
     async def async_set_operation_mode(self, operation_mode):
         """Set the operation mode."""
@@ -144,6 +150,12 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
             await self._set_device_params(
                 {**HP_WATER_POWER_ON, **HP_WATER_FAST_HOTWATER_ON}
             )
+
+    def set_operation_mode(self, operation_mode) -> None:
+        """Set operation mode (sync API)."""
+        asyncio.run_coroutine_threadsafe(
+            self.async_set_operation_mode(operation_mode), self.hass.loop
+        ).result()
 
     @property
     def operation_list(self):
