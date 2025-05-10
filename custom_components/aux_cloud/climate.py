@@ -227,6 +227,12 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         _LOGGER.warning("Fan mode setting is not supported for heat pump devices")
         return
 
+    def set_humidity(self, humidity: int) -> None:
+        """This device doesn't support setting humidity."""
+
+    def set_temperature(self, **kwargs) -> None:
+        """Set a new target temperature."""
+
 
 class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud climate entity."""
@@ -256,6 +262,10 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_max_temp = 30
         self._attr_target_temperature_step = 0.5
         self.entity_id = f"climate.{self._attr_unique_id}"
+
+    def set_humidity(self, humidity: int) -> None:
+        """Set a new target humidity."""
+        pass
 
     @property
     def current_temperature(self):
