@@ -241,7 +241,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             SWING_BOTH,
         ]
         self._attr_min_temp = 16
-        self._attr_max_temp = 30
+        self._attr_max_temp = 32
         self._attr_target_temperature_step = 0.5
         self.entity_id = f"climate.{self._attr_unique_id}"
 
