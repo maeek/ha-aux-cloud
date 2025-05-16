@@ -17,6 +17,7 @@ from .const import DATA_AUX_CLOUD_CONFIG, DOMAIN, CONF_FAMILIES, CONF_SELECTED_D
 _LOGGER = logging.getLogger(__name__)
 
 
+# pylint: disable=abstract-method
 class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for AUX Cloud."""
 

@@ -1,5 +1,3 @@
-import asyncio
-
 from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
@@ -76,6 +74,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX water heater devices added")
 
 
+# pylint: disable=abstract-method
 class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
     """AUX Cloud water heater entity."""
 
@@ -130,12 +129,6 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
                 {HP_HOT_WATER_TEMPERATURE_TARGET: int(temperature * 10)}
             )
 
-    def set_temperature(self, **kwargs) -> None:
-        """Set a new target water temperature."""
-        asyncio.run_coroutine_threadsafe(
-            self.async_set_temperature(**kwargs), self.hass.loop
-        ).result()
-
     async def async_set_operation_mode(self, operation_mode):
         """Set the operation mode."""
         if operation_mode == STATE_OFF:
@@ -150,12 +143,6 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
             await self._set_device_params(
                 {**HP_WATER_POWER_ON, **HP_WATER_FAST_HOTWATER_ON}
             )
-
-    def set_operation_mode(self, operation_mode) -> None:
-        """Set operation mode (sync API)."""
-        asyncio.run_coroutine_threadsafe(
-            self.async_set_operation_mode(operation_mode), self.hass.loop
-        ).result()
 
     @property
     def operation_list(self):
@@ -180,15 +167,3 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the water heater off."""
         await self._set_device_params(HP_WATER_POWER_OFF)
-
-    def turn_on(self, **kwargs) -> None:
-        """Turn the water heater on."""
-        return asyncio.run_coroutine_threadsafe(
-            self.async_turn_on(**kwargs), self.hass.loop
-        ).result()
-
-    def turn_off(self, **kwargs) -> None:
-        """Turn the water heater off."""
-        return asyncio.run_coroutine_threadsafe(
-            self.async_turn_off(**kwargs), self.hass.loop
-        ).result()

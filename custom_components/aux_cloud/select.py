@@ -1,7 +1,5 @@
 """Select platform for AUX Cloud integration."""
 
-import asyncio
-
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -137,6 +135,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX select devices added")
 
 
+# pylint: disable=abstract-method
 class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
     """AUX Cloud select entity."""
 
@@ -174,9 +173,3 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
 
         await self._set_device_params({self.entity_description.key: new_option})
         await self.coordinator.async_request_refresh()
-
-    def select_option(self, option: str) -> None:
-        """Set a new option."""
-        asyncio.run_coroutine_threadsafe(
-            self.async_select_option(option), self.hass.loop
-        ).result()

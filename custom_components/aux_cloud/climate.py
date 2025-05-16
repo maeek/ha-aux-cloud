@@ -106,6 +106,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX climate devices added")
 
 
+# pylint: disable=abstract-method
 class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud heat pump climate entity."""
 
@@ -188,18 +189,6 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         """Turn the heat pump off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
 
-    def turn_on(self):
-        """Turn the entity on."""
-        return asyncio.run_coroutine_threadsafe(
-            self.async_turn_on(), self.hass.loop
-        ).result()
-
-    def turn_off(self):
-        """Turn the entity off."""
-        return asyncio.run_coroutine_threadsafe(
-            self.async_turn_off(), self.hass.loop
-        ).result()
-
     async def async_set_preset_mode(self, preset_mode: str):
         """Set the preset mode."""
         if preset_mode == PRESET_ECO:
@@ -226,12 +215,6 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         """Set new fan mode."""
         _LOGGER.warning("Fan mode setting is not supported for heat pump devices")
         return
-
-    def set_humidity(self, humidity: int) -> None:
-        """This device doesn't support setting humidity."""
-
-    def set_temperature(self, **kwargs) -> None:
-        """Set a new target temperature."""
 
 
 class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
@@ -262,10 +245,6 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_max_temp = 32
         self._attr_target_temperature_step = 0.5
         self.entity_id = f"climate.{self._attr_unique_id}"
-
-    def set_humidity(self, humidity: int) -> None:
-        """Set a new target humidity."""
-        pass
 
     @property
     def current_temperature(self):
