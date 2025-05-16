@@ -106,6 +106,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX climate devices added")
 
 
+# pylint: disable=abstract-method
 class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     """AUX Cloud heat pump climate entity."""
 
@@ -276,6 +277,12 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
 
         await self._set_device_params({AC_TEMPERATURE_TARGET: int(temperature * 10)})
 
+    def set_temperature(self, **kwargs):
+        """Set new target temperature."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_set_temperature(**kwargs), self.hass.loop
+        ).result()
+
     @property
     def hvac_mode(self):
         """Return the current operation mode."""
@@ -285,7 +292,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         return MODE_MAP_AUX_AC_TO_HA.get(mode, HVACMode.OFF)
 
     async def async_set_hvac_mode(self, hvac_mode):
-        """Set new operation mode."""
+        """Set a new operation mode."""
         if hvac_mode == HVACMode.OFF:
             params = AC_POWER_OFF
         else:
@@ -295,6 +302,12 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             params = {**AC_POWER_ON, AUX_MODE: aux_mode}
 
         await self._set_device_params(params)
+
+    def set_hvac_mode(self, hvac_mode):
+        """Set a new operation mode."""
+        return asyncio.run_coroutine_threadsafe(
+            self.async_set_hvac_mode(hvac_mode), self.hass.loop
+        ).result()
 
     @property
     def hvac_action(self):
@@ -378,17 +391,17 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         """Async turn the entity on."""
         await self._set_device_params(AC_POWER_ON)
 
-    def turn_on(self, **kwargs):
+    async def async_turn_off(self):
+        """Async turn the entity off."""
+        await self._set_device_params(AC_POWER_OFF)
+
+    def turn_on(self):
         """Async turn the entity on."""
         return asyncio.run_coroutine_threadsafe(
             self.async_turn_on(), self.hass.loop
         ).result()
 
-    async def async_turn_off(self):
-        """Async turn the entity off."""
-        await self._set_device_params(AC_POWER_OFF)
-
-    def turn_off(self, **kwargs):
+    def turn_off(self):
         """Turn the entity off."""
         return asyncio.run_coroutine_threadsafe(
             self.async_turn_off(), self.hass.loop

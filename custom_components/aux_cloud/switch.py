@@ -1,3 +1,5 @@
+import asyncio
+
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -218,6 +220,18 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs):
         """Turn the switch off."""
         await self._send_command(False)
+
+    def turn_on(self, **kwargs):
+        """Synchronous turn on."""
+        asyncio.run_coroutine_threadsafe(
+            self.async_turn_on(**kwargs), self.hass.loop
+        ).result()
+
+    def turn_off(self, **kwargs):
+        """Synchronous turn off."""
+        asyncio.run_coroutine_threadsafe(
+            self.async_turn_off(**kwargs), self.hass.loop
+        ).result()
 
     async def _send_command(self, state: bool):
         """Send the command to the device."""

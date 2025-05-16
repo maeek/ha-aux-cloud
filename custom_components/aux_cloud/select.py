@@ -135,6 +135,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX select devices added")
 
 
+# pylint: disable=abstract-method
 class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
     """AUX Cloud select entity."""
 

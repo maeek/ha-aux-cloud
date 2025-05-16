@@ -1,0 +1,28 @@
+name: Update Version
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on tags starting with 'v'
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Extract version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Update manifest.json version
+        run: |
+          sed -i 's/"version": "[^"]*"/"version": "${{ env.VERSION }}"/' custom_components/aux_cloud/manifest.json
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Bump version to ${{ env.VERSION }}"
+          file_pattern: custom_components/aux_cloud/manifest.json

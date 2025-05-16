@@ -187,6 +187,19 @@ class AuxProducts:
 
     @staticmethod
     def get_params_list(product_id):
+        """
+        This static method retrieves a list of parameters associated with a given product ID.
+        The product ID is used to determine the corresponding device type and return the
+        appropriate set of parameters. If the product ID does not match any known device type,
+        the method returns None.
+
+        Args:
+            product_id: The ID of the product whose parameters need to be fetched.
+
+        Returns:
+            A list of parameters corresponding to the given product ID if the product
+            ID matches a known device type. Returns None if no match is found.
+        """
         if product_id in AuxProducts.DeviceType.AC_GENERIC:
             return AuxProducts.AC_PARAMS
         if product_id in AuxProducts.DeviceType.HEAT_PUMP:
@@ -195,6 +208,20 @@ class AuxProducts:
 
     @staticmethod
     def get_special_params_list(product_id):
+        """
+        Retrieves the list of special parameters based on the product ID.
+
+        This method checks the given product ID and determines the appropriate
+        special parameters list specific to the product type. It handles different
+        categories such as AC (Air Conditioner) and Heat Pump.
+
+        Args:
+            product_id (int): The ID of the product to retrieve special parameters for.
+
+        Returns:
+            list or None: A list of special parameters if the product ID corresponds
+            to a known type, otherwise returns None.
+        """
         if product_id in AuxProducts.DeviceType.AC_GENERIC:
             return AuxProducts.AC_SPECIAL_PARAMS
         if product_id in AuxProducts.DeviceType.HEAT_PUMP:
