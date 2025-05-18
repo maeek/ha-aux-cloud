@@ -1,5 +1,3 @@
-import asyncio
-
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -91,10 +89,3 @@ class AuxNumberEntity(BaseEntity, CoordinatorEntity, NumberEntity):
             await self._set_device_params({self._option: int(value)})
         except Exception as ex:
             _LOGGER.error("Failed to set number value for %s: %s", self._device_id, ex)
-
-    def set_native_value(self, value: float) -> None:
-        """Set the native value of the number."""
-        # This synchronously calls the async method
-        asyncio.run_coroutine_threadsafe(
-            self.async_set_native_value(value), self.hass.loop
-        )
