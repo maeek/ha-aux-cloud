@@ -68,6 +68,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX number devices added")
 
 
+# pylint: disable=abstract-method
 class AuxNumberEntity(BaseEntity, CoordinatorEntity, NumberEntity):
     """AUX Cloud number entity."""
 

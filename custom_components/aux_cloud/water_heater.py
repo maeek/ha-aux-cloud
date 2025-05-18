@@ -74,6 +74,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX water heater devices added")
 
 
+# pylint: disable=abstract-method
 class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
     """AUX Cloud water heater entity."""
 
@@ -121,7 +122,7 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
         return STATE_OFF
 
     async def async_set_temperature(self, **kwargs):
-        """Set new target water temperature."""
+        """Set a new target water temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is not None:
             await self._set_device_params(

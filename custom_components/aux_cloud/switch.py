@@ -189,6 +189,7 @@ async def async_setup_entry(
         _LOGGER.info("No AUX switch devices added")
 
 
+# pylint: disable=abstract-method
 class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
     """AUX Cloud switch entity."""
 
