@@ -1,8 +1,5 @@
 # AUX Cloud Integration for Home Assistant
 
-> [!WARNING]
-> This integration is currently a work in progress. Some features may not be fully implemented or stable.
-
 Unofficial integration for Aux Cloud connected appliances like air conditioners and heat pumps. Aux Cloud is a service
 based on the Broadlink platform that allows you to control your appliances from anywhere. This is a cloud alternative
 to [replacing wifi module in your AC](https://github.com/GrKoR/esphome_aux_ac_component). This integration will also allow you
