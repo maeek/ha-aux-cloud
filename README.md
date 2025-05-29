@@ -14,15 +14,14 @@ to control AUX heat pumps. The implementation of API requests is based on public
 
 ## Installation
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=maeek&repository=ha-aux-cloud&category=integration)
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=aux_cloud)
+
 ## HACS Installation (Recommended)
 
 1. Make sure you have [HACS](https://hacs.xyz/) installed
 2. Go to HACS > Integrations
-3. Click the "+" button and search for "AUX Cloud"
-
-  > [!NOTE]
-  > The integration is not available in HACS yet. You can install it by adding custom repository instead.
-
+3. Search for "AUX Cloud"
 4. Install the integration
 5. Restart Home Assistant
 
