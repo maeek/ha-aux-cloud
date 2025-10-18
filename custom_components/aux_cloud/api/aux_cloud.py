@@ -8,9 +8,9 @@ from typing import TypedDict
 
 import aiohttp
 
+from .aux_cloud_ws import AuxCloudWebSocket
 from .const import AuxProducts
 from .util import encrypt_aes_cbc_zero_padding
-from .aux_cloud_ws import AuxCloudWebSocket
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"
 PASSWORD_ENCRYPT_KEY = "4969fj#k23#"
@@ -254,11 +254,11 @@ class AuxCloudAPI:
         raise AuxApiError(f"Failed to query a room: {json_data}")
 
     async def get_devices(
-            self,
-            familyid: str,
-            shared=False,
-            # List of device endpointIds to fetch from the server
-            selected_devices: list[str] = None,
+        self,
+        familyid: str,
+        shared=False,
+        # List of device endpointIds to fetch from the server
+        selected_devices: list[str] = None,
     ):
         """
         List devices associated with a family.
@@ -355,14 +355,16 @@ class AuxCloudAPI:
 
             # Process the results
             for i, (dev, dev_params_task, dev_special_params_task) in enumerate(
-                    param_tasks
+                param_tasks
             ):
                 # Normalize gathered results: could be 0, 1, or 2 tasks
                 dev_params = None
                 dev_special_params = None
                 res_tuple = results[i]
                 if isinstance(res_tuple, BaseException):
-                    _LOGGER.error("Error fetching params for %s: %s", dev["endpointId"], res_tuple)
+                    _LOGGER.error(
+                        "Error fetching params for %s: %s", dev["endpointId"], res_tuple
+                    )
                 else:
                     if len(res_tuple) >= 1:
                         dev_params = res_tuple[0]
@@ -371,13 +373,19 @@ class AuxCloudAPI:
 
                 if dev_params is None or isinstance(dev_params, BaseException):
                     if dev_params is not None:
-                        _LOGGER.error("Error fetching device params for %s: %s", dev["endpointId"], dev_params)
+                        _LOGGER.error(
+                            "Error fetching device params for %s: %s",
+                            dev["endpointId"],
+                            dev_params,
+                        )
                     # Still try to use special params if available
                     dev["params"] = {}
                 else:
                     dev["params"] = dev_params or {}
 
-                if dev_special_params and not isinstance(dev_special_params, BaseException):
+                if dev_special_params and not isinstance(
+                    dev_special_params, BaseException
+                ):
                     dev["params"].update(dev_special_params or {})
 
                 dev["last_updated"] = time.strftime(
@@ -587,7 +595,10 @@ class AuxCloudAPI:
             params = AuxProducts.get_params_list(device.get("productId")) or []
         # If still empty, avoid making a bad request and return empty dict
         if not params:
-            _LOGGER.debug("No params available for device %s; returning empty params", device.get("endpointId"))
+            _LOGGER.debug(
+                "No params available for device %s; returning empty params",
+                device.get("endpointId"),
+            )
             return {}
         return await self._act_device_params(device, "get", params)
 
