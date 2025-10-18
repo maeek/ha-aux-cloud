@@ -254,11 +254,11 @@ class AuxCloudAPI:
         raise AuxApiError(f"Failed to query a room: {json_data}")
 
     async def get_devices(
-        self,
-        familyid: str,
-        shared=False,
-        # List of device endpointIds to fetch from the server
-        selected_devices: list[str] = None,
+            self,
+            familyid: str,
+            shared=False,
+            # List of device endpointIds to fetch from the server
+            selected_devices: list[str] = None,
     ):
         """
         List devices associated with a family.
@@ -317,10 +317,15 @@ class AuxCloudAPI:
                     dev,
                 )
 
-                # Create tasks for fetching device params
-                dev_params_task = asyncio.create_task(
-                    self.get_device_params(dev, params=list([]))
-                )
+                # Determine default params for the product
+                default_params = AuxProducts.get_params_list(dev.get("productId")) or []
+
+                # Create tasks for fetching device params (only if we have something to ask for)
+                dev_params_task = None
+                if default_params:
+                    dev_params_task = asyncio.create_task(
+                        self.get_device_params(dev, params=default_params)
+                    )
                 dev_special_params_task = None
 
                 if AuxProducts.get_special_params_list(dev["productId"]) is not None:
@@ -340,8 +345,7 @@ class AuxCloudAPI:
             results = await asyncio.gather(
                 *[
                     asyncio.gather(
-                        dev_params_task,
-                        *(dev_special_params_task,) if dev_special_params_task else (),
+                        *(t for t in (dev_params_task, dev_special_params_task) if t),
                         return_exceptions=True,
                     )
                     for _, dev_params_task, dev_special_params_task in param_tasks
@@ -351,22 +355,30 @@ class AuxCloudAPI:
 
             # Process the results
             for i, (dev, dev_params_task, dev_special_params_task) in enumerate(
-                param_tasks
+                    param_tasks
             ):
-                dev_params = results[i][0]
-                dev_special_params = results[i][1] if len(results[i]) > 1 else None
+                # Normalize gathered results: could be 0, 1, or 2 tasks
+                dev_params = None
+                dev_special_params = None
+                res_tuple = results[i]
+                if isinstance(res_tuple, BaseException):
+                    _LOGGER.error("Error fetching params for %s: %s", dev["endpointId"], res_tuple)
+                else:
+                    if len(res_tuple) >= 1:
+                        dev_params = res_tuple[0]
+                    if len(res_tuple) >= 2:
+                        dev_special_params = res_tuple[1]
 
                 if dev_params is None or isinstance(dev_params, BaseException):
-                    _LOGGER.error(
-                        "Error fetching device params for %s",
-                        dev["endpointId"],
-                    )
-                    continue
+                    if dev_params is not None:
+                        _LOGGER.error("Error fetching device params for %s: %s", dev["endpointId"], dev_params)
+                    # Still try to use special params if available
+                    dev["params"] = {}
+                else:
+                    dev["params"] = dev_params or {}
 
-                dev["params"] = dev_params or {}
-
-                if dev_special_params:
-                    dev["params"].update(dev_special_params)
+                if dev_special_params and not isinstance(dev_special_params, BaseException):
+                    dev["params"].update(dev_special_params or {})
 
                 dev["last_updated"] = time.strftime(
                     "%Y-%m-%d %H:%M:%S", time.localtime()
@@ -570,8 +582,13 @@ class AuxCloudAPI:
         """
         Query device parameters. If no parameters are provided, default parameters are queried.
         """
-        if params is None:
-            params = []
+        # Use product-specific defaults if params is None or empty
+        if not params:
+            params = AuxProducts.get_params_list(device.get("productId")) or []
+        # If still empty, avoid making a bad request and return empty dict
+        if not params:
+            _LOGGER.debug("No params available for device %s; returning empty params", device.get("endpointId"))
+            return {}
         return await self._act_device_params(device, "get", params)
 
     async def set_device_params(self, device: dict, values: dict):
