@@ -367,7 +367,9 @@ class AuxCloudAPI:
 
                 dev["params"] = dev_params or {}
 
-                if dev_special_params:
+                if dev_special_params and not isinstance(
+                    dev_special_params, BaseException
+                ):
                     dev["params"].update(dev_special_params)
 
                 dev["last_updated"] = time.strftime(
@@ -557,6 +559,10 @@ class AuxCloudAPI:
             "event" in json_data
             and "payload" in json_data["event"]
             and "data" in json_data["event"]["payload"]
+            and "header" in json_data["event"]
+            and "name" in json_data["event"]["header"]
+            # Ensure it's not an error response
+            and json_data["event"]["header"]["name"] == "Response"
         ):
             response = json.loads(json_data["event"]["payload"]["data"])
             response_dict = {}
@@ -566,7 +572,7 @@ class AuxCloudAPI:
 
             return response_dict
 
-        raise AuxApiError(f"Failed to query device state: {data}")
+        raise AuxApiError(f"Failed to query device state: {data}, {json_data}")
 
     async def get_device_params(self, device: dict, params: list[str] = None):
         """
