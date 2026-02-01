@@ -9,8 +9,8 @@
   "loggers": [],
   "requirements": [
     "aiohttp",
-    "pycryptodome==3.21.0"
+    "pycryptodome==3.23.0"
   ],
-  "version": "1.0.9",
+  "version": "1.0.10",
   "zeroconf": []
 }
