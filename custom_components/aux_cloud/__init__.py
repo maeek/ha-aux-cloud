@@ -158,6 +158,9 @@ class AuxCloudCoordinator(DataUpdateCoordinator):
             all_devices = []
 
             for result in devices_results:
+                if isinstance(result, BaseException):
+                    _LOGGER.error("Error fetching devices for a family: %s", result)
+                    continue
                 for device in result:
                     if isinstance(device, Exception):
                         continue

@@ -389,16 +389,22 @@ class AuxCloudAPI:
 
                 if dev_params is None or isinstance(dev_params, BaseException):
                     _LOGGER.error(
-                        "Error fetching device params for %s",
+                        "Error fetching device params for %s: %s",
                         dev["endpointId"],
+                        dev_params,
                     )
-                    continue
+                else:
+                    dev["params"] = dev_params or {}
 
-                dev["params"] = dev_params or {}
-
-                if dev_special_params and not isinstance(
+                if dev_special_params is not None and isinstance(
                     dev_special_params, BaseException
                 ):
+                    _LOGGER.error(
+                        "Error fetching special device params for %s: %s",
+                        dev["endpointId"],
+                        dev_special_params,
+                    )
+                elif dev_special_params:
                     dev["params"].update(dev_special_params)
 
                 # Heat pump tank temperature decoding
