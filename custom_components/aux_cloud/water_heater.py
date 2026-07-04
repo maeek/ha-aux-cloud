@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import (
+from .devices.profiles import (
     AuxProducts,
     AUX_ECOMODE,
     HP_HOT_WATER_TANK_TEMPERATURE,

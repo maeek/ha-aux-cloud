@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import (
+from .devices.profiles import (
     AuxProducts,
     HP_HEATER_AUTO_WATER_TEMP,
     HP_QUIET_MODE,
@@ -172,4 +172,3 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
             return
 
         await self._set_device_params({self.entity_description.key: new_option})
-        await self.coordinator.async_request_refresh()

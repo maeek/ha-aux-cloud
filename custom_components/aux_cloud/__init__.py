@@ -1,30 +1,33 @@
 """Aux Cloud integration for Home Assistant."""
 
 import asyncio
-from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api.aux_cloud import AuxCloudAPI
+from .api import AuxCloudAPI
 from .const import (
     _LOGGER,
-    DOMAIN,
-    DATA_AUX_CLOUD_CONFIG,
-    PLATFORMS,
+    CONF_PHONE_COUNTRY_CODE,
+    CONF_PHONE_NUMBER,
     CONF_SELECTED_DEVICES,
-    MAX_FAILED_POLLS,
+    DATA_AUX_CLOUD_CONFIG,
+    DOMAIN,
+    PLATFORMS,
 )
-from .util import DeviceStateHelper
+from .coordinator import (
+    FALLBACK_SCAN_INTERVAL,
+    WEBSOCKET_SETUP_RETRY_INITIAL_DELAY,
+    WEBSOCKET_SETUP_RETRY_MAX_DELAY,
+    AuxCloudCoordinator,
+)
 
-MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
-
-# Schema to include email and password (device selection is handled in config flow)
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
@@ -39,11 +42,7 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """
-    AUX Cloud setup for configuration.yaml import.
-    This is mainly kept for backward compatibility.
-    UI configuration is recommended for better security.
-    """
+    """Set up AUX Cloud configuration.yaml import."""
     if DOMAIN not in config:
         return True
 
@@ -53,14 +52,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         not hass.config_entries.async_entries(DOMAIN)
         and hass.data[DATA_AUX_CLOUD_CONFIG]
     ):
-        # Import from configuration.yaml if no config entry exists
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN, context={"source": SOURCE_IMPORT}, data=config[DOMAIN]
             )
         )
-
-        # Log a message about UI configuration being preferred
         _LOGGER.info(
             "AUX Cloud configured via configuration.yaml. For better security, "
             "it is recommended to configure this integration through the UI where "
@@ -70,158 +66,46 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-class AuxCloudCoordinator(DataUpdateCoordinator):
-    """DataUpdateCoordinator for AUX Cloud."""
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        api: AuxCloudAPI,
-        email: str,
-        password: str,
-        selected_device_ids: list,
-    ):
-        """Initialize the coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="AUX Cloud Coordinator",
-            update_interval=MIN_TIME_BETWEEN_UPDATES,
-        )
-        self.api = api
-        self.email = email
-        self.password = password
-        self.selected_device_ids = selected_device_ids
-        self.devices = []
-        self._device_state_helpers: dict[str, DeviceStateHelper] = {}
-
-    def get_device_by_endpoint_id(self, endpoint_id: str):
-        """Get a device by its endpoint ID."""
-        return next(
-            (
-                device
-                for device in self.data.get("devices", [])
-                if device.get("endpointId") == endpoint_id
-            ),
-            None,
-        )
-
-    def get_state_helper(self, endpoint_id: str, initial_params: dict) -> DeviceStateHelper:
-        """Get or create a shared state helper for a single physical device."""
-        helper = self._device_state_helpers.get(endpoint_id)
-        if helper is None:
-            helper = DeviceStateHelper(initial_params, MAX_FAILED_POLLS)
-            self._device_state_helpers[endpoint_id] = helper
-        return helper
-
-    async def _async_update_data(self):
-        """Fetch data from AUX Cloud."""
-        _LOGGER.debug("Updating AUX Cloud data...")
-
-        try:
-            if not self.api.is_logged_in():
-                # Attempt to log in
-                _LOGGER.debug("Logging into AUX Cloud API...")
-                login_success = await self.api.login(self.email, self.password)
-                if not login_success:
-                    raise UpdateFailed("Login to AUX Cloud API failed")
-
-            if self.api.families is None:
-                _LOGGER.debug("Fetching families from AUX Cloud API...")
-                await self.api.get_families()
-
-            # Create a single list of tasks for fetching devices (shared and non-shared)
-            device_tasks = []
-
-            for family_id in self.api.families:
-                device_tasks.append(
-                    self.api.get_devices(
-                        family_id,
-                        shared=False,
-                        selected_devices=self.selected_device_ids,
-                    )
-                )
-                device_tasks.append(
-                    self.api.get_devices(
-                        family_id,
-                        shared=True,
-                        selected_devices=self.selected_device_ids,
-                    )
-                )
-
-            # Run all tasks concurrently
-            devices_results = await asyncio.gather(
-                *device_tasks, return_exceptions=True
-            )
-
-            # Process results and handle exceptions
-            all_devices = []
-
-            for result in devices_results:
-                for device in result:
-                    if isinstance(device, Exception):
-                        continue
-                    if (
-                        device["endpointId"] in self.selected_device_ids
-                        or not self.selected_device_ids
-                    ):
-                        all_devices.append(device)
-
-            self.devices = all_devices
-            _LOGGER.debug("Fetched AUX Cloud data: %s devices", len(self.devices))
-
-            current_endpoint_ids = {
-                device["endpointId"]
-                for device in self.devices
-                if "endpointId" in device
-            }
-            stale_helpers = set(self._device_state_helpers) - current_endpoint_ids
-            for endpoint_id in stale_helpers:
-                self._device_state_helpers.pop(endpoint_id, None)
-
-            self.async_set_updated_data({"devices": self.devices})
-
-            return {"devices": self.devices}
-
-        except Exception as e:
-            raise UpdateFailed(f"Error updating AUX Cloud data: {e}") from e
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up AUX Cloud from a config entry."""
     region = entry.data.get(CONF_REGION, "eu")
-    api = AuxCloudAPI(region=region)
+    api = AuxCloudAPI(region=region, session=async_get_clientsession(hass))
     email = entry.data.get(CONF_EMAIL)
+    phone_number = entry.data.get(CONF_PHONE_NUMBER)
+    phone_country_code = entry.data.get(CONF_PHONE_COUNTRY_CODE)
     password = entry.data.get(CONF_PASSWORD)
     selected_device_ids = entry.data.get(CONF_SELECTED_DEVICES, [])
 
-    if not email or not password:
-        _LOGGER.error("Missing required credentials for AUX Cloud")
-        return False
+    if not password or not (email or phone_number):
+        raise ConfigEntryAuthFailed("Missing required credentials for AUX Cloud")
 
-    coordinator = AuxCloudCoordinator(hass, api, email, password, selected_device_ids)
+    coordinator = AuxCloudCoordinator(
+        hass,
+        api,
+        email,
+        password,
+        selected_device_ids,
+        phone_number=phone_number,
+        phone_country_code=phone_country_code,
+    )
 
-    # Attempt to log in
-    try:
-        login_success = await api.login(email, password)
-        if not login_success:
-            _LOGGER.error("Login to AUX Cloud API failed")
-            return False
-    except Exception as e:
-        _LOGGER.error("Exception during login: %s", e)
-        return False
-
-    # Perform an initial update
     await coordinator.async_config_entry_first_refresh()
 
-    # Store the coordinator for platform use
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": coordinator,
         "api": api,
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except asyncio.CancelledError:
+        await _async_cleanup_entry_data(hass, entry.entry_id)
+        raise
+    except Exception:
+        await _async_cleanup_entry_data(hass, entry.entry_id)
+        raise
 
+    await coordinator.async_start_websocket()
     return True
 
 
@@ -229,5 +113,22 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the config entry and platforms."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data.pop(DOMAIN)
+        await _async_cleanup_entry_data(hass, entry.entry_id)
     return unload_ok
+
+
+async def _async_cleanup_entry_data(hass: HomeAssistant, entry_id: str) -> None:
+    """Close coordinator resources and remove stored entry data."""
+    entry_data = hass.data.get(DOMAIN, {}).pop(entry_id, None)
+    if entry_data is not None:
+        await entry_data["coordinator"].async_close()
+    if not hass.data.get(DOMAIN):
+        hass.data.pop(DOMAIN, None)
+
+
+__all__ = [
+    "AuxCloudCoordinator",
+    "FALLBACK_SCAN_INTERVAL",
+    "WEBSOCKET_SETUP_RETRY_INITIAL_DELAY",
+    "WEBSOCKET_SETUP_RETRY_MAX_DELAY",
+]

@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import (
+from .devices.profiles import (
     AC_FAN_SPEED,
     AUX_MODE,
     AC_SWING_HORIZONTAL,

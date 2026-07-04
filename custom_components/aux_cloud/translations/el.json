@@ -5,29 +5,40 @@
       "single_instance_allowed": "Έχει ήδη διαμορφωθεί. Επιτρέπεται μόνο μία διαμόρφωση.",
       "no_devices_found": "Δεν βρέθηκαν συσκευές AUX Cloud. Παρακαλώ ελέγξτε τον λογαριασμό σας.",
       "fetch_devices_failed": "Αποτυχία ανάκτησης συσκευών από το AUX Cloud.",
-      "login_required": "Απαιτείται σύνδεση πριν από την επιλογή συσκευών."
+      "login_required": "Απαιτείται σύνδεση πριν από την ανακάλυψη συσκευών.",
+      "bad_credentials": "Ο λογαριασμός ή ο κωδικός πρόσβασης AUX Cloud είναι λανθασμένος.",
+      "session_expired": "Η συνεδρία AUX Cloud έληξε. Ελέγξτε τα στοιχεία σύνδεσης.",
+      "api_unavailable": "Το API AUX Cloud δεν είναι διαθέσιμο αυτήν τη στιγμή.",
+      "rate_limited": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα.",
+      "cannot_connect": "Αποτυχία σύνδεσης με τον διακομιστή AUX Cloud.",
+      "email_required": "Απαιτείται email για σύνδεση με email.",
+      "phone_number_required": "Απαιτείται αριθμός τηλεφώνου για σύνδεση με τηλέφωνο.",
+      "phone_country_code_required": "Εισαγάγετε τον αριθμό τηλεφώνου με πρόθεμα χώρας, για παράδειγμα +8613800138000.",
+      "unknown": "Απροσδόκητο σφάλμα"
     },
     "error": {
       "user_login_failed": "Αποτυχία σύνδεσης. Ελέγξτε τα στοιχεία σας.",
+      "bad_credentials": "Ο λογαριασμός ή ο κωδικός πρόσβασης AUX Cloud είναι λανθασμένος.",
+      "session_expired": "Η συνεδρία AUX Cloud έληξε. Ελέγξτε τα στοιχεία σύνδεσης.",
+      "api_unavailable": "Το API AUX Cloud δεν είναι διαθέσιμο αυτήν τη στιγμή. Δοκιμάστε ξανά αργότερα.",
+      "rate_limited": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα. Δοκιμάστε ξανά αργότερα.",
       "cannot_connect": "Αποτυχία σύνδεσης με τον διακομιστή AUX Cloud.",
       "invalid_auth": "Μη έγκυρος έλεγχος ταυτότητας",
+      "email_required": "Απαιτείται email για σύνδεση με email.",
+      "phone_number_required": "Απαιτείται αριθμός τηλεφώνου για σύνδεση με τηλέφωνο.",
+      "phone_country_code_required": "Εισαγάγετε τον αριθμό τηλεφώνου με πρόθεμα χώρας, για παράδειγμα +8613800138000.",
       "unknown": "Απροσδόκητο σφάλμα"
     },
     "step": {
       "user": {
         "title": "Σύνδεση στο AUX Cloud",
-        "description": "Εισαγάγετε τα στοιχεία του λογαριασμού σας στο AUX Cloud",
+        "description": "Εισαγάγετε τα στοιχεία σύνδεσης του AUX Cloud.",
         "data": {
+          "credential_type": "Μέθοδος σύνδεσης",
           "email": "Email",
+          "phone_number": "Αριθμός τηλεφώνου με πρόθεμα χώρας",
           "password": "Κωδικός πρόσβασης",
           "region": "Περιοχή"
-        }
-      },
-      "select_devices": {
-        "title": "Επιλογή συσκευών AUX Cloud",
-        "description": "Βρέθηκαν {devices_count} συσκευές σε {families_count} σπίτια. Επιλέξτε τις συσκευές που θέλετε να προσθέσετε στο Home Assistant.",
-        "data": {
-          "selected_devices": "Επιλογή συσκευών"
         }
       }
     },
@@ -39,7 +50,13 @@
     "abort": {
       "missing_credentials": "Λείπουν τα στοιχεία σύνδεσης. Παρακαλώ επαναδιαμορφώστε την ολοκλήρωση.",
       "no_devices_found": "Δεν βρέθηκαν συσκευές AUX Cloud. Παρακαλώ ελέγξτε τον λογαριασμό σας.",
-      "fetch_devices_failed": "Αποτυχία ανάκτησης συσκευών από το AUX Cloud."
+      "fetch_devices_failed": "Αποτυχία ανάκτησης συσκευών από το AUX Cloud.",
+      "bad_credentials": "Ο λογαριασμός ή ο κωδικός πρόσβασης AUX Cloud είναι λανθασμένος.",
+      "session_expired": "Η συνεδρία AUX Cloud έληξε. Ελέγξτε τα στοιχεία σύνδεσης.",
+      "api_unavailable": "Το API AUX Cloud δεν είναι διαθέσιμο αυτήν τη στιγμή.",
+      "rate_limited": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα.",
+      "cannot_connect": "Αποτυχία σύνδεσης με τον διακομιστή AUX Cloud.",
+      "unknown": "Απροσδόκητο σφάλμα"
     },
     "step": {
       "init": {
@@ -49,6 +66,43 @@
           "selected_devices": "Επιλογή συσκευών"
         }
       }
+    }
+  },
+  "issues": {
+    "api_unavailable": {
+      "title": "Το API AUX Cloud δεν είναι διαθέσιμο",
+      "description": "Το Home Assistant δεν μπορεί να συνδεθεί με το AUX Cloud αυτήν τη στιγμή. Η ολοκλήρωση θα συνεχίσει να προσπαθεί αυτόματα. Τελευταίο σφάλμα: {error}"
+    },
+    "auth_failed": {
+      "title": "Αποτυχία ελέγχου ταυτότητας AUX Cloud",
+      "description": "Το AUX Cloud απέρριψε τα αποθηκευμένα στοιχεία σύνδεσης ή τη συνεδρία. Ενημερώστε τα στοιχεία σύνδεσης της ολοκλήρωσης και φορτώστε την ξανά. Τελευταίο σφάλμα: {error}"
+    },
+    "rate_limited": {
+      "title": "Επιτεύχθηκε όριο αιτημάτων AUX Cloud",
+      "description": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα από αυτόν τον λογαριασμό ή την εγκατάσταση. Το Home Assistant θα συνεχίσει να προσπαθεί αυτόματα. Τελευταίο σφάλμα: {error}"
+    }
+  },
+  "exceptions": {
+    "api_unavailable": {
+      "message": "Το AUX Cloud δεν είναι διαθέσιμο: {error}"
+    },
+    "cannot_connect": {
+      "message": "Δεν ήταν δυνατή η σύνδεση με το AUX Cloud: {error}"
+    },
+    "device_error": {
+      "message": "Το AUX Cloud δεν μπόρεσε να ελέγξει τη συσκευή: {error}"
+    },
+    "invalid_auth": {
+      "message": "Αποτυχία ελέγχου ταυτότητας AUX Cloud: {error}"
+    },
+    "rate_limited": {
+      "message": "Επιτεύχθηκε όριο αιτημάτων AUX Cloud: {error}"
+    },
+    "session_expired": {
+      "message": "Η συνεδρία AUX Cloud έληξε: {error}"
+    },
+    "unknown": {
+      "message": "Απροσδόκητο σφάλμα AUX Cloud: {error}"
     }
   },
   "entity": {

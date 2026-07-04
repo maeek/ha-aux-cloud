@@ -5,29 +5,40 @@
       "single_instance_allowed": "Already configured. Only a single configuration possible.",
       "no_devices_found": "No AUX Cloud devices found. Please check your account.",
       "fetch_devices_failed": "Failed to fetch devices from AUX Cloud.",
-      "login_required": "Login required before device selection."
+      "login_required": "Login required before device discovery.",
+      "bad_credentials": "The AUX Cloud account or password is incorrect.",
+      "session_expired": "The AUX Cloud session expired. Please check your credentials.",
+      "api_unavailable": "The AUX Cloud API is currently unavailable.",
+      "rate_limited": "AUX Cloud is temporarily rate limiting requests.",
+      "cannot_connect": "Failed to connect to the AUX Cloud server.",
+      "email_required": "Email is required for email login.",
+      "phone_number_required": "Phone number is required for phone login.",
+      "phone_country_code_required": "Enter the phone number with a country prefix, for example +8613800138000.",
+      "unknown": "Unexpected error"
     },
     "error": {
       "user_login_failed": "Login failed. Please check your credentials.",
+      "bad_credentials": "The AUX Cloud account or password is incorrect.",
+      "session_expired": "The AUX Cloud session expired. Please check your credentials.",
+      "api_unavailable": "The AUX Cloud API is currently unavailable. Try again later.",
+      "rate_limited": "AUX Cloud is temporarily rate limiting requests. Try again later.",
       "cannot_connect": "Failed to connect to the AUX Cloud server.",
       "invalid_auth": "Invalid authentication",
+      "email_required": "Email is required for email login.",
+      "phone_number_required": "Phone number is required for phone login.",
+      "phone_country_code_required": "Enter the phone number with a country prefix, for example +8613800138000.",
       "unknown": "Unexpected error"
     },
     "step": {
       "user": {
         "title": "AUX Cloud Login",
-        "description": "Enter your AUX Cloud account credentials",
+        "description": "Enter your AUX Cloud credentials.",
         "data": {
+          "credential_type": "Sign-in method",
           "email": "Email",
+          "phone_number": "Phone number with country prefix",
           "password": "Password",
           "region": "Region"
-        }
-      },
-      "select_devices": {
-        "title": "Select AUX Cloud Devices",
-        "description": "Found {devices_count} devices in {families_count} homes. Select the devices you would like to add to Home Assistant.",
-        "data": {
-          "selected_devices": "Select Devices"
         }
       }
     },
@@ -39,7 +50,13 @@
     "abort": {
       "missing_credentials": "Missing credentials. Please reconfigure the integration.",
       "no_devices_found": "No AUX Cloud devices found. Please check your account.",
-      "fetch_devices_failed": "Failed to fetch devices from AUX Cloud."
+      "fetch_devices_failed": "Failed to fetch devices from AUX Cloud.",
+      "bad_credentials": "The AUX Cloud account or password is incorrect.",
+      "session_expired": "The AUX Cloud session expired. Please check your credentials.",
+      "api_unavailable": "The AUX Cloud API is currently unavailable.",
+      "rate_limited": "AUX Cloud is temporarily rate limiting requests.",
+      "cannot_connect": "Failed to connect to the AUX Cloud server.",
+      "unknown": "Unexpected error"
     },
     "step": {
       "init": {
@@ -49,6 +66,43 @@
           "selected_devices": "Select Devices"
         }
       }
+    }
+  },
+  "issues": {
+    "api_unavailable": {
+      "title": "AUX Cloud API unavailable",
+      "description": "Home Assistant cannot currently reach AUX Cloud. The integration will keep retrying automatically. Last error: {error}"
+    },
+    "auth_failed": {
+      "title": "AUX Cloud authentication failed",
+      "description": "AUX Cloud rejected the stored credentials or session. Update the integration credentials and reload the integration. Last error: {error}"
+    },
+    "rate_limited": {
+      "title": "AUX Cloud rate limit reached",
+      "description": "AUX Cloud is temporarily rate limiting requests from this account or installation. Home Assistant will keep retrying automatically. Last error: {error}"
+    }
+  },
+  "exceptions": {
+    "api_unavailable": {
+      "message": "AUX Cloud is unavailable: {error}"
+    },
+    "cannot_connect": {
+      "message": "Could not connect to AUX Cloud: {error}"
+    },
+    "device_error": {
+      "message": "AUX Cloud could not control the device: {error}"
+    },
+    "invalid_auth": {
+      "message": "AUX Cloud authentication failed: {error}"
+    },
+    "rate_limited": {
+      "message": "AUX Cloud rate limit reached: {error}"
+    },
+    "session_expired": {
+      "message": "AUX Cloud session expired: {error}"
+    },
+    "unknown": {
+      "message": "Unexpected AUX Cloud error: {error}"
     }
   },
   "entity": {

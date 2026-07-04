@@ -1,18 +1,22 @@
 from typing import Any
 
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import AuxProducts
+from .api import AuxApiError
 from .const import _LOGGER, DOMAIN, MANUFACTURER
+from .devices.profiles import AC_TEMPERATURE_AMBIENT, AuxProducts
 
 
 class DeviceStateHelper:
     """Helper class to manage device parameters state, failsafe, and optimistic updates."""
 
     def __init__(self, initial_params: dict[str, Any], max_failed_polls: int):
-        self._cached_params: dict[str, Any] = initial_params.copy() if initial_params else {}
+        self._cached_params: dict[str, Any] = (
+            initial_params.copy() if initial_params else {}
+        )
         self._failed_poll_count = 0
         self._max_failed_polls = max_failed_polls
         self._backup_params: dict[str, Any] = {}
@@ -26,7 +30,21 @@ class DeviceStateHelper:
 
     def is_available(self) -> bool:
         """Determines if the entity should be marked as available."""
-        return bool(len(self._cached_params) > 0 and self._failed_poll_count <= self._max_failed_polls)
+        return bool(
+            len(self._cached_params) > 0
+            and self._failed_poll_count <= self._max_failed_polls
+        )
+
+    def mark_unavailable(self, device_name: str) -> bool:
+        """Mark the device unavailable because the cloud explicitly says it is offline."""
+        was_available = self.is_available()
+        if was_available:
+            _LOGGER.info("Device %s is offline. Marking as unavailable.", device_name)
+        self._cached_params = {}
+        self._failed_poll_count = self._max_failed_polls + 1
+        self._backup_params.clear()
+        self._last_logged_payload = None
+        return was_available
 
     def process_new_payload(
         self,
@@ -53,7 +71,11 @@ class DeviceStateHelper:
         """Logs the raw payload only if it differs from the last logged one."""
         current_payload_str = str(current_params)
         if current_payload_str != self._last_logged_payload:
-            _LOGGER.debug("State changed or new poll. Raw payload for %s: %s", device_name, current_params)
+            _LOGGER.debug(
+                "State changed or new poll. Raw payload for %s: %s",
+                device_name,
+                current_params,
+            )
             self._last_logged_payload = current_payload_str
 
     def _handle_empty_payload(self, device_name: str):
@@ -63,14 +85,17 @@ class DeviceStateHelper:
         if self._failed_poll_count <= self._max_failed_polls:
             _LOGGER.warning(
                 "Empty payload for device %s (Attempt %s/%s). Using cache to prevent flapping.",
-                device_name, self._failed_poll_count, self._max_failed_polls
+                device_name,
+                self._failed_poll_count,
+                self._max_failed_polls,
             )
             return
 
         if self._failed_poll_count == self._max_failed_polls + 1:
             _LOGGER.error(
                 "Device %s dropped connection for %s polls. Marking as unavailable.",
-                device_name, self._failed_poll_count
+                device_name,
+                self._failed_poll_count,
             )
             self._cached_params = {}
 
@@ -79,11 +104,26 @@ class DeviceStateHelper:
         if self._failed_poll_count > 0:
             _LOGGER.info(
                 "Device %s connection restored after %s failed attempts.",
-                device_name, self._failed_poll_count
+                device_name,
+                self._failed_poll_count,
             )
 
         self._failed_poll_count = 0
-        self._cached_params.update(current_params)
+        self._cached_params.update(self._without_transient_bad_values(current_params))
+
+    def _without_transient_bad_values(
+        self, current_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Filter transient cloud values that should not replace cached state."""
+        params = current_params.copy()
+        cached_ambient = self._cached_params.get(AC_TEMPERATURE_AMBIENT)
+        if params.get(AC_TEMPERATURE_AMBIENT) == 0 and cached_ambient not in (None, 0):
+            _LOGGER.debug(
+                "Ignoring transient zero ambient temperature; keeping cached value %s",
+                cached_ambient,
+            )
+            params.pop(AC_TEMPERATURE_AMBIENT)
+        return params
 
     def apply_optimistic(self, new_params: dict[str, Any]):
         """Applies new params optimistically and saves a backup for rollback."""
@@ -151,15 +191,18 @@ class BaseEntity(CoordinatorEntity):
     def available(self) -> bool:
         """Return True if entity is available."""
         return (
-                self._device is not None
-                and self._device.get("endpointId") is not None
-                and self._state_helper.is_available()
+            self._device is not None
+            and self._device.get("endpointId") is not None
+            and self._device.get("state", 1) != 0
+            and self._state_helper.is_available()
         )
 
     @callback
     def _handle_coordinator_update(self):
         """Handle updated data from the coordinator."""
-        device_from_coordinator = self.coordinator.get_device_by_endpoint_id(self._device_id)
+        device_from_coordinator = self.coordinator.get_device_by_endpoint_id(
+            self._device_id
+        )
         self._device = device_from_coordinator or {}
 
         raw_params = self._device.get("params", {})
@@ -188,11 +231,23 @@ class BaseEntity(CoordinatorEntity):
         self.async_write_ha_state()
 
         try:
-            await self.coordinator.api.set_device_params(self._device, params)
-            # Refresh coordinator to sync all dependent entities immediately after a successful write
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_set_device_params(self._device, params)
+        except AuxApiError as err:
+            _LOGGER.error(
+                "Failed to apply setting %s to %s: %s", params, device_name, err
+            )
+            self._state_helper.rollback(params)
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                str(err),
+                translation_domain=DOMAIN,
+                translation_key=err.translation_key,
+                translation_placeholders={"error": str(err)},
+            ) from err
         except Exception as err:
-            _LOGGER.error("Failed to apply setting %s to %s: %s", params, device_name, err)
+            _LOGGER.error(
+                "Failed to apply setting %s to %s: %s", params, device_name, err
+            )
             self._state_helper.rollback(params)
             self.async_write_ha_state()
             raise

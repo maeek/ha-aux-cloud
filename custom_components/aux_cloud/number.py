@@ -4,8 +4,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import AC_POWER_LIMIT, AuxProducts
 from .const import _LOGGER, DOMAIN
+from .devices.profiles import AC_POWER_LIMIT, AuxProducts
 from .util import BaseEntity
 
 NUMBERS = {

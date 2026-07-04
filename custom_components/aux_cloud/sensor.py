@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import (
+from .devices.profiles import (
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
     AUX_ERROR_FLAG,
@@ -165,4 +165,9 @@ class AuxCloudSensor(BaseEntity, CoordinatorEntity, SensorEntity):
         if self._device is None:
             return None
 
-        return self._get_value_fn(self._device)
+        return self._get_value_fn(
+            {
+                **self._device,
+                "params": self._get_device_params(),
+            }
+        )

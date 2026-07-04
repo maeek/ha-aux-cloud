@@ -5,29 +5,40 @@
       "single_instance_allowed": "Już skonfigurowano. Możliwa tylko jedna konfiguracja.",
       "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
       "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud.",
-      "login_required": "Wymagane logowanie przed wyborem urządzenia."
+      "login_required": "Wymagane logowanie przed wyszukaniem urządzeń.",
+      "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
+      "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
+      "api_unavailable": "API AUX Cloud jest obecnie niedostępne.",
+      "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań.",
+      "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
+      "email_required": "Email jest wymagany do logowania emailem.",
+      "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
+      "phone_country_code_required": "Wprowadź numer telefonu z prefiksem kraju, na przykład +8613800138000.",
+      "unknown": "Nieoczekiwany błąd"
     },
     "error": {
       "user_login_failed": "Logowanie nie powiodło się. Sprawdź swoje dane logowania.",
+      "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
+      "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
+      "api_unavailable": "API AUX Cloud jest obecnie niedostępne. Spróbuj ponownie później.",
+      "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań. Spróbuj ponownie później.",
       "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
       "invalid_auth": "Nieprawidłowa autoryzacja",
+      "email_required": "Email jest wymagany do logowania emailem.",
+      "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
+      "phone_country_code_required": "Wprowadź numer telefonu z prefiksem kraju, na przykład +8613800138000.",
       "unknown": "Nieoczekiwany błąd"
     },
     "step": {
       "user": {
         "title": "Logowanie do AUX Cloud",
-        "description": "Wprowadź dane logowania do konta AUX Cloud",
+        "description": "Wprowadź dane logowania do AUX Cloud.",
         "data": {
+          "credential_type": "Metoda logowania",
           "email": "Email",
+          "phone_number": "Numer telefonu z prefiksem kraju",
           "password": "Hasło",
           "region": "Region"
-        }
-      },
-      "select_devices": {
-        "title": "Wybierz urządzenia AUX Cloud",
-        "description": "Znaleziono {devices_count} urządzeń w {families_count} domach. Wybierz urządzenia, które chcesz dodać do Home Assistant.",
-        "data": {
-          "selected_devices": "Wybierz urządzenia"
         }
       }
     },
@@ -39,7 +50,13 @@
     "abort": {
       "missing_credentials": "Brak danych logowania. Skonfiguruj ponownie integrację.",
       "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
-      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud."
+      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud.",
+      "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
+      "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
+      "api_unavailable": "API AUX Cloud jest obecnie niedostępne.",
+      "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań.",
+      "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
+      "unknown": "Nieoczekiwany błąd"
     },
     "step": {
       "init": {
@@ -49,6 +66,43 @@
           "selected_devices": "Wybierz urządzenia"
         }
       }
+    }
+  },
+  "issues": {
+    "api_unavailable": {
+      "title": "API AUX Cloud jest niedostępne",
+      "description": "Home Assistant nie może obecnie połączyć się z AUX Cloud. Integracja będzie ponawiać próby automatycznie. Ostatni błąd: {error}"
+    },
+    "auth_failed": {
+      "title": "Uwierzytelnianie AUX Cloud nie powiodło się",
+      "description": "AUX Cloud odrzucił zapisane dane logowania lub sesję. Zaktualizuj dane logowania integracji i przeładuj ją. Ostatni błąd: {error}"
+    },
+    "rate_limited": {
+      "title": "Osiągnięto limit żądań AUX Cloud",
+      "description": "AUX Cloud tymczasowo ogranicza żądania z tego konta lub instalacji. Home Assistant będzie ponawiać próby automatycznie. Ostatni błąd: {error}"
+    }
+  },
+  "exceptions": {
+    "api_unavailable": {
+      "message": "AUX Cloud jest niedostępny: {error}"
+    },
+    "cannot_connect": {
+      "message": "Nie można połączyć się z AUX Cloud: {error}"
+    },
+    "device_error": {
+      "message": "AUX Cloud nie mógł sterować urządzeniem: {error}"
+    },
+    "invalid_auth": {
+      "message": "Uwierzytelnianie AUX Cloud nie powiodło się: {error}"
+    },
+    "rate_limited": {
+      "message": "Osiągnięto limit żądań AUX Cloud: {error}"
+    },
+    "session_expired": {
+      "message": "Sesja AUX Cloud wygasła: {error}"
+    },
+    "unknown": {
+      "message": "Nieoczekiwany błąd AUX Cloud: {error}"
     }
   },
   "entity": {
