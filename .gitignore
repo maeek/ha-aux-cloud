@@ -8,5 +8,7 @@ pipfile.lock
 *.log
 .DS_Store
 
-# Local Home Assistant dev instance (contains DB, auth tokens, logs)
+# Local Home Assistant dev/debug instance (contains DB, auth tokens, logs)
+/venv
+/config
 custom_components/aux_cloud/config/

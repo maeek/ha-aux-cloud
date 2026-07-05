@@ -1,0 +1,16 @@
+{
+  "entity": {
+    "climate": {
+      "aux_ac": {
+        "state_attributes": {
+          "fan_mode": {
+            "state": {
+              "turbo": "mdi:weather-tornado",
+              "silent": "mdi:volume-off"
+            }
+          }
+        }
+      }
+    }
+  }
+}
