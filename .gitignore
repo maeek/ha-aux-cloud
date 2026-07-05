@@ -7,10 +7,6 @@ pipfile.lock
 .venv/
 *.log
 .DS_Store
-custom_components/aux_cloud/config/home-assistant_v2.db
-custom_components/aux_cloud/config/.storage/
-custom_components/aux_cloud/config/.cache/
-custom_components/aux_cloud/config/tts/
-custom_components/aux_cloud/config/blueprints/
-custom_components/aux_cloud/config/.cloud/
-custom_components/aux_cloud/config/.ha_run.lock
+
+# Local Home Assistant dev instance (contains DB, auth tokens, logs)
+custom_components/aux_cloud/config/
