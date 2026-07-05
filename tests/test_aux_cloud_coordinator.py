@@ -8,12 +8,12 @@ import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud as integration
 from custom_components.aux_cloud import AuxCloudCoordinator, FALLBACK_SCAN_INTERVAL
 from custom_components.aux_cloud.api import AuxWebSocketState
 from custom_components.aux_cloud.const import (
-    CONF_PHONE_COUNTRY_CODE,
     CONF_PHONE_NUMBER,
     DOMAIN,
 )
@@ -85,6 +85,44 @@ async def test_coordinator_update(coordinator, mock_aux_cloud_api):
     mock_aux_cloud_api.get_devices.assert_called()
 
 
+async def test_coordinator_update_deduplicates_shared_devices(
+    coordinator, mock_aux_cloud_api
+):
+    """Test refresh keeps one entity source per physical device."""
+    mock_aux_cloud_api.get_devices.side_effect = [
+        [
+            {
+                "endpointId": "device1",
+                "friendlyName": "AC Unit 1",
+                "productId": "000000000000000000000000c0620000",
+                "state": 1,
+                "params": {"pwr": 1},
+            }
+        ],
+        [
+            {
+                "endpointId": "device1",
+                "friendlyName": "AC Unit 1 Shared",
+                "productId": "000000000000000000000000c0620000",
+                "state": 1,
+                "params": {"pwr": 0},
+            }
+        ],
+    ]
+
+    data = await coordinator._async_update_data()
+
+    assert data["devices"] == [
+        {
+            "endpointId": "device1",
+            "friendlyName": "AC Unit 1",
+            "productId": "000000000000000000000000c0620000",
+            "state": 1,
+            "params": {"pwr": 1},
+        }
+    ]
+
+
 async def test_coordinator_update_not_logged_in(coordinator, mock_aux_cloud_api):
     """Test coordinator update when not logged in."""
     # Simulate not logged in
@@ -104,7 +142,6 @@ async def test_coordinator_update_phone_login(hass, mock_aux_cloud_api):
         password="password123",
         selected_device_ids=["device1"],
         phone_number="13800138000",
-        phone_country_code="86",
     )
     mock_aux_cloud_api.is_logged_in.return_value = False
 
@@ -113,7 +150,6 @@ async def test_coordinator_update_phone_login(hass, mock_aux_cloud_api):
     mock_aux_cloud_api.login.assert_awaited_once_with(
         password="password123",
         phone_number="13800138000",
-        phone_country_code="86",
     )
 
 
@@ -300,6 +336,26 @@ async def test_coordinator_handle_exception_results(coordinator, mock_aux_cloud_
     assert "devices" in data
     assert len(data["devices"]) == 1
     assert data["devices"][0]["endpointId"] == "device1"
+
+
+def test_coordinator_query_collection_deduplicates_endpoint_ids(coordinator):
+    """Test duplicate gathered results keep the first device record."""
+    coordinator.selected_device_ids = []
+
+    devices = coordinator._collect_device_results(
+        [
+            [{"endpointId": "device1", "source": "personal"}],
+            [
+                {"endpointId": "device1", "source": "shared"},
+                {"endpointId": "device2", "source": "shared"},
+            ],
+        ]
+    )
+
+    assert devices == [
+        {"endpointId": "device1", "source": "personal"},
+        {"endpointId": "device2", "source": "shared"},
+    ]
 
 
 def test_coordinator_query_collection_reraises_cancellation(coordinator):
@@ -499,7 +555,6 @@ async def test_setup_entry_accepts_phone_credentials(hass, monkeypatch):
         entry_id="entry1",
         data={
             CONF_PHONE_NUMBER: "13800138000",
-            CONF_PHONE_COUNTRY_CODE: "86",
             CONF_PASSWORD: "secret",
             CONF_REGION: "cn",
         },
@@ -522,8 +577,81 @@ async def test_setup_entry_accepts_phone_credentials(hass, monkeypatch):
     assert coordinator_factory.call_args.args[2] is None
     assert coordinator_factory.call_args.kwargs == {
         "phone_number": "13800138000",
-        "phone_country_code": "86",
     }
+
+
+async def test_setup_entry_backfills_account_unique_id(hass, monkeypatch):
+    """Test setup backfills stable account unique IDs on legacy entries."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "User@Example.COM",
+            CONF_PASSWORD: "secret",
+            CONF_REGION: "eu",
+        },
+        entry_id="entry1",
+        unique_id=None,
+    )
+    entry.add_to_hass(hass)
+    coordinator_mock = MagicMock()
+    coordinator_mock.async_config_entry_first_refresh = AsyncMock()
+    coordinator_mock.async_start_websocket = AsyncMock()
+    coordinator_mock.async_close = AsyncMock()
+    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
+    monkeypatch.setattr(
+        integration,
+        "AuxCloudCoordinator",
+        MagicMock(return_value=coordinator_mock),
+    )
+    monkeypatch.setattr(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        AsyncMock(),
+    )
+
+    assert await integration.async_setup_entry(hass, entry) is True
+
+    assert entry.unique_id == "eu:email:user@example.com"
+
+
+async def test_setup_entry_rejects_duplicate_account_entry(hass, monkeypatch):
+    """Test setup does not forward platforms for duplicate account entries."""
+    primary_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "user@example.com",
+            CONF_PASSWORD: "secret",
+            CONF_REGION: "eu",
+        },
+        entry_id="entry1",
+        unique_id="eu:email:user@example.com",
+    )
+    primary_entry.add_to_hass(hass)
+    duplicate_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "USER@example.com",
+            CONF_PASSWORD: "secret",
+            CONF_REGION: "eu",
+        },
+        entry_id="entry2",
+        unique_id=None,
+    )
+    duplicate_entry.add_to_hass(hass)
+    coordinator_factory = MagicMock()
+    forward_platforms = AsyncMock()
+    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
+    monkeypatch.setattr(integration, "AuxCloudCoordinator", coordinator_factory)
+    monkeypatch.setattr(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        forward_platforms,
+    )
+
+    assert await integration.async_setup_entry(hass, duplicate_entry) is False
+
+    coordinator_factory.assert_not_called()
+    forward_platforms.assert_not_awaited()
 
 
 async def test_setup_entry_cleans_up_when_platform_setup_fails(hass, monkeypatch):

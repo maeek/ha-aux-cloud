@@ -92,15 +92,6 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
         self.session.phone_number = value
 
     @property
-    def phone_country_code(self) -> str | None:
-        """Return the configured phone country code."""
-        return self.session.phone_country_code
-
-    @phone_country_code.setter
-    def phone_country_code(self, value: str | None) -> None:
-        self.session.phone_country_code = value
-
-    @property
     def password(self) -> str | None:
         """Return the configured account password."""
         return self.session.password
@@ -187,7 +178,6 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
         password: str = None,
         *,
         phone_number: str = None,
-        phone_country_code: str = None,
     ) -> bool:
         """Login to AUX Cloud services."""
         try:
@@ -195,7 +185,6 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
                 email,
                 password,
                 phone_number=phone_number,
-                phone_country_code=phone_country_code,
             )
         except ValueError as exc:
             raise AuxApiError(str(exc)) from exc

@@ -22,250 +22,20 @@ from .api import (
 from .const import (
     CONF_CREDENTIAL_TYPE,
     CONF_FAMILIES,
-    CONF_PHONE_COUNTRY_CODE,
     CONF_PHONE_NUMBER,
     CONF_SELECTED_DEVICES,
     CREDENTIAL_TYPE_EMAIL,
     CREDENTIAL_TYPE_PHONE,
     DATA_AUX_CLOUD_CONFIG,
-DEFAULT_PHONE_COUNTRY_CODE_CN,
     DOMAIN,
+)
+from .util import (
+    account_unique_id_from_credentials,
+    deduplicate_devices_by_endpoint_id,
+    deduplicate_ordered_values,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-PHONE_COUNTRY_CALLING_CODES = {
-    "1",
-    "7",
-    "20",
-    "27",
-    "30",
-    "31",
-    "32",
-    "33",
-    "34",
-    "36",
-    "39",
-    "40",
-    "41",
-    "43",
-    "44",
-    "45",
-    "46",
-    "47",
-    "48",
-    "49",
-    "51",
-    "52",
-    "53",
-    "54",
-    "55",
-    "56",
-    "57",
-    "58",
-    "60",
-    "61",
-    "62",
-    "63",
-    "64",
-    "65",
-    "66",
-    "81",
-    "82",
-    "84",
-    "86",
-    "90",
-    "91",
-    "92",
-    "93",
-    "94",
-    "95",
-    "98",
-    "212",
-    "213",
-    "216",
-    "218",
-    "220",
-    "221",
-    "222",
-    "223",
-    "224",
-    "225",
-    "226",
-    "227",
-    "228",
-    "229",
-    "230",
-    "231",
-    "232",
-    "233",
-    "234",
-    "235",
-    "236",
-    "237",
-    "238",
-    "239",
-    "241",
-    "242",
-    "243",
-    "244",
-    "245",
-    "246",
-    "247",
-    "248",
-    "249",
-    "250",
-    "251",
-    "252",
-    "253",
-    "254",
-    "255",
-    "256",
-    "257",
-    "258",
-    "260",
-    "261",
-    "262",
-    "263",
-    "264",
-    "265",
-    "266",
-    "267",
-    "268",
-    "269",
-    "290",
-    "291",
-    "297",
-    "298",
-    "299",
-    "350",
-    "351",
-    "352",
-    "353",
-    "354",
-    "355",
-    "356",
-    "357",
-    "358",
-    "359",
-    "370",
-    "371",
-    "372",
-    "373",
-    "374",
-    "375",
-    "376",
-    "377",
-    "378",
-    "379",
-    "380",
-    "381",
-    "382",
-    "385",
-    "386",
-    "387",
-    "389",
-    "420",
-    "421",
-    "423",
-    "501",
-    "502",
-    "503",
-    "504",
-    "505",
-    "506",
-    "507",
-    "508",
-    "509",
-    "590",
-    "591",
-    "592",
-    "593",
-    "594",
-    "595",
-    "596",
-    "597",
-    "598",
-    "599",
-    "670",
-    "672",
-    "673",
-    "674",
-    "675",
-    "676",
-    "677",
-    "678",
-    "679",
-    "680",
-    "682",
-    "683",
-    "684",
-    "685",
-    "686",
-    "687",
-    "688",
-    "689",
-    "690",
-    "691",
-    "692",
-    "850",
-    "852",
-    "853",
-    "855",
-    "856",
-    "880",
-    "886",
-    "960",
-    "961",
-    "962",
-    "963",
-    "964",
-    "965",
-    "966",
-    "967",
-    "968",
-    "970",
-    "971",
-    "972",
-    "973",
-    "974",
-    "975",
-    "976",
-    "977",
-    "992",
-    "993",
-    "994",
-    "995",
-    "996",
-    "997",
-    "998",
-    "1242",
-    "1246",
-    "1264",
-    "1268",
-    "1284",
-    "1340",
-    "1345",
-    "1441",
-    "1473",
-    "1649",
-    "1664",
-    "1670",
-    "1671",
-    "1758",
-    "1767",
-    "1784",
-    "1787",
-    "1849",
-    "1868",
-    "1869",
-    "1876",
-    "44131",
-    "441481",
-    "441624",
-    "61891",
-    "6724",
-}
 
 
 async def _async_fetch_family_devices(
@@ -306,7 +76,11 @@ async def _async_fetch_family_devices(
                 err,
             )
 
-    return devices, query_errors, successful_queries
+    return (
+        deduplicate_devices_by_endpoint_id(devices),
+        query_errors,
+        successful_queries,
+    )
 
 
 def _preferred_device_discovery_error(errors: list[AuxApiError]) -> AuxApiError:
@@ -322,78 +96,9 @@ def _device_options(devices: list[dict]) -> dict[str, str]:
     }
 
 
-def _default_phone_country_code(region: str, stored_country_code: str = "") -> str:
-    """Return the default phone country code for a selected region."""
-    if stored_country_code:
-        return stored_country_code
-    if region == "cn":
-        return DEFAULT_PHONE_COUNTRY_CODE_CN
-    return ""
-
-
-def _normalize_phone_country_code(country_code: str, region: str) -> str | None:
-    """Normalize a user-entered phone country code."""
-    normalized = (country_code or "").strip().lstrip("+")
-    if normalized:
-        return normalized
-    if region == "cn":
-        return DEFAULT_PHONE_COUNTRY_CODE_CN
-    return None
-
-
-def _extract_phone_country_code(phone_digits: str) -> str | None:
-    """Extract the longest known country calling code from phone digits."""
-    return next(
-        (
-            country_code
-            for country_code in sorted(
-                PHONE_COUNTRY_CALLING_CODES, key=len, reverse=True
-            )
-            if phone_digits.startswith(country_code)
-        ),
-        None,
-    )
-
-
-def _split_phone_login_number(phone_number: str) -> tuple[str, str | None]:
-    """Split a phone number into national number and optional country code."""
-    raw_phone_number = (phone_number or "").strip()
-    if not raw_phone_number:
-        return "", None
-
-    if raw_phone_number.startswith("+"):
-        phone_digits = "".join(
-            character for character in raw_phone_number[1:] if character.isdigit()
-        )
-        country_code = _extract_phone_country_code(phone_digits)
-        if country_code is None:
-            return phone_digits, None
-        return phone_digits[len(country_code) :], country_code
-
-    if raw_phone_number.startswith("00"):
-        phone_digits = "".join(
-            character for character in raw_phone_number[2:] if character.isdigit()
-        )
-        country_code = _extract_phone_country_code(phone_digits)
-        if country_code is None:
-            return phone_digits, None
-        return phone_digits[len(country_code) :], country_code
-
-    return "".join(character for character in raw_phone_number if character.isdigit()), None
-
-
-def _phone_number_form_default(defaults: dict, region: str) -> str:
-    """Return the combined phone number default shown in the config flow."""
-    phone_number = defaults.get(CONF_PHONE_NUMBER, "")
-    if not phone_number or phone_number.startswith("+"):
-        return phone_number
-
-    country_code = _default_phone_country_code(
-        region, defaults.get(CONF_PHONE_COUNTRY_CODE, "")
-    )
-    if country_code:
-        return f"+{country_code}{phone_number}"
-    return phone_number
+def _normalize_phone_number(value: str) -> str:
+    """Normalize a user-entered phone number for AUX Cloud login."""
+    return "".join(character for character in value if character.isdigit())
 
 
 # pylint: disable=abstract-method
@@ -407,7 +112,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         self._aux_cloud = None
         self._email = None
         self._phone_number = None
-        self._phone_country_code = None
         self._password = None
         self._region = "eu"
         self._families = {}
@@ -425,29 +129,19 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             credential_type = user_input[CONF_CREDENTIAL_TYPE]
             if credential_type == CREDENTIAL_TYPE_PHONE:
                 self._email = None
-                phone_number, phone_country_code = _split_phone_login_number(
+                self._region = user_input[CONF_REGION]
+                self._phone_number = _normalize_phone_number(
                     user_input.get(CONF_PHONE_NUMBER, "")
                 )
-                self._phone_number = phone_number
                 self._password = user_input[CONF_PASSWORD]
-                self._region = user_input[CONF_REGION]
-                self._phone_country_code = phone_country_code or (
-                    _normalize_phone_country_code(
-                        self._stored_config().get(CONF_PHONE_COUNTRY_CODE, ""),
-                        self._region,
-                    )
-                )
 
                 if not self._phone_number:
                     errors["base"] = "phone_number_required"
-                elif self._phone_country_code is None:
-                    errors["base"] = "phone_country_code_required"
                 else:
                     return await self._async_login_and_fetch_devices(user_input)
             else:
                 self._email = user_input.get(CONF_EMAIL, "").strip()
                 self._phone_number = None
-                self._phone_country_code = None
                 self._password = user_input[CONF_PASSWORD]
                 self._region = user_input[CONF_REGION]
 
@@ -491,7 +185,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_EMAIL, default=defaults.get(CONF_EMAIL, "")): str,
                 vol.Optional(
                     CONF_PHONE_NUMBER,
-                    default=_phone_number_form_default(defaults, default_region),
+                    default=defaults.get(CONF_PHONE_NUMBER, ""),
                 ): str,
                 vol.Required(
                     CONF_PASSWORD,
@@ -511,6 +205,8 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def _async_login_and_fetch_devices(self, user_input: dict):
         """Login and fetch devices, returning config-flow errors on failure."""
+        await self._async_set_account_unique_id()
+
         try:
             await self._async_login()
             return await self.async_step_fetch_devices()
@@ -529,6 +225,19 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                 errors={"base": "unknown"},
             )
 
+    async def _async_set_account_unique_id(self) -> None:
+        """Set and validate the account-level unique ID for this flow."""
+        account_unique_id = account_unique_id_from_credentials(
+            self._region,
+            email=self._email,
+            phone_number=self._phone_number,
+        )
+        if account_unique_id is None:
+            return
+
+        await self.async_set_unique_id(account_unique_id)
+        self._abort_if_unique_id_configured()
+
     async def _async_login(self) -> None:
         """Login using the configured email or phone credentials."""
         self._aux_cloud = AuxCloudAPI(
@@ -539,7 +248,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             await self._aux_cloud.login(
                 password=self._password,
                 phone_number=self._phone_number,
-                phone_country_code=self._phone_country_code,
             )
             return
 
@@ -564,6 +272,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             # Process families and fetch devices for each family
             self._families = {}
             self._available_devices = []
+            seen_device_ids = set()
             device_query_errors = []
             successful_device_queries = 0
 
@@ -598,6 +307,11 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
                 for device in family_devices:
                     device_id = device["endpointId"]
+                    if device_id in seen_device_ids:
+                        _LOGGER.debug("Skipping duplicate AUX Cloud device discovery")
+                        continue
+                    seen_device_ids.add(device_id)
+
                     device_name = device["friendlyName"]
 
                     # Log each device's details
@@ -654,7 +368,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
     def _create_entry_with_devices(self):
         """Create the config entry with all discovered devices selected."""
-        selected_device_ids = [device["id"] for device in self._available_devices]
+        selected_device_ids = deduplicate_ordered_values(
+            device["id"] for device in self._available_devices
+        )
         config = {
             CONF_PASSWORD: self._password,
             CONF_REGION: self._region,
@@ -664,7 +380,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
 
         if self._phone_number:
             config[CONF_PHONE_NUMBER] = self._phone_number
-            config[CONF_PHONE_COUNTRY_CODE] = self._phone_country_code
         else:
             config[CONF_EMAIL] = self._email
 
@@ -684,6 +399,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             self._email = import_info[CONF_EMAIL]
             self._password = import_info[CONF_PASSWORD]
             self._region = import_info.get(CONF_REGION, "eu")
+            await self._async_set_account_unique_id()
 
             # Show a message in logs recommending UI configuration
             _LOGGER.info(
@@ -715,6 +431,8 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     successful_device_queries += successful_queries
                     all_devices.extend(family_devices)
 
+                all_devices = deduplicate_devices_by_endpoint_id(all_devices)
+
                 if (
                     not all_devices
                     and successful_device_queries == 0
@@ -723,7 +441,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
                     raise _preferred_device_discovery_error(device_query_errors)
 
                 # Extract device IDs
-                device_ids = [device["endpointId"] for device in all_devices]
+                device_ids = deduplicate_ordered_values(
+                    device["endpointId"] for device in all_devices
+                )
 
                 config = {
                     CONF_EMAIL: self._email,
@@ -772,6 +492,7 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                 # Convert to list if it's a single value
                 if not isinstance(selected_device_ids, list):
                     selected_device_ids = [selected_device_ids]
+                selected_device_ids = deduplicate_ordered_values(selected_device_ids)
 
                 # Get previously selected devices
                 previous_device_ids = self.config_entry.data.get(
@@ -822,7 +543,6 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
         # Fetch all devices to allow re-selection
         email = self.config_entry.data.get(CONF_EMAIL)
         phone_number = self.config_entry.data.get(CONF_PHONE_NUMBER)
-        phone_country_code = self.config_entry.data.get(CONF_PHONE_COUNTRY_CODE)
         password = self.config_entry.data.get(CONF_PASSWORD)
         region = self.config_entry.data.get(CONF_REGION, "eu")
 
@@ -835,7 +555,6 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
                 password,
                 region,
                 phone_number=phone_number,
-                phone_country_code=phone_country_code,
             )
             if no_devices_reason:
                 return self.async_abort(reason=no_devices_reason)
@@ -844,7 +563,9 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
             device_options = _device_options(self._available_devices)
 
             # Get currently selected devices
-            current_devices = self.config_entry.data.get(CONF_SELECTED_DEVICES, [])
+            current_devices = deduplicate_ordered_values(
+                self.config_entry.data.get(CONF_SELECTED_DEVICES, [])
+            )
 
             return self.async_show_form(
                 step_id="init",
@@ -874,7 +595,6 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
         region: str,
         *,
         phone_number: str | None = None,
-        phone_country_code: str | None = None,
     ) -> str | None:
         """Fetch devices for the options flow and return an abort reason if empty."""
         self._aux_cloud = AuxCloudAPI(
@@ -884,7 +604,6 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
             await self._aux_cloud.login(
                 password=password,
                 phone_number=phone_number,
-                phone_country_code=phone_country_code,
             )
         else:
             await self._aux_cloud.login(email, password)
@@ -892,6 +611,7 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
         families = await self._aux_cloud.get_families()
         self._families = {}
         self._available_devices = []
+        seen_device_ids = set()
         device_query_errors = []
         successful_device_queries = 0
 
@@ -907,8 +627,14 @@ class AuxCloudOptionsFlowHandler(OptionsFlow):
             successful_device_queries += successful_queries
 
             for device in family_devices:
+                device_id = device["endpointId"]
+                if device_id in seen_device_ids:
+                    _LOGGER.debug("Skipping duplicate AUX Cloud options device")
+                    continue
+                seen_device_ids.add(device_id)
+
                 device_info = {
-                    "id": device["endpointId"],
+                    "id": device_id,
                     "name": device["friendlyName"],
                     "family_id": family_id,
                     "family_name": family_name,

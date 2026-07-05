@@ -85,7 +85,6 @@ class AuxCloudSession:
         self.region = region
         self.email: str | None = None
         self.phone_number: str | None = None
-        self.phone_country_code: str | None = None
         self.password: str | None = None
         self.loginsession: str | None = None
         self.userid: str | None = None
@@ -229,7 +228,6 @@ class AuxCloudSession:
         password: str = None,
         *,
         phone_number: str = None,
-        phone_country_code: str = None,
     ) -> bool:
         """Login to AUX Cloud services."""
         password = password if password is not None else self.password
@@ -239,12 +237,7 @@ class AuxCloudSession:
             phone_number = (
                 phone_number if phone_number is not None else self.phone_number
             )
-            phone_country_code = (
-                phone_country_code
-                if phone_country_code is not None
-                else self.phone_country_code
-            )
-            if not phone_number or not phone_country_code or password is None:
+            if not phone_number or password is None:
                 raise AuxAuthError(
                     "Missing AUX Cloud phone credentials",
                     endpoint="account/login",
@@ -266,18 +259,16 @@ class AuxCloudSession:
         if use_phone_login:
             self.email = None
             self.phone_number = phone_number
-            self.phone_country_code = phone_country_code
             payload = {
                 "username": phone_number,
                 "password": sha_password,
-                "countrycode": phone_country_code,
+                "countrycode": "",
                 "companyid": COMPANY_ID,
                 "lid": LICENSE_ID,
             }
         else:
             self.email = email
             self.phone_number = None
-            self.phone_country_code = None
             payload = {
                 "email": email,
                 "password": sha_password,
@@ -323,7 +314,6 @@ class AuxCloudSession:
             return await self.login(
                 password=self.password,
                 phone_number=self.phone_number,
-                phone_country_code=self.phone_country_code,
             )
         return await self.login(self.email, self.password)
 

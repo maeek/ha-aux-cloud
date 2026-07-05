@@ -13,7 +13,6 @@
       "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
       "email_required": "Email jest wymagany do logowania emailem.",
       "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
-      "phone_country_code_required": "Wprowadź numer telefonu z prefiksem kraju, na przykład +8613800138000.",
       "unknown": "Nieoczekiwany błąd"
     },
     "error": {
@@ -26,7 +25,6 @@
       "invalid_auth": "Nieprawidłowa autoryzacja",
       "email_required": "Email jest wymagany do logowania emailem.",
       "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
-      "phone_country_code_required": "Wprowadź numer telefonu z prefiksem kraju, na przykład +8613800138000.",
       "unknown": "Nieoczekiwany błąd"
     },
     "step": {
@@ -36,7 +34,7 @@
         "data": {
           "credential_type": "Metoda logowania",
           "email": "Email",
-          "phone_number": "Numer telefonu z prefiksem kraju",
+          "phone_number": "Numer telefonu",
           "password": "Hasło",
           "region": "Region"
         }

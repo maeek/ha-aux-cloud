@@ -96,7 +96,7 @@ The recommended way to set up this integration is through the Home Assistant UI:
 6. Finish setup and use Home Assistant's native **Name and assign** screen to set device names and areas
 
 Supported regions are Europe, USA, China, and Russia.
-For phone-number login, enter the country prefix in the phone number field, for example `+8613800138000`. China-region phone logins also accept bare local numbers and default them to country code `86`.
+For phone-number login, enter the phone number as you use it with AUX Cloud.
 
 All discovered devices are added during initial setup. Home Assistant will offer its native name and area assignment after the entry is created. Use the integration options flow later if you want to disable individual devices.
 

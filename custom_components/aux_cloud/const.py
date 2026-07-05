@@ -28,13 +28,11 @@ DATA_AUX_CLOUD_CONFIG = "aux_cloud_config"
 CONF_FAMILIES = "families"
 CONF_SELECTED_DEVICES = "selected_devices"
 CONF_PHONE_NUMBER = "phone_number"
-CONF_PHONE_COUNTRY_CODE = "phone_country_code"
 
 # Config flow constants
 CONF_CREDENTIAL_TYPE = "credential_type"
 CREDENTIAL_TYPE_EMAIL = "email"
 CREDENTIAL_TYPE_PHONE = "phone"
-DEFAULT_PHONE_COUNTRY_CODE_CN = "86"
 
 # Map AUX AC modes to Home Assistant HVAC modes
 MODE_MAP_AUX_AC_TO_HA = {

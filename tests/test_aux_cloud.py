@@ -285,6 +285,30 @@ class TestAuxCloudAPI:
         assert isinstance(errors[0], AuxServerError)
         assert successful_queries == 1
 
+    async def test_config_flow_device_discovery_deduplicates_endpoint_ids(self):
+        """Test duplicate personal/shared devices keep the first result."""
+
+        class FakeCloud:
+            async def get_devices(self, family_id, shared=False):
+                assert family_id == "family1"
+                if shared:
+                    return [
+                        {"endpointId": "device1", "source": "shared"},
+                        {"endpointId": "device2", "source": "shared"},
+                    ]
+                return [{"endpointId": "device1", "source": "personal"}]
+
+        devices, errors, successful_queries = await _async_fetch_family_devices(
+            FakeCloud(), "family1"
+        )
+
+        assert devices == [
+            {"endpointId": "device1", "source": "personal"},
+            {"endpointId": "device2", "source": "shared"},
+        ]
+        assert errors == []
+        assert successful_queries == 2
+
     async def test_config_flow_device_discovery_tracks_all_query_failures(self):
         """Test full cloud-query failure is distinguishable from no devices."""
 
@@ -369,18 +393,41 @@ class TestAuxCloudAPI:
             await session.login(
                 password="secret",
                 phone_number="13800138000",
-                phone_country_code="86",
             )
             is True
         )
 
         payload = _decrypt_test_login_payload(session.make_request.call_args)
         assert payload["username"] == "13800138000"
-        assert payload["countrycode"] == "86"
+        assert payload["countrycode"] == ""
         assert "email" not in payload
         assert session.email is None
         assert session.phone_number == "13800138000"
-        assert session.phone_country_code == "86"
+
+    async def test_phone_login_payload_sends_user_entered_number(self, monkeypatch):
+        """Test phone login can send the user-entered number."""
+        session = AuxCloudSession(region="eu")
+        session.make_request = AsyncMock(
+            return_value={"status": 0, "loginsession": "session", "userid": "user"}
+        )
+        monkeypatch.setattr(
+            session_module,
+            "encrypt_aes_cbc_zero_padding",
+            lambda _iv, _key, data: data,
+        )
+
+        assert (
+            await session.login(
+                password="secret",
+                phone_number="48123456789",
+            )
+            is True
+        )
+
+        payload = _decrypt_test_login_payload(session.make_request.call_args)
+        assert payload["username"] == "48123456789"
+        assert payload["countrycode"] == ""
+        assert session.phone_number == "48123456789"
 
     async def test_session_recovery_relogs_in_and_retries_request(self):
         """Test expired sessions trigger one silent credential re-login."""
@@ -434,7 +481,6 @@ class TestAuxCloudAPI:
         """Test silent recovery preserves phone credentials."""
         session = AuxCloudSession(region="cn")
         session.phone_number = "13800138000"
-        session.phone_country_code = "86"
         session.password = "secret"
         session.login = AsyncMock(return_value=True)
 
@@ -443,7 +489,6 @@ class TestAuxCloudAPI:
         session.login.assert_awaited_once_with(
             password="secret",
             phone_number="13800138000",
-            phone_country_code="86",
         )
 
     async def test_websocket_auth_refresh_uses_session_recovery(self, aux_api):

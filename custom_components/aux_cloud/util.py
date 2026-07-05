@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any
 
 from homeassistant.core import callback
@@ -8,6 +9,63 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import AuxApiError
 from .const import _LOGGER, DOMAIN, MANUFACTURER
 from .devices.profiles import AC_TEMPERATURE_AMBIENT, AuxProducts
+
+
+def deduplicate_devices_by_endpoint_id(devices: Iterable[dict]) -> list[dict]:
+    """Return devices in source order, keeping the first entry per endpoint ID."""
+    deduplicated = []
+    seen_endpoint_ids = set()
+
+    for device in devices:
+        endpoint_id = device.get("endpointId")
+        if endpoint_id is None:
+            deduplicated.append(device)
+            continue
+
+        if endpoint_id in seen_endpoint_ids:
+            _LOGGER.debug("Skipping duplicate AUX Cloud device entry")
+            continue
+
+        seen_endpoint_ids.add(endpoint_id)
+        deduplicated.append(device)
+
+    return deduplicated
+
+
+def deduplicate_ordered_values(values: Iterable[str]) -> list[str]:
+    """Return values in source order with duplicates removed."""
+    deduplicated = []
+    seen_values = set()
+
+    for value in values:
+        if value in seen_values:
+            continue
+        seen_values.add(value)
+        deduplicated.append(value)
+
+    return deduplicated
+
+
+def account_unique_id_from_credentials(
+    region: str,
+    *,
+    email: str | None = None,
+    phone_number: str | None = None,
+) -> str | None:
+    """Return the stable AUX Cloud account unique ID for a config entry."""
+    normalized_region = (region or "eu").strip().lower()
+
+    if email:
+        return f"{normalized_region}:email:{email.strip().lower()}"
+
+    if phone_number:
+        normalized_phone_number = "".join(
+            character for character in phone_number if character.isdigit()
+        )
+        if normalized_phone_number:
+            return f"{normalized_region}:phone:{normalized_phone_number}"
+
+    return None
 
 
 class DeviceStateHelper:

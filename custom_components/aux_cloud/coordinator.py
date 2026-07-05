@@ -25,7 +25,7 @@ from .api import (
     issue_id_for_error,
 )
 from .const import _LOGGER, DOMAIN, MAX_FAILED_POLLS
-from .util import DeviceStateHelper
+from .util import DeviceStateHelper, deduplicate_devices_by_endpoint_id
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
 WEBSOCKET_SETUP_RETRY_INITIAL_DELAY = 5
@@ -47,7 +47,6 @@ class AuxCloudCoordinator(
         selected_device_ids: list,
         *,
         phone_number: str | None = None,
-        phone_country_code: str | None = None,
     ):
         """Initialize the coordinator."""
         super().__init__(
@@ -59,7 +58,6 @@ class AuxCloudCoordinator(
         self.api = api
         self.email = email
         self.phone_number = phone_number
-        self.phone_country_code = phone_country_code
         self.password = password
         self.selected_device_ids = selected_device_ids
         self.devices = []
@@ -239,7 +237,6 @@ class AuxCloudCoordinator(
                     login_success = await self.api.login(
                         password=self.password,
                         phone_number=self.phone_number,
-                        phone_country_code=self.phone_country_code,
                     )
                 else:
                     login_success = await self.api.login(self.email, self.password)
@@ -326,7 +323,7 @@ class AuxCloudCoordinator(
 
         if not all_devices and query_errors:
             raise _preferred_query_error(query_errors)
-        return all_devices
+        return deduplicate_devices_by_endpoint_id(all_devices)
 
     def _async_create_cloud_issue(self, error: AuxApiError) -> None:
         """Create or update the Repairs issue for a cloud API error."""

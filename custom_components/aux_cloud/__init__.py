@@ -14,7 +14,6 @@ from homeassistant.helpers.typing import ConfigType
 from .api import AuxCloudAPI
 from .const import (
     _LOGGER,
-    CONF_PHONE_COUNTRY_CODE,
     CONF_PHONE_NUMBER,
     CONF_SELECTED_DEVICES,
     DATA_AUX_CLOUD_CONFIG,
@@ -27,6 +26,7 @@ from .coordinator import (
     WEBSOCKET_SETUP_RETRY_MAX_DELAY,
     AuxCloudCoordinator,
 )
+from .util import account_unique_id_from_credentials
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -72,12 +72,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api = AuxCloudAPI(region=region, session=async_get_clientsession(hass))
     email = entry.data.get(CONF_EMAIL)
     phone_number = entry.data.get(CONF_PHONE_NUMBER)
-    phone_country_code = entry.data.get(CONF_PHONE_COUNTRY_CODE)
     password = entry.data.get(CONF_PASSWORD)
     selected_device_ids = entry.data.get(CONF_SELECTED_DEVICES, [])
 
     if not password or not (email or phone_number):
         raise ConfigEntryAuthFailed("Missing required credentials for AUX Cloud")
+
+    if not _async_backfill_account_unique_id(
+        hass,
+        entry,
+        region,
+        email,
+        phone_number,
+    ):
+        return False
 
     coordinator = AuxCloudCoordinator(
         hass,
@@ -86,7 +94,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         password,
         selected_device_ids,
         phone_number=phone_number,
-        phone_country_code=phone_country_code,
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -124,6 +131,75 @@ async def _async_cleanup_entry_data(hass: HomeAssistant, entry_id: str) -> None:
         await entry_data["coordinator"].async_close()
     if not hass.data.get(DOMAIN):
         hass.data.pop(DOMAIN, None)
+
+
+def _async_backfill_account_unique_id(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    region: str,
+    email: str | None,
+    phone_number: str | None,
+) -> bool:
+    """Backfill and enforce a single config entry per AUX Cloud account."""
+    if not hasattr(entry, "unique_id"):
+        return True
+
+    account_unique_id = account_unique_id_from_credentials(
+        region,
+        email=email,
+        phone_number=phone_number,
+    )
+    if account_unique_id is None:
+        return True
+
+    matching_entries = [
+        configured_entry
+        for configured_entry in hass.config_entries.async_entries(DOMAIN)
+        if _account_unique_id_for_entry(configured_entry) == account_unique_id
+    ]
+    if entry not in matching_entries:
+        matching_entries.append(entry)
+
+    primary_entry = _primary_account_entry(matching_entries, account_unique_id)
+    if primary_entry.entry_id != entry.entry_id:
+        _LOGGER.error(
+            "AUX Cloud account is already configured; not setting up duplicate entry"
+        )
+        return False
+
+    if entry.unique_id == account_unique_id:
+        return True
+
+    return hass.config_entries.async_update_entry(
+        entry,
+        unique_id=account_unique_id,
+    )
+
+
+def _account_unique_id_for_entry(entry: ConfigEntry) -> str | None:
+    """Return the stored or derived account unique ID for a config entry."""
+    if entry.unique_id:
+        return entry.unique_id
+
+    return account_unique_id_from_credentials(
+        entry.data.get(CONF_REGION, "eu"),
+        email=entry.data.get(CONF_EMAIL),
+        phone_number=entry.data.get(CONF_PHONE_NUMBER),
+    )
+
+
+def _primary_account_entry(
+    entries: list[ConfigEntry],
+    account_unique_id: str,
+) -> ConfigEntry:
+    """Return the config entry that should own an AUX Cloud account setup."""
+    entries_with_unique_id = [
+        entry for entry in entries if entry.unique_id == account_unique_id
+    ]
+    if entries_with_unique_id:
+        return sorted(entries_with_unique_id, key=lambda entry: entry.entry_id)[0]
+
+    return sorted(entries, key=lambda entry: entry.entry_id)[0]
 
 
 __all__ = [
