@@ -2,29 +2,37 @@
 
 from homeassistant.components.climate import (
     ClimateEntity,
-    ClimateEntityFeature,
     ClimateEntityDescription,
-    HVACMode,
+    ClimateEntityFeature,
     HVACAction,
+    HVACMode,
 )
 from homeassistant.components.climate.const import (
     FAN_AUTO,
-    SWING_OFF,
-    SWING_HORIZONTAL,
-    SWING_VERTICAL,
-    SWING_BOTH,
     PRESET_ECO,
     PRESET_NONE,
+    SWING_BOTH,
+    SWING_HORIZONTAL,
+    SWING_OFF,
+    SWING_VERTICAL,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import (
+    _LOGGER,
+    FAN_MODE_AUX_TO_HA,
+    FAN_MODE_HA_TO_AUX,
+    MODE_MAP_AUX_AC_TO_HA,
+    MODE_MAP_HA_TO_AUX,
+)
 from .devices.profiles import (
     AC_FAN_SPEED,
-    AUX_MODE,
+    AC_POWER,
+    AC_POWER_OFF,
+    AC_POWER_ON,
     AC_SWING_HORIZONTAL,
     AC_SWING_HORIZONTAL_OFF,
     AC_SWING_HORIZONTAL_ON,
@@ -33,29 +41,23 @@ from .devices.profiles import (
     AC_SWING_VERTICAL_ON,
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
-    HP_MODE_COOLING,
-    HP_MODE_HEATING,
-    AuxProducts,
     AUX_ECOMODE_OFF,
     AUX_ECOMODE_ON,
-    HP_HEATER_TEMPERATURE_TARGET,
+    AUX_MODE,
     HP_HEATER_POWER,
     HP_HEATER_POWER_OFF,
     HP_HEATER_POWER_ON,
-    AC_POWER,
-    AC_POWER_OFF,
-    AC_POWER_ON,
+    HP_HEATER_TEMPERATURE_TARGET,
+    HP_MODE_COOLING,
+    HP_MODE_HEATING,
     ACFanSpeed,
+    AuxProducts,
+    encode_ac_temperature_command,
+    get_product_profile,
 )
-from .const import (
-    DOMAIN,
-    FAN_MODE_HA_TO_AUX,
-    FAN_MODE_AUX_TO_HA,
-    MODE_MAP_AUX_AC_TO_HA,
-    MODE_MAP_HA_TO_AUX,
-    _LOGGER,
-)
-from .util import BaseEntity
+from .util import BaseEntity, setup_dynamic_entities
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -64,15 +66,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AUX climate platform."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
 
-    entities = []
-
-    # Create climate entities for each device
-    for device in coordinator.data["devices"]:
+    def entities_for_device(device):
         if device.get("productId") in AuxProducts.DeviceType.AC_GENERIC:
-            entities.append(
+            return [
                 AuxACClimateEntity(
                     coordinator,
                     device["endpointId"],
@@ -83,9 +81,9 @@ async def async_setup_entry(
                         icon="mdi:air-conditioner",
                     ),
                 )
-            )
+            ]
         elif device.get("productId") in AuxProducts.DeviceType.HEAT_PUMP:
-            entities.append(
+            return [
                 AuxHeatPumpClimateEntity(
                     coordinator,
                     device["endpointId"],
@@ -96,16 +94,14 @@ async def async_setup_entry(
                         icon="mdi:hvac",
                     ),
                 )
-            )
+            ]
+        return []
 
-    if entities:
-        async_add_entities(entities, True)
-    else:
-        _LOGGER.info("No AUX climate devices added")
+    setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
 # pylint: disable=abstract-method
-class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
+class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
     """AUX Cloud heat pump climate entity."""
 
     def __init__(
@@ -125,7 +121,6 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         self._attr_target_temperature_step = 1
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
-        self.entity_id = f"climate.{self._attr_unique_id}"
 
     @property
     def preset_mode(self):
@@ -137,17 +132,16 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     @property
     def target_temperature(self):
         """Return the target water temperature."""
-        return (
-            self._get_device_params().get(HP_HEATER_TEMPERATURE_TARGET, None) / 10
-            if HP_HEATER_TEMPERATURE_TARGET in self._get_device_params()
-            else None
-        )
+        value = self._get_device_params().get(HP_HEATER_TEMPERATURE_TARGET)
+        return value / 10 if isinstance(value, (int, float)) else None
 
     @property
     def hvac_mode(self):
         """Return the current operation mode."""
         if not self._get_device_params().get(HP_HEATER_POWER, False):
             return HVACMode.OFF
+        if self._get_device_params().get(AUX_MODE) == HP_MODE_COOLING[AUX_MODE]:
+            return HVACMode.COOL
         return HVACMode.HEAT
 
     async def async_set_hvac_mode(self, hvac_mode):
@@ -215,7 +209,7 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         return
 
 
-class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
+class AuxACClimateEntity(BaseEntity, ClimateEntity):
     """AUX Cloud climate entity."""
 
     def __init__(
@@ -223,44 +217,53 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     ):
         """Initialize the climate entity."""
         super().__init__(coordinator, device_id, entity_description)
+        self._profile = get_product_profile(self._device.get("productId"))
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_supported_features = (
+        supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.FAN_MODE
-            | ClimateEntityFeature.SWING_MODE
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
         )
-        self._attr_hvac_modes = [HVACMode.OFF, *MODE_MAP_AUX_AC_TO_HA.values()]
-        self._attr_fan_modes = list(FAN_MODE_HA_TO_AUX.keys())
-        self._attr_swing_modes = [
-            SWING_OFF,
-            SWING_VERTICAL,
-            SWING_HORIZONTAL,
-            SWING_BOTH,
+        if self._profile.horizontal_swing or self._profile.vertical_swing:
+            supported_features |= ClimateEntityFeature.SWING_MODE
+        self._attr_supported_features = supported_features
+        self._attr_hvac_modes = [
+            HVACMode.OFF,
+            *[
+                MODE_MAP_AUX_AC_TO_HA[mode]
+                for mode in self._profile.hvac_modes
+                if mode in MODE_MAP_AUX_AC_TO_HA
+            ],
         ]
+        self._attr_fan_modes = [
+            FAN_MODE_AUX_TO_HA[speed]
+            for speed in self._profile.fan_speeds
+            if speed in FAN_MODE_AUX_TO_HA
+        ]
+        swing_modes = [SWING_OFF]
+        if self._profile.vertical_swing:
+            swing_modes.append(SWING_VERTICAL)
+        if self._profile.horizontal_swing:
+            swing_modes.append(SWING_HORIZONTAL)
+        if self._profile.vertical_swing and self._profile.horizontal_swing:
+            swing_modes.append(SWING_BOTH)
+        self._attr_swing_modes = swing_modes
         self._attr_min_temp = 16
         self._attr_max_temp = 32
         self._attr_target_temperature_step = 0.5
-        self.entity_id = f"climate.{self._attr_unique_id}"
 
     @property
     def current_temperature(self):
         """Return the current temperature."""
-        return (
-            self._get_device_params().get(AC_TEMPERATURE_AMBIENT, None) / 10
-            if AC_TEMPERATURE_AMBIENT in self._get_device_params()
-            else None
-        )
+        value = self._get_device_params().get(AC_TEMPERATURE_AMBIENT)
+        return value / 10 if isinstance(value, (int, float)) else None
 
     @property
     def target_temperature(self):
         """Return the target temperature."""
-        return (
-            self._get_device_params().get(AC_TEMPERATURE_TARGET, None) / 10
-            if AC_TEMPERATURE_TARGET in self._get_device_params()
-            else None
-        )
+        value = self._get_device_params().get(AC_TEMPERATURE_TARGET)
+        return value / 10 if isinstance(value, (int, float)) else None
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
@@ -273,7 +276,13 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         elif temperature > self._attr_max_temp:
             temperature = self._attr_max_temp
 
-        await self._set_device_params({AC_TEMPERATURE_TARGET: int(temperature * 10)})
+        command_device = {
+            **self._device,
+            "params": self._get_device_params(),
+        }
+        await self._set_device_params(
+            encode_ac_temperature_command(command_device, temperature)
+        )
 
     @property
     def hvac_mode(self):
@@ -289,7 +298,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             params = AC_POWER_OFF
         else:
             aux_mode = MODE_MAP_HA_TO_AUX.get(hvac_mode)
-            if aux_mode is None:
+            if aux_mode is None or aux_mode not in self._profile.hvac_modes:
                 return
             params = {**AC_POWER_ON, AUX_MODE: aux_mode}
 
@@ -314,8 +323,9 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     @property
     def fan_mode(self):
         """Return the fan mode."""
-        return FAN_MODE_AUX_TO_HA.get(
-            self._get_device_params().get(ACFanSpeed.PARAM_NAME), FAN_AUTO
+        value = self._get_device_params().get(ACFanSpeed.PARAM_NAME)
+        return (
+            FAN_MODE_AUX_TO_HA.get(value, FAN_AUTO) if value is not None else FAN_AUTO
         )
 
     async def async_set_fan_mode(self, fan_mode):
@@ -323,13 +333,21 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         if fan_mode is None:
             return
 
-        await self._set_device_params({AC_FAN_SPEED: FAN_MODE_HA_TO_AUX[fan_mode]})
+        fan_speed = FAN_MODE_HA_TO_AUX.get(fan_mode)
+        if fan_speed is None or fan_speed not in self._profile.fan_speeds:
+            return
+
+        await self._set_device_params({AC_FAN_SPEED: fan_speed})
 
     @property
     def swing_mode(self):
         """Return the swing mode."""
-        horizontal = bool(self._get_device_params().get(AC_SWING_HORIZONTAL, 0))
-        vertical = bool(self._get_device_params().get(AC_SWING_VERTICAL, 0))
+        horizontal = self._profile.horizontal_swing and bool(
+            self._get_device_params().get(AC_SWING_HORIZONTAL, 0)
+        )
+        vertical = self._profile.vertical_swing and bool(
+            self._get_device_params().get(AC_SWING_VERTICAL, 0)
+        )
 
         return (
             SWING_BOTH
@@ -343,20 +361,22 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
 
     async def async_set_swing_mode(self, swing_mode):
         """Set new swing mode."""
-        params = {
-            **(
+        params = {}
+        if self._profile.vertical_swing:
+            params.update(
                 AC_SWING_VERTICAL_ON
                 if swing_mode in [SWING_VERTICAL, SWING_BOTH]
                 else AC_SWING_VERTICAL_OFF
-            ),
-            **(
+            )
+        if self._profile.horizontal_swing:
+            params.update(
                 AC_SWING_HORIZONTAL_ON
                 if swing_mode in [SWING_HORIZONTAL, SWING_BOTH]
                 else AC_SWING_HORIZONTAL_OFF
-            ),
-        }
+            )
 
-        await self._set_device_params(params)
+        if params:
+            await self._set_device_params(params)
 
     async def async_turn_on(self):
         """Async turn the entity on."""

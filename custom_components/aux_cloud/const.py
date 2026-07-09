@@ -1,12 +1,13 @@
 import logging
-from homeassistant.const import Platform
+
 from homeassistant.components.climate import (
-    HVACMode,
-    FAN_MEDIUM,
-    FAN_LOW,
-    FAN_HIGH,
     FAN_AUTO,
+    FAN_HIGH,
+    FAN_LOW,
+    FAN_MEDIUM,
+    HVACMode,
 )
+from homeassistant.const import Platform
 
 from .devices.profiles import (
     AC_MODE_AUTO,
@@ -28,11 +29,7 @@ DATA_AUX_CLOUD_CONFIG = "aux_cloud_config"
 CONF_FAMILIES = "families"
 CONF_SELECTED_DEVICES = "selected_devices"
 CONF_PHONE_NUMBER = "phone_number"
-
-# Config flow constants
-CONF_CREDENTIAL_TYPE = "credential_type"
-CREDENTIAL_TYPE_EMAIL = "email"
-CREDENTIAL_TYPE_PHONE = "phone"
+CONF_ACCOUNT_ID = "account_id"
 
 # Map AUX AC modes to Home Assistant HVAC modes
 MODE_MAP_AUX_AC_TO_HA = {
@@ -50,7 +47,9 @@ MODE_MAP_HA_TO_AUX = {v: k for k, v in MODE_MAP_AUX_AC_TO_HA.items()}
 FAN_MODE_HA_TO_AUX = {
     FAN_AUTO: ACFanSpeed.AUTO,
     FAN_LOW: ACFanSpeed.LOW,
+    "medium_low": ACFanSpeed.MEDIUM_LOW,
     FAN_MEDIUM: ACFanSpeed.MEDIUM,
+    "medium_high": ACFanSpeed.MEDIUM_HIGH,
     FAN_HIGH: ACFanSpeed.HIGH,
     "turbo": ACFanSpeed.TURBO,
     "silent": ACFanSpeed.MUTE,
@@ -71,3 +70,8 @@ PLATFORMS = [
 ]
 
 MAX_FAILED_POLLS = 5
+
+# The cloud relay is the normal state source. A slow authoritative inventory scan
+# still runs so devices added or removed in the AUX app are reflected in HA.
+TOPOLOGY_SCAN_INTERVAL_MINUTES = 30
+DEVICE_QUERY_CONCURRENCY = 4

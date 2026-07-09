@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 SUCCESS_STATUSES = {None, 0, "0"}
@@ -22,7 +24,18 @@ NETWORK_ERROR_CODES = {
 }
 SERVER_ERROR_CODES = {-1099, -3005, -49002}
 RATE_LIMIT_ERROR_CODES = {-2001}
-DEVICE_ERROR_CODES = {-3, -7, -3103, -3118, -4012, -4028, -4044, -4045, -4046}
+DEVICE_ERROR_CODES = {
+    -49025,
+    -3,
+    -7,
+    -3103,
+    -3118,
+    -4012,
+    -4028,
+    -4044,
+    -4045,
+    -4046,
+}
 
 SENSITIVE_KEYS = {
     "aeskey",
@@ -39,6 +52,7 @@ SENSITIVE_KEYS = {
 ERROR_CODE_MESSAGES = {
     -3: "AUX Cloud device is unavailable",
     -7: "AUX Cloud device command failed",
+    -49025: "AUX Cloud device does not support this parameter query",
     -1000: "Invalid AUX Cloud session",
     -1006: "AUX Cloud account or password is incorrect",
     -1009: "AUX Cloud login is required",
@@ -73,19 +87,25 @@ class AuxApiError(Exception):
         endpoint: str | None = None,
         response: Any = None,
         translation_key: str | None = None,
+        retry_after: int | None = None,
     ) -> None:
         """Initialize an AUX Cloud API error."""
         self.code = code
         self.http_status = http_status
         self.endpoint = endpoint
         self.response = sanitize_response(response)
+        self.retry_after = retry_after
         if translation_key is not None:
             self.translation_key = translation_key
         super().__init__(message or self._format_message())
 
     def _format_message(self) -> str:
         """Return a concise diagnostic message."""
-        message = ERROR_CODE_MESSAGES.get(self.code, self.default_message)
+        message = (
+            ERROR_CODE_MESSAGES.get(self.code, self.default_message)
+            if self.code is not None
+            else self.default_message
+        )
         details = []
         if self.code is not None:
             details.append(f"code {self.code}")
@@ -158,6 +178,7 @@ def raise_for_http_status(
     *,
     endpoint: str | None = None,
     response: Any = None,
+    retry_after: str | None = None,
 ) -> None:
     """Raise a typed error for an unsuccessful HTTP status."""
     if status < 400:
@@ -174,6 +195,7 @@ def raise_for_http_status(
             http_status=status,
             endpoint=endpoint,
             response=response,
+            retry_after=parse_retry_after(retry_after),
         )
     if status in (408, 425):
         raise AuxNetworkError(
@@ -193,6 +215,23 @@ def raise_for_http_status(
         endpoint=endpoint,
         response=response,
     )
+
+
+def parse_retry_after(value: str | None) -> int | None:
+    """Parse and clamp an HTTP Retry-After value to a safe HA backoff."""
+    if not value:
+        return None
+    try:
+        seconds = int(value)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(value)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=UTC)
+            seconds = int((when - datetime.now(UTC)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return max(1, min(seconds, 3600))
 
 
 def raise_for_cloud_response(payload: Any, *, endpoint: str | None = None) -> None:

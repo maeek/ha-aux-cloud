@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main, "2.0"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        home-assistant: [minimum, latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install test dependencies
+        run: pip install -r requirements.test.txt
+      - name: Install minimum Home Assistant
+        if: matrix.home-assistant == 'minimum'
+        run: pip install --upgrade "homeassistant==2026.4.*"
+      - name: Run tests
+        run: pytest -q --cov-fail-under=75
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.test.txt
+      - run: black --check custom_components/aux_cloud tests
+      - run: ruff check custom_components/aux_cloud tests
+      - run: mypy custom_components/aux_cloud
+      - run: pylint custom_components/aux_cloud --fail-under=9.7

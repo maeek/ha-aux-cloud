@@ -2,82 +2,76 @@
   "config": {
     "flow_title": "AUX Cloud: {name}",
     "abort": {
-      "single_instance_allowed": "Już skonfigurowano. Możliwa tylko jedna konfiguracja.",
-      "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
-      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud.",
-      "login_required": "Wymagane logowanie przed wyszukaniem urządzeń.",
+      "already_configured": "To konto AUX Cloud jest już skonfigurowane.",
+      "missing_credentials": "Wymagany jest adres e-mail i hasło.",
+      "wrong_account": "Dane logowania należą do innego konta AUX Cloud.",
+      "reauth_successful": "Dane logowania AUX Cloud zostały zaktualizowane.",
+      "reconfigure_successful": "Konfiguracja AUX Cloud została zaktualizowana.",
       "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
       "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
       "api_unavailable": "API AUX Cloud jest obecnie niedostępne.",
       "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań.",
       "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
-      "email_required": "Email jest wymagany do logowania emailem.",
       "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
       "unknown": "Nieoczekiwany błąd"
     },
     "error": {
-      "user_login_failed": "Logowanie nie powiodło się. Sprawdź swoje dane logowania.",
       "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
       "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
       "api_unavailable": "API AUX Cloud jest obecnie niedostępne. Spróbuj ponownie później.",
       "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań. Spróbuj ponownie później.",
       "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
       "invalid_auth": "Nieprawidłowa autoryzacja",
-      "email_required": "Email jest wymagany do logowania emailem.",
       "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
       "unknown": "Nieoczekiwany błąd"
     },
     "step": {
       "user": {
         "title": "Logowanie do AUX Cloud",
-        "description": "Wprowadź dane logowania do AUX Cloud.",
+        "description": "Wybierz sposób logowania. Adres e-mail jest zalecany dla kont europejskich.",
+        "menu_options": {
+          "email": "Adres e-mail",
+          "phone": "Numer telefonu"
+        }
+      },
+      "email": {
+        "title": "Logowanie adresem e-mail",
+        "description": "Europa jest wybrana domyślnie. Wybierz region używany przez konto AUX Cloud.",
         "data": {
-          "credential_type": "Metoda logowania",
-          "email": "Email",
+          "email": "Adres e-mail",
+          "password": "Hasło",
+          "region": "Region"
+        }
+      },
+      "phone": {
+        "title": "Logowanie numerem telefonu",
+        "description": "Wprowadź numer telefonu używany w AUX Cloud i wybierz region konta.",
+        "data": {
+          "phone_number": "Numer telefonu",
+          "password": "Hasło",
+          "region": "Region"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Zaktualizuj logowanie AUX Cloud",
+        "description": "Wprowadź aktualne dane logowania do tego konta AUX Cloud.",
+        "data": {
+          "email": "Adres e-mail",
+          "phone_number": "Numer telefonu",
+          "password": "Hasło",
+          "region": "Region"
+        }
+      },
+      "reconfigure": {
+        "title": "Ponowna konfiguracja AUX Cloud",
+        "description": "Zmień dane logowania lub region. Konto AUX Cloud musi pozostać takie samo.",
+        "data": {
+          "email": "Adres e-mail",
           "phone_number": "Numer telefonu",
           "password": "Hasło",
           "region": "Region"
         }
       }
-    },
-    "progress": {
-      "fetching_devices": "Pobieranie urządzeń... To może chwilę potrwać."
-    }
-  },
-  "options": {
-    "abort": {
-      "missing_credentials": "Brak danych logowania. Skonfiguruj ponownie integrację.",
-      "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
-      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud.",
-      "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
-      "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
-      "api_unavailable": "API AUX Cloud jest obecnie niedostępne.",
-      "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań.",
-      "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
-      "unknown": "Nieoczekiwany błąd"
-    },
-    "step": {
-      "init": {
-        "title": "Aktualizuj urządzenia AUX Cloud",
-        "description": "Wybierz, które urządzenia chcesz monitorować i kontrolować za pomocą Home Assistant.",
-        "data": {
-          "selected_devices": "Wybierz urządzenia"
-        }
-      }
-    }
-  },
-  "issues": {
-    "api_unavailable": {
-      "title": "API AUX Cloud jest niedostępne",
-      "description": "Home Assistant nie może obecnie połączyć się z AUX Cloud. Integracja będzie ponawiać próby automatycznie. Ostatni błąd: {error}"
-    },
-    "auth_failed": {
-      "title": "Uwierzytelnianie AUX Cloud nie powiodło się",
-      "description": "AUX Cloud odrzucił zapisane dane logowania lub sesję. Zaktualizuj dane logowania integracji i przeładuj ją. Ostatni błąd: {error}"
-    },
-    "rate_limited": {
-      "title": "Osiągnięto limit żądań AUX Cloud",
-      "description": "AUX Cloud tymczasowo ogranicza żądania z tego konta lub instalacji. Home Assistant będzie ponawiać próby automatycznie. Ostatni błąd: {error}"
     }
   },
   "exceptions": {
@@ -101,6 +95,22 @@
     },
     "unknown": {
       "message": "Nieoczekiwany błąd AUX Cloud: {error}"
+    },
+    "invalid_option": {
+      "message": "{option} nie jest prawidłową opcją AUX Cloud"
+    },
+    "invalid_operation": {
+      "message": "{operation} nie jest prawidłowym trybem AUX Cloud"
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europa",
+        "usa": "Inne regiony / USA",
+        "cn": "Chiny",
+        "rus": "Rosja"
+      }
     }
   },
   "entity": {

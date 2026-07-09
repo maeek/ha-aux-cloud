@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import time
+from collections.abc import Callable
 from datetime import timedelta
+from typing import Any, cast
 
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -22,74 +26,110 @@ from .api import (
     AuxSessionExpired,
     AuxWebSocketState,
     extract_websocket_updates,
-    issue_id_for_error,
 )
-from .const import _LOGGER, DOMAIN, MAX_FAILED_POLLS
-from .util import DeviceStateHelper, deduplicate_devices_by_endpoint_id
+from .const import _LOGGER, MAX_FAILED_POLLS, TOPOLOGY_SCAN_INTERVAL_MINUTES
+from .models import AuxDevice, CoordinatorData
+from .util import (
+    DeviceStateHelper,
+    deduplicate_devices_by_endpoint_id,
+    device_identifier,
+)
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
+TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=TOPOLOGY_SCAN_INTERVAL_MINUTES)
 WEBSOCKET_SETUP_RETRY_INITIAL_DELAY = 5
 WEBSOCKET_SETUP_RETRY_MAX_DELAY = 60
-REPAIR_ISSUE_IDS = {"api_unavailable", "auth_failed", "rate_limited"}
+
+DeviceListener = Callable[[list[AuxDevice]], None]
 
 
-class AuxCloudCoordinator(
-    DataUpdateCoordinator
-):  # pylint: disable=too-many-instance-attributes
-    """DataUpdateCoordinator for AUX Cloud."""
+class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
+    """Own AUX Cloud inventory, push state, and command transactions."""
 
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(
         self,
         hass: HomeAssistant,
         api: AuxCloudAPI,
         email: str | None,
         password: str,
-        selected_device_ids: list,
         *,
+        config_entry: ConfigEntry | None = None,
         phone_number: str | None = None,
-    ):
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="AUX Cloud Coordinator",
-            update_interval=None,
-        )
+        coordinator_kwargs = {
+            "name": "AUX Cloud",
+            "update_interval": TOPOLOGY_SCAN_INTERVAL,
+            "always_update": False,
+        }
+        if (
+            config_entry is not None
+            and "config_entry"
+            in inspect.signature(DataUpdateCoordinator.__init__).parameters
+        ):
+            coordinator_kwargs["config_entry"] = config_entry
+        super().__init__(hass, _LOGGER, **coordinator_kwargs)
         self.api = api
+        self._aux_config_entry = config_entry
+        self._entity_config_entry_id = config_entry.entry_id if config_entry else None
+        self._entity_unique_id_salt = (
+            (config_entry.unique_id or config_entry.entry_id) if config_entry else ""
+        )
         self.email = email
         self.phone_number = phone_number
         self.password = password
-        self.selected_device_ids = selected_device_ids
-        self.devices = []
+        self.devices: list[AuxDevice] = []
         self._device_state_helpers: dict[str, DeviceStateHelper] = {}
-        self._websocket_task: asyncio.Task | None = None
+        self._command_locks: dict[str, asyncio.Lock] = {}
+        self._reserved_entity_unique_ids: set[tuple[str, str]] = set()
+        self._device_listeners: set[DeviceListener] = set()
+        self._missing_complete_scans: dict[str, int] = {}
+        self._update_generation = 0
+        self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
-        self._active_issue_ids: set[str] = set()
+        self._cloud_failure_logged = False
 
-    async def async_start_websocket(self):
-        """Start websocket updates for selected devices."""
+    @callback
+    def async_add_device_listener(self, listener: DeviceListener) -> Callable[[], None]:
+        """Register a listener that receives newly discovered devices."""
+        self._device_listeners.add(listener)
+
+        @callback
+        def remove_listener() -> None:
+            self._device_listeners.discard(listener)
+
+        return remove_listener
+
+    async def async_start_websocket(self) -> None:
+        """Start the supervised websocket update task."""
         if self._websocket_task is not None and not self._websocket_task.done():
             return
-
-        self._websocket_task = asyncio.create_task(
+        self._websocket_task = self.hass.async_create_task(
             self._async_run_websocket(),
-            name="aux_cloud_websocket_runner",
+            "aux_cloud_websocket_runner",
         )
 
-    async def _async_run_websocket(self):
+    async def _async_run_websocket(self) -> None:
         """Run websocket updates until the config entry unloads."""
         retry_delay = WEBSOCKET_SETUP_RETRY_INITIAL_DELAY
         try:
             while True:
                 try:
                     await self.api.async_run_websocket(
-                        devices=self.devices,
+                        devices=cast(list[dict], self.devices),
                         listener=self._async_handle_websocket_message,
                         state_listener=self._async_handle_websocket_state,
                     )
-                    _LOGGER.debug("AUX Cloud websocket runner returned unexpectedly")
-                except Exception as exc:  # pylint: disable=broad-except
-                    _LOGGER.debug("AUX Cloud websocket setup retrying: %s", exc)
+                except asyncio.CancelledError:
+                    raise
+                except (AuxApiError, ConnectionError, TimeoutError) as exc:
+                    _LOGGER.debug(
+                        "AUX websocket runner restarting (%s)", type(exc).__name__
+                    )
+                except Exception as exc:  # Protect HA from third-party relay faults.
+                    _LOGGER.debug(
+                        "Unexpected AUX websocket failure (%s)", type(exc).__name__
+                    )
                 await self._async_handle_websocket_state(AuxWebSocketState.DEGRADED)
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, WEBSOCKET_SETUP_RETRY_MAX_DELAY)
@@ -97,32 +137,25 @@ class AuxCloudCoordinator(
             if self._websocket_task is asyncio.current_task():
                 self._websocket_task = None
 
-    async def _async_handle_websocket_state(self, state: AuxWebSocketState):
-        """Handle websocket health changes."""
+    async def _async_handle_websocket_state(self, state: AuxWebSocketState) -> None:
+        """Adjust fallback polling according to websocket health."""
         if state is AuxWebSocketState.READY:
             if self._websocket_degraded:
-                _LOGGER.info("AUX Cloud websocket restored; disabling HTTP fallback")
+                _LOGGER.info("AUX Cloud websocket restored")
             self._websocket_degraded = False
-            self.update_interval = None
+            self.update_interval = TOPOLOGY_SCAN_INTERVAL
             return
-
         if state is not AuxWebSocketState.DEGRADED:
             return
-
         if not self._websocket_degraded:
             _LOGGER.warning(
-                "AUX Cloud websocket unavailable; enabling %s HTTP fallback",
-                FALLBACK_SCAN_INTERVAL,
+                "AUX Cloud websocket unavailable; enabling fallback polling"
             )
             self._websocket_degraded = True
             self.update_interval = FALLBACK_SCAN_INTERVAL
             self.hass.async_create_task(self.async_request_refresh())
-            return
 
-        if self.update_interval is None:
-            self.update_interval = FALLBACK_SCAN_INTERVAL
-
-    async def async_close(self):
+    async def async_close(self) -> None:
         """Close coordinator resources."""
         if self._websocket_task and not self._websocket_task.done():
             self._websocket_task.cancel()
@@ -131,233 +164,341 @@ class AuxCloudCoordinator(
         self._websocket_task = None
         await self.api.close_websocket()
 
-    def get_device_by_endpoint_id(self, endpoint_id: str):
-        """Get a device by its endpoint ID."""
-        data = self.data or {"devices": self.devices}
+    def get_device_by_endpoint_id(self, endpoint_id: str) -> AuxDevice | None:
+        """Return a device by its raw cloud endpoint ID."""
         return next(
             (
                 device
-                for device in data.get("devices", [])
+                for device in (self.data or {"devices": self.devices})["devices"]
                 if device.get("endpointId") == endpoint_id
             ),
             None,
         )
 
     def get_state_helper(
-        self, endpoint_id: str, initial_params: dict
+        self, endpoint_id: str, initial_params: dict[str, Any]
     ) -> DeviceStateHelper:
-        """Get or create a shared state helper for a single physical device."""
-        helper = self._device_state_helpers.get(endpoint_id)
-        if helper is None:
-            helper = DeviceStateHelper(initial_params, MAX_FAILED_POLLS)
-            self._device_state_helpers[endpoint_id] = helper
-        return helper
+        """Return the shared state helper for one physical device."""
+        return self._device_state_helpers.setdefault(
+            endpoint_id,
+            DeviceStateHelper(initial_params, MAX_FAILED_POLLS),
+        )
 
-    async def async_set_device_params(self, device: dict, params: dict):
-        """Set device params and merge the confirmed response into coordinator data."""
-        confirmed_params = await self.api.set_device_params(device, params)
-        self._merge_device_params(device["endpointId"], confirmed_params or params)
+    @property
+    def update_generation(self) -> int:
+        """Return a monotonic identifier for entity cache synchronization."""
+        return self._update_generation
 
-    async def _async_handle_websocket_message(self, message: dict):
-        """Handle a websocket update message."""
+    @property
+    def websocket_degraded(self) -> bool:
+        """Return whether HTTP fallback polling is currently active."""
+        return self._websocket_degraded
+
+    async def async_set_device_params(
+        self, device: AuxDevice, params: dict[str, Any]
+    ) -> None:
+        """Serialize and publish one optimistic device command transaction."""
+        endpoint_id = device["endpointId"]
+        async with self._command_locks.setdefault(endpoint_id, asyncio.Lock()):
+            current = self.get_device_by_endpoint_id(endpoint_id)
+            if current is None:
+                raise AuxApiError("AUX Cloud device is no longer available")
+            if not self.devices and self.data:
+                self.devices = list(self.data["devices"])
+            previous = dict(current.get("params", {}))
+            self._replace_device_params(endpoint_id, {**previous, **params})
+            self._publish_devices()
+            try:
+                confirmed = await self.api.set_device_params(
+                    cast(dict, current), params
+                )
+            except Exception:
+                self._replace_device_params(endpoint_id, previous)
+                if helper := self._device_state_helpers.get(endpoint_id):
+                    helper.replace_params(previous)
+                self._publish_devices()
+                raise
+            self._replace_device_params(
+                endpoint_id,
+                {**previous, **(confirmed or params)},
+            )
+            self._publish_devices()
+
+    async def _async_handle_websocket_message(self, message: dict[str, Any]) -> None:
+        """Merge all updates from one websocket frame in one coordinator write."""
         updates = extract_websocket_updates(message)
         if not updates:
             return
-
+        self.devices = [
+            {**device, "params": dict(device.get("params", {}))}
+            for device in self.devices
+        ]
         changed = False
         for update in updates:
+            endpoint_id = update["endpointId"]
             if update.get("available") is False:
-                changed = self._mark_device_unavailable(update["endpointId"]) or changed
-                continue
-            changed = (
-                self._merge_device_params(
-                    update["endpointId"],
-                    update["params"],
-                    available=update.get("available"),
+                changed = self._mark_device_unavailable(endpoint_id) or changed
+            else:
+                changed = (
+                    self._merge_device_params(
+                        endpoint_id,
+                        update["params"],
+                        available=update.get("available"),
+                    )
+                    or changed
                 )
-                or changed
-            )
-
         if changed:
-            _LOGGER.debug("Merged %d AUX Cloud websocket update(s)", len(updates))
+            self._publish_devices()
 
     def _mark_device_unavailable(self, endpoint_id: str) -> bool:
-        """Mark a device unavailable from an explicit websocket offline update."""
-        device = self.get_device_by_endpoint_id(endpoint_id)
+        """Mark a device unavailable after an explicit cloud offline event."""
+        device = next(
+            (item for item in self.devices if item.get("endpointId") == endpoint_id),
+            None,
+        )
         if device is None:
             return False
-
-        device_name = device.get("friendlyName", endpoint_id)
         helper = self._device_state_helpers.get(endpoint_id)
-        helper_changed = (
-            helper.mark_unavailable(device_name) if helper is not None else False
+        helper_changed = helper.mark_unavailable("AUX device") if helper else False
+        changed = (
+            bool(device.get("params")) or device.get("state") != 0 or helper_changed
         )
-        changed = bool(device.get("params")) or device.get("state") != 0 or helper_changed
         device["state"] = 0
         device["params"] = {}
-        device["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        if changed:
-            self.async_set_updated_data({"devices": self.devices})
+        device["last_updated"] = _timestamp()
         return changed
 
     def _merge_device_params(
         self,
         endpoint_id: str,
-        params: dict,
+        params: dict[str, Any],
         *,
         available: bool | None = None,
     ) -> bool:
-        """Merge params into a device and notify entities."""
-        device = self.get_device_by_endpoint_id(endpoint_id)
-        if device is None or not params:
+        """Merge pushed parameters into the current copy-on-write snapshot."""
+        device = next(
+            (item for item in self.devices if item.get("endpointId") == endpoint_id),
+            None,
+        )
+        if device is None:
             return False
-
-        cleaned_params = {
+        cleaned = {
             key: value for key, value in params.items() if key not in {"did", "pid"}
         }
-        if not cleaned_params:
+        if not cleaned and available is not True:
             return False
-
         if available is True:
             device["state"] = 1
-        device.setdefault("params", {}).update(cleaned_params)
-        device["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        self.api.normalize_device_params(device)
-        self.async_set_updated_data({"devices": self.devices})
+        device["params"] = {**device.get("params", {}), **cleaned}
+        device["last_updated"] = _timestamp()
+        self.api.normalize_device_params(cast(dict, device))
         return True
 
-    async def _async_update_data(self):
-        """Fetch data from AUX Cloud."""
-        _LOGGER.debug("Updating AUX Cloud data...")
+    def _replace_device_params(self, endpoint_id: str, params: dict[str, Any]) -> None:
+        """Replace one device parameter mapping without mutating published data."""
+        updated_devices: list[AuxDevice] = []
+        for device in self.devices:
+            if device.get("endpointId") != endpoint_id:
+                updated_devices.append(device)
+                continue
+            updated_device: AuxDevice = {
+                **device,
+                "params": dict(params),
+                "last_updated": _timestamp(),
+            }
+            self.api.normalize_device_params(cast(dict, updated_device))
+            updated_devices.append(updated_device)
+        self.devices = updated_devices
 
+    def _publish_devices(self) -> None:
+        """Publish the current inventory as a new coordinator snapshot."""
+        self._update_generation += 1
+        self.async_set_updated_data({"devices": list(self.devices)})
+
+    async def _async_update_data(self) -> CoordinatorData:
+        """Run an authoritative account topology and state scan."""
         try:
-            if not self.api.is_logged_in():
-                _LOGGER.debug("Logging into AUX Cloud API...")
-                if self.phone_number:
-                    login_success = await self.api.login(
-                        password=self.password,
-                        phone_number=self.phone_number,
-                    )
-                else:
-                    login_success = await self.api.login(self.email, self.password)
-                if not login_success:
-                    raise AuxAuthError("Login to AUX Cloud API failed")
-
-            if self.api.families is None:
-                _LOGGER.debug("Fetching families from AUX Cloud API...")
-                await self.api.get_families()
-
-            device_tasks = []
-            for family_id in self.api.families:
-                device_tasks.append(
-                    self.api.get_devices(
-                        family_id,
-                        shared=False,
-                        selected_devices=self.selected_device_ids,
-                    )
-                )
-                device_tasks.append(
-                    self.api.get_devices(
-                        family_id,
-                        shared=True,
-                        selected_devices=self.selected_device_ids,
-                    )
-                )
-
-            devices_results = await asyncio.gather(
-                *device_tasks, return_exceptions=True
-            )
-            all_devices = self._collect_device_results(devices_results)
-
-            self.devices = all_devices
-            _LOGGER.debug("Fetched AUX Cloud data: %s devices", len(self.devices))
-
-            current_endpoint_ids = {
+            await self._async_ensure_login()
+            await self.api.get_families()
+            family_ids = list((self.api.families or {}).keys())
+            tasks = [
+                self.api.get_devices(family_id, shared=shared)
+                for family_id in family_ids
+                for shared in (False, True)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            discovered, complete = self._collect_device_results(results)
+            previous_ids = {
                 device["endpointId"]
                 for device in self.devices
-                if "endpointId" in device
+                if device.get("endpointId")
             }
-            stale_helpers = set(self._device_state_helpers) - current_endpoint_ids
-            for endpoint_id in stale_helpers:
+            self.devices = self._reconcile_inventory(discovered, complete=complete)
+            current_ids = {
+                device["endpointId"]
+                for device in self.devices
+                if device.get("endpointId")
+            }
+            new_ids = current_ids - previous_ids
+            removed_ids = previous_ids - current_ids
+            for endpoint_id in removed_ids:
                 self._device_state_helpers.pop(endpoint_id, None)
+                self._command_locks.pop(endpoint_id, None)
+            self._async_remove_stale_devices(removed_ids)
 
-            self._async_clear_cloud_issues()
-            return {"devices": self.devices}
-
+            if self._cloud_failure_logged:
+                _LOGGER.info("AUX Cloud communication restored")
+            self._cloud_failure_logged = False
+            if new_ids:
+                new_devices = [
+                    device
+                    for device in self.devices
+                    if device.get("endpointId") in new_ids
+                ]
+                for listener in tuple(self._device_listeners):
+                    listener(new_devices)
+            if new_ids or removed_ids:
+                self.hass.async_create_task(self._async_refresh_websocket_membership())
+            self._update_generation += 1
+            return {"devices": list(self.devices)}
         except (AuxAuthError, AuxSessionExpired) as exc:
-            self._async_create_cloud_issue(exc)
-            raise ConfigEntryAuthFailed(str(exc)) from exc
-        except (AuxNetworkError, AuxServerError, AuxRateLimitError) as exc:
-            self._async_create_cloud_issue(exc)
+            raise ConfigEntryAuthFailed(
+                "AUX Cloud credentials must be updated"
+            ) from exc
+        except AuxRateLimitError as exc:
+            self._log_cloud_failure_once(exc)
+            if exc.retry_after is not None:
+                raise UpdateFailed(str(exc), retry_after=exc.retry_after) from exc
+            raise UpdateFailed(str(exc)) from exc
+        except (AuxNetworkError, AuxServerError) as exc:
+            self._log_cloud_failure_once(exc)
+            raise UpdateFailed(str(exc)) from exc
+        except AuxApiError as exc:
             raise UpdateFailed(str(exc)) from exc
         except Exception as exc:
-            raise UpdateFailed(f"Error updating AUX Cloud data: {exc}") from exc
+            raise UpdateFailed("Unexpected AUX Cloud update failure") from exc
 
-    def _collect_device_results(self, devices_results: list) -> list[dict]:
-        """Collect device-list query results, preserving partial success."""
-        all_devices = []
-        query_errors = []
+    async def _async_ensure_login(self) -> None:
+        """Authenticate when the shared API session has no active identity."""
+        if self.api.is_logged_in():
+            return
+        if self.phone_number:
+            success = await self.api.login(
+                password=self.password,
+                phone_number=self.phone_number,
+            )
+        else:
+            success = await self.api.login(self.email, self.password)
+        if not success:
+            raise AuxAuthError("Login to AUX Cloud failed")
 
-        for result in devices_results:
+    def _collect_device_results(
+        self, results: list[Any]
+    ) -> tuple[list[AuxDevice], bool]:
+        """Collect query results and report whether every query completed."""
+        devices: list[AuxDevice] = []
+        errors: list[BaseException] = []
+        for result in results:
             if isinstance(result, BaseException):
-                if not isinstance(result, Exception):
+                if isinstance(result, asyncio.CancelledError):
                     raise result
-                query_errors.append(result)
-                _LOGGER.warning("Skipping failed AUX Cloud device query: %s", result)
+                errors.append(result)
                 continue
-
             for device in result:
                 if isinstance(device, BaseException):
-                    if not isinstance(device, Exception):
-                        raise device
-                    query_errors.append(device)
-                    _LOGGER.warning(
-                        "Skipping failed AUX Cloud device entry: %s", device
-                    )
-                    continue
-                if (
-                    device["endpointId"] in self.selected_device_ids
-                    or not self.selected_device_ids
-                ):
-                    all_devices.append(device)
-
-        if not all_devices and query_errors:
-            raise _preferred_query_error(query_errors)
-        return deduplicate_devices_by_endpoint_id(all_devices)
-
-    def _async_create_cloud_issue(self, error: AuxApiError) -> None:
-        """Create or update the Repairs issue for a cloud API error."""
-        issue_id = issue_id_for_error(error)
-        severity = (
-            ir.IssueSeverity.ERROR
-            if issue_id == "auth_failed"
-            else ir.IssueSeverity.WARNING
-        )
-        if issue_id not in self._active_issue_ids:
-            _LOGGER.warning("AUX Cloud issue detected: %s", error)
-        self._active_issue_ids.add(issue_id)
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            is_persistent=False,
-            severity=severity,
-            translation_key=issue_id,
-            translation_placeholders={"error": str(error)},
+                    errors.append(device)
+                else:
+                    devices.append(device)
+        if not devices and errors:
+            raise _preferred_query_error(errors)
+        return (
+            cast(
+                list[AuxDevice],
+                deduplicate_devices_by_endpoint_id(cast(list[dict], devices)),
+            ),
+            not errors,
         )
 
-    def _async_clear_cloud_issues(self) -> None:
-        """Clear cloud API Repairs issues after a successful refresh."""
-        if self._active_issue_ids:
-            _LOGGER.info("AUX Cloud API communication restored")
-        for issue_id in REPAIR_ISSUE_IDS:
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-        self._active_issue_ids.clear()
+    def _reconcile_inventory(
+        self, discovered: list[AuxDevice], *, complete: bool
+    ) -> list[AuxDevice]:
+        """Avoid destructive removals on partial or one-off empty scans."""
+        discovered_by_id = {
+            device["endpointId"]: device
+            for device in discovered
+            if device.get("endpointId")
+        }
+        previous_by_id = {
+            device["endpointId"]: device
+            for device in self.devices
+            if device.get("endpointId")
+        }
+        if not complete:
+            return list(discovered_by_id.values()) + [
+                device
+                for endpoint_id, device in previous_by_id.items()
+                if endpoint_id not in discovered_by_id
+            ]
+
+        retained = list(discovered_by_id.values())
+        for endpoint_id, old_device in previous_by_id.items():
+            if endpoint_id in discovered_by_id:
+                self._missing_complete_scans.pop(endpoint_id, None)
+                continue
+            missing_count = self._missing_complete_scans.get(endpoint_id, 0) + 1
+            self._missing_complete_scans[endpoint_id] = missing_count
+            if missing_count < 2:
+                retained.append(old_device)
+        return retained
+
+    async def _async_refresh_websocket_membership(self) -> None:
+        """Reset relay subscriptions after inventory membership changes."""
+        websocket = self.api.ws_api
+        subscribe = getattr(websocket, "subscribe_devices", None)
+        if (
+            websocket is None
+            or not websocket.connected
+            or not inspect.iscoroutinefunction(subscribe)
+        ):
+            return
+        try:
+            await websocket.subscribe_devices(
+                cast(list[dict], self.devices), reset=True
+            )
+        except (ConnectionError, TimeoutError, AuxApiError):
+            await self.api.close_websocket()
+
+    @callback
+    def _async_remove_stale_devices(self, endpoint_ids: set[str]) -> None:
+        """Remove devices confirmed absent from two complete inventory scans."""
+        if not endpoint_ids or self._aux_config_entry is None:
+            return
+        registry = dr.async_get(self.hass)
+        for endpoint_id in endpoint_ids:
+            device = registry.async_get_device(
+                identifiers={device_identifier(endpoint_id)}
+            )
+            if device is not None:
+                registry.async_update_device(
+                    device_id=device.id,
+                    remove_config_entry_id=self._aux_config_entry.entry_id,
+                )
+
+    def _log_cloud_failure_once(self, error: BaseException) -> None:
+        """Log a transient cloud outage once until a successful scan."""
+        if self.data is None or self._cloud_failure_logged:
+            return
+        self._cloud_failure_logged = True
+        _LOGGER.warning("AUX Cloud update unavailable (%s)", type(error).__name__)
+
+
+def _timestamp() -> str:
+    """Return a display-only timestamp for diagnostics."""
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
 
 def _preferred_query_error(errors: list[BaseException]) -> BaseException:
-    """Return the most useful error to surface for a fully failed refresh."""
+    """Return the most useful error from a fully failed inventory scan."""
     for error_type in (
         AuxAuthError,
         AuxSessionExpired,

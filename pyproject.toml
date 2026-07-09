@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = ["ASYNC109", "E501", "RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["SLF001"]

@@ -1,16 +1,14 @@
 {
   "domain": "aux_cloud",
   "name": "AUX Cloud",
-  "codeowners": [],
+  "codeowners": ["@maeek"],
   "config_flow": true,
   "documentation": "https://github.com/maeek/ha-aux-cloud",
   "iot_class": "cloud_push",
+  "integration_type": "hub",
   "issue_tracker": "https://github.com/maeek/ha-aux-cloud/issues",
   "loggers": [],
-  "requirements": [
-    "aiohttp",
-    "pycryptodome==3.23.0"
-  ],
-  "version": "1.0.13",
+  "requirements": ["pycryptodome==3.23.0"],
+  "version": "2.0.0",
   "zeroconf": []
 }

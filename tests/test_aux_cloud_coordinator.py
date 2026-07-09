@@ -2,24 +2,28 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud as integration
-from custom_components.aux_cloud import AuxCloudCoordinator, FALLBACK_SCAN_INTERVAL
+from custom_components.aux_cloud import FALLBACK_SCAN_INTERVAL, AuxCloudCoordinator
 from custom_components.aux_cloud.api import AuxWebSocketState
+from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
 from custom_components.aux_cloud.const import (
+    CONF_ACCOUNT_ID,
     CONF_PHONE_NUMBER,
+    CONF_SELECTED_DEVICES,
     DOMAIN,
 )
+from custom_components.aux_cloud.coordinator import TOPOLOGY_SCAN_INTERVAL
 from custom_components.aux_cloud.devices.profiles import AC_TEMPERATURE_AMBIENT
-from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
-from custom_components.aux_cloud.sensor import AuxCloudSensor, SENSORS
+from custom_components.aux_cloud.sensor import SENSORS, AuxCloudSensor
 from custom_components.aux_cloud.util import BaseEntity
 
 # This enables all the Home Assistant pytest fixtures
@@ -38,7 +42,7 @@ def mock_aux_cloud_api():
     api.families = {"family1": {"id": "family1", "name": "Family 1", "devices": []}}
 
     # Make get_devices return different results based on the 'shared' parameter
-    async def mock_get_devices(familyid, shared=False, selected_devices=None):
+    async def mock_get_devices(familyid, shared=False):
         if shared:
             return []  # No shared devices
         else:
@@ -57,6 +61,8 @@ def mock_aux_cloud_api():
     api.close_websocket = AsyncMock()
     api.normalize_device_params = MagicMock()
     api.set_device_params = AsyncMock(return_value={"pwr": 1})
+    api.ws_api = None
+    api.userid = None
     return api
 
 
@@ -68,7 +74,6 @@ def coordinator(hass, mock_aux_cloud_api):
         api=mock_aux_cloud_api,
         email="test@example.com",
         password="password123",
-        selected_device_ids=["device1"],
     )
 
 
@@ -140,7 +145,6 @@ async def test_coordinator_update_phone_login(hass, mock_aux_cloud_api):
         api=mock_aux_cloud_api,
         email=None,
         password="password123",
-        selected_device_ids=["device1"],
         phone_number="13800138000",
     )
     mock_aux_cloud_api.is_logged_in.return_value = False
@@ -216,38 +220,25 @@ async def test_coordinator_update_with_exception(coordinator, mock_aux_cloud_api
     mock_aux_cloud_api.get_devices.assert_called()
 
 
-async def test_coordinator_cloud_error_creates_repair_issue(
-    coordinator, mock_aux_cloud_api, monkeypatch
+async def test_coordinator_cloud_error_is_logged_once(
+    coordinator, mock_aux_cloud_api, caplog
 ):
-    """Test cloud-wide API failures create a localized Repairs issue."""
-    create_issue = MagicMock()
-    monkeypatch.setattr(
-        "custom_components.aux_cloud.coordinator.ir.async_create_issue",
-        create_issue,
-    )
+    """Test transient cloud failures are logged once until recovery."""
+    coordinator.async_set_updated_data({"devices": []})
     mock_aux_cloud_api.get_devices.side_effect = AuxServerError(http_status=503)
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
 
-    create_issue.assert_called_once()
-    assert create_issue.call_args.args[:3] == (
-        coordinator.hass,
-        DOMAIN,
-        "api_unavailable",
-    )
-    assert create_issue.call_args.kwargs["translation_key"] == "api_unavailable"
+    assert caplog.text.count("AUX Cloud update unavailable") == 1
 
 
 async def test_coordinator_partial_typed_query_error_keeps_devices(
-    coordinator, mock_aux_cloud_api, monkeypatch
+    coordinator, mock_aux_cloud_api
 ):
     """Test one failed family/shared query does not fail a usable refresh."""
-    create_issue = MagicMock()
-    monkeypatch.setattr(
-        "custom_components.aux_cloud.coordinator.ir.async_create_issue",
-        create_issue,
-    )
     mock_aux_cloud_api.get_devices.side_effect = [
         [
             {
@@ -264,22 +255,12 @@ async def test_coordinator_partial_typed_query_error_keeps_devices(
     data = await coordinator._async_update_data()
 
     assert data["devices"][0]["endpointId"] == "device1"
-    create_issue.assert_not_called()
 
 
-async def test_coordinator_recovery_clears_repair_issue(
-    coordinator, mock_aux_cloud_api, monkeypatch
+async def test_coordinator_recovery_resets_failure_log_guard(
+    coordinator, mock_aux_cloud_api
 ):
-    """Test a successful refresh clears active cloud API Repairs issues."""
-    monkeypatch.setattr(
-        "custom_components.aux_cloud.coordinator.ir.async_create_issue",
-        MagicMock(),
-    )
-    delete_issue = MagicMock()
-    monkeypatch.setattr(
-        "custom_components.aux_cloud.coordinator.ir.async_delete_issue",
-        delete_issue,
-    )
+    """Test a successful refresh resets transient failure logging state."""
     mock_aux_cloud_api.get_devices.side_effect = AuxServerError(http_status=503)
 
     with pytest.raises(UpdateFailed):
@@ -298,29 +279,15 @@ async def test_coordinator_recovery_clears_repair_issue(
 
     await coordinator._async_update_data()
 
-    delete_issue.assert_any_call(coordinator.hass, DOMAIN, "api_unavailable")
+    assert coordinator._cloud_failure_logged is False
 
 
-async def test_coordinator_auth_error_creates_auth_issue(
-    coordinator, mock_aux_cloud_api, monkeypatch
-):
-    """Test authentication failures create an auth Repairs issue."""
-    create_issue = MagicMock()
-    monkeypatch.setattr(
-        "custom_components.aux_cloud.coordinator.ir.async_create_issue",
-        create_issue,
-    )
+async def test_coordinator_auth_error_starts_reauth(coordinator, mock_aux_cloud_api):
+    """Test authentication failures surface ConfigEntryAuthFailed."""
     mock_aux_cloud_api.get_devices.side_effect = AuxAuthError(code=-1006)
 
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
-
-    assert create_issue.call_args.args[:3] == (
-        coordinator.hass,
-        DOMAIN,
-        "auth_failed",
-    )
-    assert create_issue.call_args.kwargs["translation_key"] == "auth_failed"
 
 
 async def test_coordinator_handle_exception_results(coordinator, mock_aux_cloud_api):
@@ -340,9 +307,7 @@ async def test_coordinator_handle_exception_results(coordinator, mock_aux_cloud_
 
 def test_coordinator_query_collection_deduplicates_endpoint_ids(coordinator):
     """Test duplicate gathered results keep the first device record."""
-    coordinator.selected_device_ids = []
-
-    devices = coordinator._collect_device_results(
+    devices, complete = coordinator._collect_device_results(
         [
             [{"endpointId": "device1", "source": "personal"}],
             [
@@ -356,6 +321,7 @@ def test_coordinator_query_collection_deduplicates_endpoint_ids(coordinator):
         {"endpointId": "device1", "source": "personal"},
         {"endpointId": "device2", "source": "shared"},
     ]
+    assert complete is True
 
 
 def test_coordinator_query_collection_reraises_cancellation(coordinator):
@@ -419,6 +385,8 @@ async def test_coordinator_merges_websocket_updates(coordinator, mock_aux_cloud_
         }
     ]
     coordinator.async_set_updated_data({"devices": coordinator.devices})
+    original_publish = coordinator.async_set_updated_data
+    coordinator.async_set_updated_data = MagicMock(side_effect=original_publish)
     await coordinator._async_handle_websocket_message(
         {
             "msgtype": "subresetk",
@@ -436,6 +404,41 @@ async def test_coordinator_merges_websocket_updates(coordinator, mock_aux_cloud_
     device = coordinator.get_device_by_endpoint_id("device1")
     assert device["params"] == {"pwr": 1}
     mock_aux_cloud_api.normalize_device_params.assert_called_once_with(device)
+    coordinator.async_set_updated_data.assert_called_once()
+
+
+def test_inventory_requires_two_complete_scans_before_removal(coordinator):
+    """Test a one-off complete empty scan cannot delete a cloud device."""
+    device = {"endpointId": "device1", "params": {"pwr": 1}}
+    coordinator.devices = [device]
+
+    assert coordinator._reconcile_inventory([], complete=True) == [device]
+    assert coordinator._reconcile_inventory([], complete=True) == []
+
+
+def test_partial_inventory_never_removes_devices(coordinator):
+    """Test partial family failures retain previously known devices."""
+    device = {"endpointId": "device1", "params": {"pwr": 1}}
+    coordinator.devices = [device]
+
+    assert coordinator._reconcile_inventory([], complete=False) == [device]
+
+
+def test_confirmed_stale_device_is_removed_from_registry(coordinator):
+    """Test confirmed cloud removal also cleans the HA device registry."""
+    entry = MockConfigEntry(domain=DOMAIN, data={}, entry_id="entry1")
+    entry.add_to_hass(coordinator.hass)
+    coordinator._aux_config_entry = entry
+    registry = dr.async_get(coordinator.hass)
+    registry.async_get_or_create(
+        config_entry_id="entry1",
+        identifiers={(DOMAIN, "device1")},
+    )
+
+    coordinator._async_remove_stale_devices({"device1"})
+
+    device = registry.async_get_device(identifiers={(DOMAIN, "device1")})
+    assert device is None or "entry1" not in device.config_entries
 
 
 async def test_coordinator_marks_websocket_offline_update_unavailable(
@@ -502,7 +505,7 @@ async def test_coordinator_command_merges_without_refresh(
     device = coordinator.get_device_by_endpoint_id("device1")
     await coordinator.async_set_device_params(device, {"pwr": 1})
 
-    assert device["params"]["pwr"] == 1
+    assert coordinator.get_device_by_endpoint_id("device1")["params"]["pwr"] == 1
     mock_aux_cloud_api.set_device_params.assert_awaited_once_with(device, {"pwr": 1})
     coordinator.async_request_refresh.assert_not_called()
 
@@ -512,6 +515,7 @@ async def test_setup_entry_starts_websocket_after_platforms(hass, monkeypatch):
     events = []
     entry = SimpleNamespace(
         entry_id="entry1",
+        unique_id=None,
         data={
             CONF_EMAIL: "user@example.com",
             CONF_PASSWORD: "secret",
@@ -526,7 +530,8 @@ async def test_setup_entry_starts_websocket_after_platforms(hass, monkeypatch):
 
     coordinator_mock.async_start_websocket = AsyncMock(side_effect=start_websocket)
     coordinator_mock.async_close = AsyncMock()
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
+    api = MagicMock(userid=None)
+    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
     monkeypatch.setattr(
         integration,
         "AuxCloudCoordinator",
@@ -545,7 +550,7 @@ async def test_setup_entry_starts_websocket_after_platforms(hass, monkeypatch):
     assert await integration.async_setup_entry(hass, entry) is True
 
     assert events == ["platforms", "websocket"]
-    assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is coordinator_mock
+    assert entry.runtime_data.coordinator is coordinator_mock
     coordinator_mock.async_close.assert_not_awaited()
 
 
@@ -553,6 +558,7 @@ async def test_setup_entry_accepts_phone_credentials(hass, monkeypatch):
     """Test setup accepts phone-only config entries."""
     entry = SimpleNamespace(
         entry_id="entry1",
+        unique_id=None,
         data={
             CONF_PHONE_NUMBER: "13800138000",
             CONF_PASSWORD: "secret",
@@ -564,7 +570,8 @@ async def test_setup_entry_accepts_phone_credentials(hass, monkeypatch):
     coordinator_mock.async_start_websocket = AsyncMock()
     coordinator_mock.async_close = AsyncMock()
     coordinator_factory = MagicMock(return_value=coordinator_mock)
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
+    api = MagicMock(userid=None)
+    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
     monkeypatch.setattr(integration, "AuxCloudCoordinator", coordinator_factory)
     monkeypatch.setattr(
         hass.config_entries,
@@ -576,12 +583,13 @@ async def test_setup_entry_accepts_phone_credentials(hass, monkeypatch):
 
     assert coordinator_factory.call_args.args[2] is None
     assert coordinator_factory.call_args.kwargs == {
+        "config_entry": entry,
         "phone_number": "13800138000",
     }
 
 
-async def test_setup_entry_backfills_account_unique_id(hass, monkeypatch):
-    """Test setup backfills stable account unique IDs on legacy entries."""
+async def test_setup_entry_preserves_legacy_unique_id(hass, monkeypatch):
+    """Test setup stores account ID without changing a legacy unique ID."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -590,14 +598,15 @@ async def test_setup_entry_backfills_account_unique_id(hass, monkeypatch):
             CONF_REGION: "eu",
         },
         entry_id="entry1",
-        unique_id=None,
+        unique_id="legacy-entry-id",
     )
     entry.add_to_hass(hass)
     coordinator_mock = MagicMock()
     coordinator_mock.async_config_entry_first_refresh = AsyncMock()
     coordinator_mock.async_start_websocket = AsyncMock()
     coordinator_mock.async_close = AsyncMock()
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
+    api = MagicMock(userid="cloud-user")
+    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
     monkeypatch.setattr(
         integration,
         "AuxCloudCoordinator",
@@ -611,53 +620,39 @@ async def test_setup_entry_backfills_account_unique_id(hass, monkeypatch):
 
     assert await integration.async_setup_entry(hass, entry) is True
 
-    assert entry.unique_id == "eu:email:user@example.com"
+    assert entry.unique_id == "legacy-entry-id"
+    assert entry.data[CONF_ACCOUNT_ID] == "eu:user:cloud-user"
 
 
-async def test_setup_entry_rejects_duplicate_account_entry(hass, monkeypatch):
-    """Test setup does not forward platforms for duplicate account entries."""
-    primary_entry = MockConfigEntry(
+async def test_migration_removes_device_selection_and_preserves_unique_id(hass):
+    """Test migration exposes every device without changing entry identity."""
+    entry = MockConfigEntry(
         domain=DOMAIN,
         data={
             CONF_EMAIL: "user@example.com",
             CONF_PASSWORD: "secret",
             CONF_REGION: "eu",
+            CONF_SELECTED_DEVICES: ["device1"],
+            "families": {"family1": {}},
         },
         entry_id="entry1",
-        unique_id="eu:email:user@example.com",
+        unique_id="legacy-entry-id",
+        version=1,
     )
-    primary_entry.add_to_hass(hass)
-    duplicate_entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            CONF_EMAIL: "USER@example.com",
-            CONF_PASSWORD: "secret",
-            CONF_REGION: "eu",
-        },
-        entry_id="entry2",
-        unique_id=None,
-    )
-    duplicate_entry.add_to_hass(hass)
-    coordinator_factory = MagicMock()
-    forward_platforms = AsyncMock()
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
-    monkeypatch.setattr(integration, "AuxCloudCoordinator", coordinator_factory)
-    monkeypatch.setattr(
-        hass.config_entries,
-        "async_forward_entry_setups",
-        forward_platforms,
-    )
+    entry.add_to_hass(hass)
 
-    assert await integration.async_setup_entry(hass, duplicate_entry) is False
+    assert await integration.async_migrate_entry(hass, entry) is True
 
-    coordinator_factory.assert_not_called()
-    forward_platforms.assert_not_awaited()
+    assert entry.unique_id == "legacy-entry-id"
+    assert CONF_SELECTED_DEVICES not in entry.data
+    assert "families" not in entry.data
 
 
 async def test_setup_entry_cleans_up_when_platform_setup_fails(hass, monkeypatch):
     """Test failed platform setup closes resources and removes stored entry data."""
     entry = SimpleNamespace(
         entry_id="entry1",
+        unique_id=None,
         data={
             CONF_EMAIL: "user@example.com",
             CONF_PASSWORD: "secret",
@@ -668,7 +663,8 @@ async def test_setup_entry_cleans_up_when_platform_setup_fails(hass, monkeypatch
     coordinator_mock.async_config_entry_first_refresh = AsyncMock()
     coordinator_mock.async_start_websocket = AsyncMock()
     coordinator_mock.async_close = AsyncMock()
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock())
+    api = MagicMock(userid=None)
+    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
     monkeypatch.setattr(
         integration,
         "AuxCloudCoordinator",
@@ -685,7 +681,10 @@ async def test_setup_entry_cleans_up_when_platform_setup_fails(hass, monkeypatch
 
     coordinator_mock.async_start_websocket.assert_not_awaited()
     coordinator_mock.async_close.assert_awaited_once()
-    assert DOMAIN not in hass.data
+    assert (
+        not hasattr(entry, "runtime_data")
+        or entry.runtime_data.coordinator is coordinator_mock
+    )
 
 
 async def test_coordinator_starts_single_websocket_runner(
@@ -767,7 +766,7 @@ async def test_coordinator_ready_websocket_disables_fallback_polling(
 
     await coordinator._async_handle_websocket_state(AuxWebSocketState.READY)
 
-    assert coordinator.update_interval is None
+    assert coordinator.update_interval == TOPOLOGY_SCAN_INTERVAL
     assert coordinator._websocket_degraded is False
 
 
@@ -789,9 +788,10 @@ async def test_base_entity_rolls_back_optimistic_update_on_command_failure(
     mock_aux_cloud_api.set_device_params.side_effect = Exception("command failed")
 
     with pytest.raises(Exception, match="command failed"):
-        await entity._set_device_params({"pwr": 1})
+        await entity._set_device_params({"pwr": 1, "new_key": 1})
 
     assert entity._get_device_params()["pwr"] == 0
+    assert "new_key" not in entity._get_device_params()
 
 
 def test_sensor_reads_cached_params_and_ignores_transient_zero_ambient(coordinator):

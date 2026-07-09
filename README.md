@@ -10,9 +10,11 @@ The implementation is based on BroadLink public SDK documentation and reverse en
 - Websocket-first device control with HTTP command fallback when the websocket is unavailable or an acknowledgement fails.
 - Degraded HTTP polling fallback while websocket push is unhealthy.
 - Automatic one-shot session recovery when the cloud reports an expired or invalid login session.
-- Home Assistant Repairs issues for cloud API outages, authentication failures, and rate limiting.
-- Config flow with email or phone login, region selection, and automatic device discovery.
+- Verified TLS, bounded request timeouts, rate-limit backoff, and serialized device commands.
+- Email-first config flow with Europe selected by default, optional phone login, and multiple accounts.
+- Native reauthentication, reconfiguration, and redacted diagnostics.
 - Support for personal and shared AUX Cloud devices.
+- Dynamic device discovery: devices added in AUX Cloud appear without reloading Home Assistant.
 - Product profiles for AUX air conditioners and heat pumps, including v3 heat-pump quirks.
 - Localized config, entity, exception, and Repairs text in English, Polish, and Greek.
 
@@ -57,7 +59,7 @@ Normal operation is push-based. After login and device bootstrap, the coordinato
 HTTP is still used for:
 
 - Login and initial device bootstrap.
-- Manual/coordinator refreshes.
+- Authoritative inventory scans every 30 minutes, or five-minute fallback scans while push is unavailable.
 - Device command fallback when websocket control is unavailable or rejected.
 - Slow degraded polling while websocket push is unhealthy.
 
@@ -91,19 +93,21 @@ The recommended way to set up this integration is through the Home Assistant UI:
 1. Go to **Settings** > **Devices & services**.
 2. Click the **+ Add Integration** button
 3. Search for "AUX Cloud" and select it
-4. Choose email or phone-number login
-5. Enter your AUX Cloud credentials and region (Europe, USA, China, or Russia - based on your AUX Cloud account)
+4. Choose email login (recommended for European accounts) or phone-number login
+5. Enter your AUX Cloud credentials and region (Europe is the default)
 6. Finish setup and use Home Assistant's native **Name and assign** screen to set device names and areas
 
-Supported regions are Europe, USA, China, and Russia.
+Supported regions are Europe, Other Areas / USA, China, and Russia. Europe is
+preselected for the email-first setup flow; the stored `usa` region value and
+existing config entries remain backward compatible.
 For phone-number login, enter the phone number as you use it with AUX Cloud.
 
-All discovered devices are added during initial setup. Home Assistant will offer its native name and area assignment after the entry is created. Use the integration options flow later if you want to disable individual devices.
+All cloud devices are added automatically. Devices added to the account later are discovered during the next inventory scan. Disable individual entities in Home Assistant's entity registry when they are not useful.
 
 > [!TIP]
 > Make sure that your devices are online when setting up the integration. If you add a device that is offline, it may not add all the entities. Reload the integration after the device is online.
 
-Credentials are stored in Home Assistant config entry storage. Existing email entries keep using the original email login path; phone-number login is used only for entries configured with a phone number. The integration uses stored credentials to silently recover expired cloud sessions. If recovery fails because AUX Cloud rejects the credentials, Home Assistant will raise an authentication issue.
+Credentials are stored in Home Assistant config entry storage. Existing email entries keep using the original email login path; phone-number login is used only for entries configured with a phone number. Existing config-entry, device, and entity unique IDs are preserved during migration. If silent session recovery fails, Home Assistant starts its native reauthentication flow.
 
 ## Usage
 
@@ -116,6 +120,35 @@ You can control them through:
 - Scripts
 - Voice assistants integrated with Home Assistant
 
+### Example use cases
+
+- Pre-heat or cool a room on a schedule while retaining AUX Cloud app access.
+- Coordinate domestic hot water with electricity tariffs or photovoltaic production.
+- Alert when the diagnostic error flag becomes available and non-zero.
+
+### Automation example
+
+The entity ID is assigned by Home Assistant and may differ from this example:
+
+```yaml
+automation:
+  - alias: Cool bedroom before evening
+    triggers:
+      - trigger: time
+        at: "19:00:00"
+    actions:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.bedroom_air_conditioner
+        data:
+          hvac_mode: cool
+          temperature: 23
+```
+
+## Removal
+
+Remove the AUX Cloud entry from **Settings > Devices & services**. Home Assistant unloads the websocket and all platforms and removes the entry's devices and entities. Removing the integration does not delete devices or data from AUX Cloud.
+
 ## Error Handling
 
 The integration maps known AUX/BroadLink error codes into typed failures:
@@ -126,33 +159,27 @@ The integration maps known AUX/BroadLink error codes into typed failures:
 - Rate limiting.
 - Device command failures.
 
-Home Assistant Repairs issues are created for long-lived conditions:
-
-- **AUX Cloud API unavailable**
-- **AUX Cloud authentication failed**
-- **AUX Cloud rate limit reached**
-
-API outage and rate-limit issues clear automatically after a successful refresh. Authentication issues require updating or rechecking the stored credentials.
+Transient API outages use Home Assistant's coordinator retry behavior and are logged once per outage. HTTP `Retry-After` is honored for rate limits. Authentication failures start Home Assistant's reauthentication flow because they require user action.
 
 ## Troubleshooting
 
 If you encounter issues:
 
 1. Check the Home Assistant logs for error messages
-2. Check **Settings** > **Repairs** for integration issues
+2. Open the integration entry and download diagnostics; credentials and device identifiers are redacted
 3. Verify your AUX Cloud credentials and selected region are correct
 4. Ensure your devices are online and accessible through the AUX Cloud app
 5. If you've recently changed your password, reconfigure or reload the integration
-6. If AUX Cloud is temporarily unavailable, wait for the API to recover; the integration will keep retrying automatically
+6. If AUX Cloud is temporarily unavailable, wait for the API to recover; the integration keeps retrying automatically
 
-If you log in through the mobile app and the cloud invalidates the previous session, the integration will attempt a silent re-login. If the stored credentials are no longer valid, Home Assistant will report an authentication issue.
+If you log in through the mobile app and the cloud invalidates the previous session, the integration attempts a single-flight silent re-login. If the stored credentials are no longer valid, Home Assistant prompts for reauthentication.
 
 ## Known Issues
 
 - **Logging in the App**: The login process in the app may invalidate existing sessions (at least on Android). The integration now attempts automatic re-login when the cloud reports an expired session. If recovery fails, check Home Assistant Repairs and reload or reconfigure the integration.
 - **AUX Cloud API unavailable**: If the API is down or returns errors such as HTTP `503`, Home Assistant will create a Repairs issue and retry automatically.
-- **Shared devices**: If your account has shared devices, you might encounter an issue that `Platform aux_cloud does not generate unique ids`; check your HA logs and transfer ownership of the device to your account if needed.
-- **Offline devices during setup**: Devices should be online during setup. Offline devices may not expose every entity until the integration is reloaded.
+- **Shared device identity**: AUX endpoint IDs are used unchanged for device identifiers. A cloud account exposing the same endpoint more than once is deduplicated.
+- **Offline devices**: Offline devices remain visible but may not expose every capability until a later successful inventory scan.
 - This is cloud control only. Local LAN control is not implemented.
 - Device support is profile-based. Unknown product IDs may appear without entities until a profile is added.
 
@@ -163,12 +190,25 @@ If you log in through the mobile app and the cloud invalidates the previous sess
 
 Known product IDs:
 
-- Air conditioners: `c0620000`, `2a4e0000`
+- Standard air conditioners: `c0620000`, `2a4e0000`, `7faf0000`, `82af0000`
+- Half-degree air conditioner: `1f620000`
+- Air conditioners without auto mode and with extended fan levels: `28620000`,
+  `c5510000`
+- Multi-split air conditioner: `45620000` (no auto mode or power-limit controls)
+- VRV air conditioners: `56ac0000`, `a44e0000` (vertical swing and conservative
+  low/medium/high fan controls)
+- Air-conditioner sub-device: `c9100100` (limited safe parameter set)
 - Heat pumps: `c3aa0000`
+
+The product profiles expose only controls verified from the AC Freedom app.
+Unsupported modes, fan values, swing axes, and parameters are rejected before a
+cloud command is sent. Existing unique IDs and device identifiers are unchanged.
 
 ## Development
 
-Minimum Home Assistant version for HACS metadata is `2025.4.0`.
+Minimum Home Assistant version is `2026.4.0`.
+
+This is a HACS custom integration and therefore cannot claim an official Home Assistant quality tier. [`quality_scale.yaml`](custom_components/aux_cloud/quality_scale.yaml) tracks technical alignment with the cumulative rules. Coverage above 95% and fully strict typing remain explicitly open before the file can represent complete Platinum alignment.
 
 Current architecture:
 
@@ -184,7 +224,7 @@ Current architecture:
   - `profiles.py` product capabilities and product-specific command/bootstrap rules.
   - `normalizers.py` product-specific parameter normalization.
 - `custom_components/aux_cloud/coordinator.py`
-  - Home Assistant coordinator lifecycle, websocket runner ownership, degraded polling, pushed-update merges, and Repairs issue reporting.
+  - Typed config-entry runtime data, websocket runner ownership, dynamic inventory, stale-device reconciliation, degraded polling, and serialized command transactions.
 
 ## Testing
 
@@ -250,6 +290,9 @@ The project uses [Black](https://pypi.org/project/black/) for code formatting. T
 
 ```bash
 black custom_components/aux_cloud
+
+ruff check custom_components/aux_cloud tests
+mypy custom_components/aux_cloud
 ```
 
 ## Privacy

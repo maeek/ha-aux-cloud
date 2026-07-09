@@ -5,13 +5,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 import contextlib
-from enum import Enum
 import inspect
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
+from enum import Enum
 from urllib.parse import urlparse
 
 import aiohttp
@@ -138,7 +138,9 @@ class AuxCloudWebSocket:
                 except Exception as exc:  # pylint: disable=broad-except
                     if self._closed:
                         break
-                    _LOGGER.debug("AUX Cloud websocket runner reconnecting: %s", exc)
+                    _LOGGER.debug(
+                        "AUX Cloud websocket reconnecting (%s)", type(exc).__name__
+                    )
                     await self._close_socket()
                     await self._emit_state(
                         AuxWebSocketState.DEGRADED, on_connection_state
@@ -278,7 +280,9 @@ class AuxCloudWebSocket:
 
         url = websocket_connect_url(self.websocket_url)
         self.websocket = await self._session.ws_connect(
-            url, headers=self.headers, ssl=False
+            url,
+            headers=self.headers,
+            timeout=CONNECT_TIMEOUT,
         )
         _LOGGER.debug("AUX Cloud websocket connection established")
 
@@ -394,7 +398,7 @@ class AuxCloudWebSocket:
         try:
             data = json.loads(raw_data)
         except json.JSONDecodeError:
-            _LOGGER.debug("Ignoring non-JSON websocket message: %s", raw_data)
+            _LOGGER.debug("Ignoring non-JSON AUX websocket message")
             return {}
 
         message_id = str(data.get("messageid", ""))
@@ -407,7 +411,7 @@ class AuxCloudWebSocket:
         if msgtype in {"initk", "pingk"}:
             return data
 
-        _LOGGER.debug("AUX Cloud websocket message received: %s", raw_data)
+        _LOGGER.debug("AUX Cloud websocket message received (%s)", msgtype)
         if on_message is not None:
             await self._notify_listener(on_message, data)
         return data
@@ -419,7 +423,9 @@ class AuxCloudWebSocket:
             if inspect.isawaitable(result):
                 await result
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Error in AUX Cloud websocket listener: %s", exc)
+            _LOGGER.error(
+                "Error in AUX Cloud websocket listener (%s)", type(exc).__name__
+            )
 
     async def _send_raw(self, raw_data: str) -> None:
         """Send a raw websocket string."""
@@ -428,7 +434,7 @@ class AuxCloudWebSocket:
 
         async with self._send_lock:
             await self.websocket.send_str(raw_data)
-            _LOGGER.debug("AUX Cloud websocket sent: %s", raw_data)
+            _LOGGER.debug("AUX Cloud websocket message sent")
 
     async def _refresh_auth(self) -> None:
         """Refresh login/session data before reconnecting."""
@@ -480,9 +486,7 @@ class AuxCloudWebSocket:
             raise ConnectionError("AUX Cloud websocket subscription failed") from exc
 
         if not cls._is_success_status(response.get("status")):
-            raise ConnectionError(
-                f"AUX Cloud websocket subscription failed: {response}"
-            )
+            raise ConnectionError("AUX Cloud websocket subscription failed")
 
         failed_devices = []
         for item in (response.get("data") or {}).get("devList", []) or []:
@@ -496,10 +500,8 @@ class AuxCloudWebSocket:
                 failed_devices.append(item.get("endpointId") or item.get("did"))
 
         if failed_devices:
-            failed = ", ".join(str(device) for device in failed_devices if device)
             raise ConnectionError(
-                "AUX Cloud websocket subscription failed"
-                f" for {failed or 'one or more devices'}: {response}"
+                "AUX Cloud websocket subscription failed for a device"
             )
 
     def _next_message_id(self) -> str:

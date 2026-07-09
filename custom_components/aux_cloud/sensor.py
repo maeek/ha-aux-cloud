@@ -2,26 +2,40 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .devices.profiles import (
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
     AUX_ERROR_FLAG,
-    AuxProducts,
+    HP_HEATER_TEMPERATURE_TARGET,
     HP_HOT_WATER_TANK_TEMPERATURE,
     HP_HOT_WATER_TEMPERATURE_TARGET,
-    HP_HEATER_TEMPERATURE_TARGET,
+    AuxProducts,
 )
-from .const import DOMAIN, _LOGGER
-from .util import BaseEntity
+from .util import BaseEntity, setup_dynamic_entities
 
-SENSORS: dict[str, dict[str, any]] = {
+PARALLEL_UPDATES = 0
+
+
+def _scaled_param(device: dict[str, Any], key: str, divisor: int = 10):
+    """Return a scaled parameter or None when the cloud omitted it."""
+    value = device.get("params", {}).get(key)
+    return value / divisor if value is not None else None
+
+
+SENSORS: dict[str, dict[str, Any]] = {
     AC_TEMPERATURE_AMBIENT: {
         "type": "temperature",
         "param": AC_TEMPERATURE_AMBIENT,
@@ -30,10 +44,11 @@ SENSORS: dict[str, dict[str, any]] = {
             name="Ambient Temperature",
             icon="mdi:thermometer",
             translation_key="ambient_temperature",
-            device_class="temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
-        "get_fn": lambda d: d.get("params", {}).get(AC_TEMPERATURE_AMBIENT, 0) / 10,
+        "get_fn": lambda d: _scaled_param(d, AC_TEMPERATURE_AMBIENT),
     },
     HP_HOT_WATER_TANK_TEMPERATURE: {
         "type": "temperature",
@@ -43,13 +58,14 @@ SENSORS: dict[str, dict[str, any]] = {
             name="Water Tank Temperature",
             icon="mdi:thermometer-water",
             translation_key="water_tank_temperature",
-            device_class="temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
-        "get_fn": lambda d: (
-            d.get("params", {}).get(HP_HOT_WATER_TANK_TEMPERATURE, 0) / 10
-            if AuxProducts.is_v3_heat_pump(d)
-            else d.get("params", {}).get(HP_HOT_WATER_TANK_TEMPERATURE, 0)
+        "get_fn": lambda d: _scaled_param(
+            d,
+            HP_HOT_WATER_TANK_TEMPERATURE,
+            10 if AuxProducts.is_v3_heat_pump(d) else 1,
         ),
     },
     HP_HOT_WATER_TEMPERATURE_TARGET: {
@@ -60,11 +76,12 @@ SENSORS: dict[str, dict[str, any]] = {
             name="Hot Water Temperature",
             icon="mdi:thermometer-water",
             translation_key="hot_water_temperature",
-            device_class="temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
-        "get_fn": lambda d: d.get("params", {}).get(HP_HOT_WATER_TEMPERATURE_TARGET, 0)
-        / 10,
+        "get_fn": lambda d: _scaled_param(d, HP_HOT_WATER_TEMPERATURE_TARGET),
     },
     AC_TEMPERATURE_TARGET: {
         "type": "temperature",
@@ -74,10 +91,12 @@ SENSORS: dict[str, dict[str, any]] = {
             name="AC Target Temperature",
             icon="mdi:home-thermometer",
             translation_key="ac_temperature",
-            device_class="temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
-        "get_fn": lambda d: d.get("params", {}).get(AC_TEMPERATURE_TARGET, 0) / 10,
+        "get_fn": lambda d: _scaled_param(d, AC_TEMPERATURE_TARGET),
     },
     HP_HEATER_TEMPERATURE_TARGET: {
         "type": "temperature",
@@ -87,11 +106,12 @@ SENSORS: dict[str, dict[str, any]] = {
             name="HP Target Temperature",
             icon="mdi:home-thermometer",
             translation_key="ac_temperature",
-            device_class="temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            state_class=SensorStateClass.MEASUREMENT,
+            entity_registry_enabled_default=False,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         ),
-        "get_fn": lambda d: d.get("params", {}).get(HP_HEATER_TEMPERATURE_TARGET, 0)
-        / 10,
+        "get_fn": lambda d: _scaled_param(d, HP_HEATER_TEMPERATURE_TARGET),
     },
     AUX_ERROR_FLAG: {
         "type": "diagnostic",
@@ -101,7 +121,8 @@ SENSORS: dict[str, dict[str, any]] = {
             name="Error Flag",
             icon="mdi:alert-circle",
             translation_key="err_flag",
-            device_class="diagnostic",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         ),
         "get_fn": lambda d: d.get("params", {}).get(AUX_ERROR_FLAG, None),
     },
@@ -114,13 +135,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up AUX Cloud sensors."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
 
-    entities = []
-
-    _LOGGER.debug("Setting up AUX Cloud sensors %s", coordinator.data["devices"])
-    for device in coordinator.data["devices"]:
+    def entities_for_device(device):
+        entities = []
         supported_params = AuxProducts.get_params_list(device["productId"])
         supported_special_params = AuxProducts.get_special_params_list(
             device["productId"]
@@ -141,23 +159,19 @@ async def async_setup_entry(
                     entity["get_fn"],
                 )
                 entities.append(sensor)
-                _LOGGER.debug(
-                    "Adding sensor entity for %s with unique_id %s",
-                    device["friendlyName"],
-                    sensor.unique_id,
-                )
 
-    async_add_entities(entities, True)
+        return entities
+
+    setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-class AuxCloudSensor(BaseEntity, CoordinatorEntity, SensorEntity):
+class AuxCloudSensor(BaseEntity, SensorEntity):
     """Representation of an AUX Cloud temperature sensor."""
 
     def __init__(self, coordinator, device_id, entity_description, get_value_fn):
         """Initialize the sensor."""
         super().__init__(coordinator, device_id, entity_description)
         self._get_value_fn = get_value_fn
-        self.entity_id = f"sensor.{self._attr_unique_id}"
 
     @property
     def native_value(self):

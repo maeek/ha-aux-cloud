@@ -6,10 +6,17 @@ import asyncio
 import logging
 import time
 
+from ..const import DEVICE_QUERY_CONCURRENCY
 from ..devices.normalizers import normalize_device_params
-from ..devices.profiles import initial_param_queries
+from ..devices.profiles import (
+    AUX_PROTOCOL_VERSION,
+    AUX_QUERY_FAILURES,
+    fallback_param_queries,
+    initial_param_queries,
+    set_protocol_version,
+)
 from .control import AuxCloudControlService
-from .errors import AuxDeviceError
+from .errors import AuxApiError, AuxDeviceError
 from .protocol.common import build_directive_header
 from .session import AuxCloudSession
 
@@ -26,6 +33,8 @@ class AuxCloudRepository:
         self._session = session
         self._control = control
         self.families: dict | None = None
+        self._query_semaphore = asyncio.Semaphore(DEVICE_QUERY_CONCURRENCY)
+        self._protocol_versions: dict[str, int] = {}
 
     async def get_families(self):
         """List families associated with the user."""
@@ -34,36 +43,35 @@ class AuxCloudRepository:
             method="POST",
             endpoint="appsync/group/member/getfamilylist",
             headers=self._session.get_headers(),
-            ssl=False,
         )
-        _LOGGER.debug("Families response: %s", json_data)
-
-        if self.families is None:
-            self.families = {}
+        _LOGGER.debug("AUX Cloud family query completed")
 
         if "status" in json_data and json_data["status"] == 0:
+            families = {}
             for family in json_data["data"]["familyList"]:
-                self.families[family["familyid"]] = {
+                families[family["familyid"]] = {
                     "id": family["familyid"],
                     "name": family["name"],
                     "rooms": [],
                     "devices": [],
                 }
+            self.families = families
             return json_data["data"]["familyList"]
 
         raise ValueError(f"Failed to get families list: {json_data}")
 
     async def get_rooms(self, familyid: str):
         """List rooms associated with a family."""
-        _LOGGER.debug("Getting rooms list for family %s", familyid)
+        _LOGGER.debug("Getting AUX Cloud rooms")
         json_data = await self._session.make_request(
             method="POST",
             endpoint="appsync/group/room/query",
             headers=self._session.get_headers(familyid=familyid),
-            ssl=False,
         )
 
         if "status" in json_data and json_data["status"] == 0:
+            if self.families is None:
+                self.families = {}
             for room in json_data["data"]["roomList"]:
                 self.families[room["familyid"]]["rooms"].append(
                     {"id": room["roomid"], "name": room["name"]}
@@ -77,7 +85,6 @@ class AuxCloudRepository:
         self,
         familyid: str,
         shared=False,
-        selected_devices: list[str] = None,
     ):
         """List devices associated with a family."""
         device_endpoint = (
@@ -90,16 +97,12 @@ class AuxCloudRepository:
             endpoint=f"appsync/group/{device_endpoint}",
             data_raw='{"pids":[]}' if not shared else '{"endpointId":""}',
             headers=self._session.get_headers(familyid=familyid),
-            ssl=False,
         )
 
         if "status" not in json_data or json_data["status"] != 0:
             raise ValueError(f"Failed to query devices: {json_data}")
 
         devices = _extract_devices(json_data)
-        if selected_devices is not None:
-            devices = [dev for dev in devices if dev["endpointId"] in selected_devices]
-
         for dev in devices:
             dev.setdefault("familyId", familyid)
 
@@ -114,6 +117,9 @@ class AuxCloudRepository:
         param_tasks = []
 
         for dev in devices:
+            endpoint_id = dev.get("endpointId")
+            if endpoint_id in self._protocol_versions:
+                dev[AUX_PROTOCOL_VERSION] = self._protocol_versions[endpoint_id]
             dev["state"] = next(
                 (
                     dev_state["state"]
@@ -125,23 +131,21 @@ class AuxCloudRepository:
             dev["params"] = {}
 
             _LOGGER.debug(
-                "Device %s is %s - %s",
-                dev["endpointId"],
+                "AUX device is %s",
                 "online" if dev["state"] == 1 else "offline",
-                dev,
             )
             if dev["state"] != 1:
                 _LOGGER.debug(
-                    "Skipping initial parameter query for offline AUX device %s",
-                    dev["endpointId"],
+                    "Skipping initial parameter query for an offline AUX device",
                 )
                 continue
 
+            query_batches = initial_param_queries(dev)
             query_tasks = [
-                asyncio.create_task(self._control.get_device_params(dev, params=query))
-                for query in initial_param_queries(dev)
+                asyncio.create_task(self._bounded_get_device_params(dev, query))
+                for query in query_batches
             ]
-            param_tasks.append((dev, query_tasks))
+            param_tasks.append((dev, query_tasks, query_batches))
 
         if not param_tasks:
             return
@@ -149,42 +153,79 @@ class AuxCloudRepository:
         results = await asyncio.gather(
             *[
                 asyncio.gather(*query_tasks, return_exceptions=True)
-                for _, query_tasks in param_tasks
+                for _, query_tasks, _ in param_tasks
             ],
             return_exceptions=True,
         )
 
-        for index, (dev, _) in enumerate(param_tasks):
+        for index, (dev, _, query_batches) in enumerate(param_tasks):
             query_results = results[index]
             if isinstance(query_results, BaseException) or not query_results:
                 _LOGGER.error(
-                    "Error fetching device params for %s: %s",
-                    dev["endpointId"],
-                    query_results,
+                    "AUX device bootstrap failed (%s)",
+                    type(query_results).__name__,
                 )
                 continue
 
             merged_params = {}
+            query_failures = []
             for query_index, params in enumerate(query_results):
                 if isinstance(params, BaseException):
                     _log_param_query_error(dev, query_index, params)
+                    query_failures.append(
+                        _query_failure(query_batches[query_index], params)
+                    )
                     continue
                 if params is None:
                     _LOGGER.error(
-                        "Error fetching %s device params for %s: empty response",
+                        "Empty %s AUX device parameter response",
                         _param_query_label(query_index),
-                        dev["endpointId"],
                     )
                     continue
                 if params:
                     merged_params.update(params)
 
+            primary_result = query_results[0]
+            fallback_queries = fallback_param_queries(dev)
+            if (
+                fallback_queries
+                and isinstance(primary_result, AuxApiError)
+                and primary_result.code == -49025
+            ):
+                _LOGGER.debug("Retrying AUX heat-pump bootstrap with versioned queries")
+                fallback_results = await asyncio.gather(
+                    *[
+                        self._bounded_get_device_params(dev, query)
+                        for query in fallback_queries
+                    ],
+                    return_exceptions=True,
+                )
+                for query, params in zip(
+                    fallback_queries, fallback_results, strict=True
+                ):
+                    if isinstance(params, BaseException):
+                        query_failures.append(_query_failure(query, params))
+                    elif params:
+                        merged_params.update(params)
+
             dev["params"] = merged_params
+            if query_failures:
+                dev[AUX_QUERY_FAILURES] = query_failures
+            else:
+                dev.pop(AUX_QUERY_FAILURES, None)
             if not merged_params:
                 continue
 
+            set_protocol_version(dev, merged_params.get("ver"))
+            if protocol_version := dev.get(AUX_PROTOCOL_VERSION):
+                self._protocol_versions[dev["endpointId"]] = protocol_version
             normalize_device_params(dev)
             dev["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    async def _bounded_get_device_params(self, device: dict, params: list[str]) -> dict:
+        """Query one parameter set without exceeding cloud concurrency limits."""
+        async with self._query_semaphore:
+            return await self._control.get_device_params(device, params=params)
 
     async def query_device_state(self, device_id: str, dev_session: str):
         """Query one device state."""
@@ -196,7 +237,7 @@ class AuxCloudRepository:
                     namespace="DNA.QueryState",
                     name="queryState",
                     messageType="controlgw.batch",
-                    message_id_prefix=self._session.userid,
+                    message_id_prefix=self._session.userid or "",
                     timstamp=f"{timestamp}",
                 ),
                 "payload": {"studata": queried_device, "msgtype": "batch"},
@@ -208,7 +249,6 @@ class AuxCloudRepository:
             endpoint="device/control/v2/querystate",
             data=data,
             headers=self._session.get_headers(),
-            ssl=False,
         )
 
         if (
@@ -233,7 +273,7 @@ class AuxCloudRepository:
                     namespace="DNA.QueryState",
                     name="queryState",
                     messageType="controlgw.batch",
-                    message_id_prefix=self._session.userid,
+                    message_id_prefix=self._session.userid or "",
                     timstamp=f"{timestamp}",
                 ),
                 "payload": {"studata": queried_devices, "msgtype": "batch"},
@@ -245,7 +285,6 @@ class AuxCloudRepository:
             endpoint="device/control/v2/querystate",
             data=data,
             headers=self._session.get_headers(),
-            ssl=False,
         )
 
         if (
@@ -278,9 +317,18 @@ def _log_param_query_error(
     error: BaseException,
 ) -> None:
     """Log bootstrap parameter query errors at an appropriate severity."""
-    log_message = "Error fetching %s device params for %s: %s"
-    log_args = (_param_query_label(query_index), device["endpointId"], error)
+    log_message = "Error fetching %s AUX device params (%s)"
+    log_args = (_param_query_label(query_index), type(error).__name__)
     if isinstance(error, AuxDeviceError):
         _LOGGER.debug(log_message, *log_args)
         return
     _LOGGER.error(log_message, *log_args)
+
+
+def _query_failure(query: list[str], error: BaseException) -> dict:
+    """Return a sanitized query failure for downloadable diagnostics."""
+    return {
+        "params": list(query),
+        "error_type": type(error).__name__,
+        "code": getattr(error, "code", None),
+    }

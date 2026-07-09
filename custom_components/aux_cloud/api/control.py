@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import logging
+from collections.abc import Callable
 from typing import Any
 
-from ..devices.profiles import prepare_command
-from .errors import raise_for_cloud_response
+from ..devices.profiles import invalid_command_parameter, prepare_command
+from .errors import (
+    AuxDeviceError,
+    AuxNetworkError,
+    AuxServerError,
+    raise_for_cloud_response,
+)
 from .protocol.common import build_device_params_directive, device_values_to_params
 from .protocol.websocket import extract_websocket_updates
 from .transports.http import AuxCloudHttpStrategy
@@ -85,6 +90,11 @@ class AuxCloudControlService:
 
     async def set_device_params(self, device: dict, values: dict[str, Any]) -> dict:
         """Set device parameters, preferring websocket and falling back to HTTP."""
+        if invalid_param := invalid_command_parameter(device, values):
+            raise AuxDeviceError(
+                f"AUX product does not support setting {invalid_param}",
+                endpoint="device/control/v2/sdkcontrol",
+            )
         params, vals = device_values_to_params(values)
         params, vals = prepare_command(device, "set", params, vals)
 
@@ -94,11 +104,10 @@ class AuxCloudControlService:
                     device, "set", params, vals
                 )
                 return response or values
-        except Exception as exc:  # pylint: disable=broad-except
+        except (ConnectionError, TimeoutError, AuxNetworkError, AuxServerError) as exc:
             _LOGGER.warning(
-                "AUX Cloud websocket command failed for %s, falling back to HTTP: %s",
-                device.get("endpointId"),
-                exc,
+                "AUX Cloud websocket command unavailable; falling back to HTTP (%s)",
+                type(exc).__name__,
             )
 
         response = await self.http_strategy.act_device_params(

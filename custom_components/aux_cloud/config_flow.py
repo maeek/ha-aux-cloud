@@ -1,16 +1,16 @@
-"""Config flow to configure Aux Cloud."""
+"""Config flow for AUX Cloud."""
 
-import base64
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, OptionsFlow
+from homeassistant.config_entries import ConfigEntry, ConfigFlow
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
-from homeassistant.core import callback
+from homeassistant.data_entry_flow import AbortFlow
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.device_registry import async_get as async_get_device_registry
-from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
 from .api import (
     AuxApiError,
@@ -20,80 +20,29 @@ from .api import (
     config_flow_error_key,
 )
 from .const import (
-    CONF_CREDENTIAL_TYPE,
+    CONF_ACCOUNT_ID,
     CONF_FAMILIES,
     CONF_PHONE_NUMBER,
     CONF_SELECTED_DEVICES,
-    CREDENTIAL_TYPE_EMAIL,
-    CREDENTIAL_TYPE_PHONE,
-    DATA_AUX_CLOUD_CONFIG,
     DOMAIN,
 )
 from .util import (
     account_unique_id_from_credentials,
+    account_unique_id_from_user_id,
     deduplicate_devices_by_endpoint_id,
-    deduplicate_ordered_values,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigFlowResult
 
 _LOGGER = logging.getLogger(__name__)
 
-
-async def _async_fetch_family_devices(
-    aux_cloud: AuxCloudAPI, family_id: str
-) -> tuple[list[dict], list[AuxApiError], int]:
-    """Fetch personal and shared devices for one family, preserving partial success."""
-    devices = []
-    query_errors = []
-    successful_queries = 0
-
-    for shared in (False, True):
-        query_label = "shared" if shared else "personal"
-        try:
-            query_devices = await aux_cloud.get_devices(family_id, shared=shared) or []
-            _LOGGER.debug(
-                "Family %s: Found %d %s devices",
-                family_id,
-                len(query_devices),
-                query_label,
-            )
-            devices.extend(query_devices)
-            successful_queries += 1
-        except (AuxAuthError, AuxSessionExpired):
-            raise
-        except AuxApiError as err:
-            query_errors.append(err)
-            _LOGGER.warning(
-                "Failed to fetch %s devices for family %s: %s",
-                query_label,
-                family_id,
-                err,
-            )
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOGGER.warning(
-                "Failed to fetch %s devices for family %s: %s",
-                query_label,
-                family_id,
-                err,
-            )
-
-    return (
-        deduplicate_devices_by_endpoint_id(devices),
-        query_errors,
-        successful_queries,
-    )
-
-
-def _preferred_device_discovery_error(errors: list[AuxApiError]) -> AuxApiError:
-    """Return the most useful cloud error for failed device discovery."""
-    return errors[0]
-
-
-def _device_options(devices: list[dict]) -> dict[str, str]:
-    """Return config-flow selection labels for discovered devices."""
-    return {
-        device["id"]: f"{device['name']} ({device['family_name']})"
-        for device in devices
-    }
+REGION_OPTIONS = [
+    "eu",
+    "usa",
+    "cn",
+    "rus",
+]
 
 
 def _normalize_phone_number(value: str) -> str:
@@ -101,551 +50,288 @@ def _normalize_phone_number(value: str) -> str:
     return "".join(character for character in value if character.isdigit())
 
 
-# pylint: disable=abstract-method
-class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for AUX Cloud."""
+def _clean_entry_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Remove obsolete device-selection data without touching credentials."""
+    return {
+        key: value
+        for key, value in data.items()
+        if key not in {CONF_FAMILIES, CONF_SELECTED_DEVICES}
+    }
 
-    VERSION = 1
+
+async def _async_fetch_family_devices(
+    api: AuxCloudAPI, family_id: str
+) -> tuple[list[dict[str, Any]], list[AuxApiError], int]:
+    """Compatibility helper for callers that need partial family discovery."""
+    devices: list[dict[str, Any]] = []
+    errors: list[AuxApiError] = []
+    successful_queries = 0
+    for shared in (False, True):
+        try:
+            devices.extend(await api.get_devices(family_id, shared=shared) or [])
+            successful_queries += 1
+        except (AuxAuthError, AuxSessionExpired):
+            raise
+        except AuxApiError as err:
+            errors.append(err)
+    return deduplicate_devices_by_endpoint_id(devices), errors, successful_queries
+
+
+class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+    """Handle an AUX Cloud config flow."""
+
+    VERSION = 2
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
-        """Initialize the AUX Cloud flow."""
-        self._aux_cloud = None
-        self._email = None
-        self._phone_number = None
-        self._password = None
-        self._region = "eu"
-        self._families = {}
-        self._available_devices = []
+        """Initialize flow state."""
+        self._target_entry: ConfigEntry | None = None
+        self._mode = "create"
 
-    async def async_step_user(self, user_input=None):
-        """Handle a flow initiated by the user."""
-        if self._async_current_entries():
-            # Config entry already exists, only one allowed.
-            return self.async_abort(reason="single_instance_allowed")
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Offer email first while retaining phone login."""
+        return self.async_show_menu(step_id="user", menu_options=["email", "phone"])
 
-        errors = {}
+    async def async_step_email(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure an account using an email address."""
+        return await self._async_account_step("email", user_input)
 
-        if user_input is not None:
-            credential_type = user_input[CONF_CREDENTIAL_TYPE]
-            if credential_type == CREDENTIAL_TYPE_PHONE:
-                self._email = None
-                self._region = user_input[CONF_REGION]
-                self._phone_number = _normalize_phone_number(
-                    user_input.get(CONF_PHONE_NUMBER, "")
+    async def async_step_phone(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure an account using a phone number."""
+        return await self._async_account_step("phone", user_input)
+
+    async def async_step_import(self, import_info: dict[str, Any]) -> ConfigFlowResult:
+        """Import legacy configuration.yaml credentials."""
+        if not import_info.get(CONF_EMAIL) or not import_info.get(CONF_PASSWORD):
+            return self.async_abort(reason="missing_credentials")
+        return await self._async_validate_and_finish(
+            "email",
+            {
+                CONF_EMAIL: import_info[CONF_EMAIL],
+                CONF_PASSWORD: import_info[CONF_PASSWORD],
+                CONF_REGION: import_info.get(CONF_REGION, "eu"),
+            },
+        )
+
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
+        """Start credential renewal for an existing entry."""
+        self._target_entry = self._entry_for_flow("reauth")
+        self._mode = "reauth"
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Validate replacement credentials and reload the entry."""
+        return await self._async_account_step(
+            self._target_credential_type(), user_input, step_id="reauth_confirm"
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Update region or credentials while retaining the same account."""
+        if self._target_entry is None:
+            self._target_entry = self._entry_for_flow("reconfigure")
+            self._mode = "reconfigure"
+        return await self._async_account_step(
+            self._target_credential_type(), user_input, step_id="reconfigure"
+        )
+
+    async def _async_account_step(
+        self,
+        credential_type: str,
+        user_input: dict[str, Any] | None,
+        *,
+        step_id: str | None = None,
+    ) -> ConfigFlowResult:
+        """Show and process one credential-specific form."""
+        step_id = step_id or credential_type
+        if user_input is None:
+            return self.async_show_form(
+                step_id=step_id,
+                data_schema=self._account_schema(credential_type),
+            )
+
+        normalized = dict(user_input)
+        if credential_type == "email":
+            normalized[CONF_EMAIL] = normalized[CONF_EMAIL].strip().lower()
+        else:
+            normalized[CONF_PHONE_NUMBER] = _normalize_phone_number(
+                normalized[CONF_PHONE_NUMBER]
+            )
+            if not normalized[CONF_PHONE_NUMBER]:
+                return self.async_show_form(
+                    step_id=step_id,
+                    data_schema=self._account_schema(credential_type, normalized),
+                    errors={"base": "phone_number_required"},
                 )
-                self._password = user_input[CONF_PASSWORD]
 
-                if not self._phone_number:
-                    errors["base"] = "phone_number_required"
-                else:
-                    return await self._async_login_and_fetch_devices(user_input)
-            else:
-                self._email = user_input.get(CONF_EMAIL, "").strip()
-                self._phone_number = None
-                self._password = user_input[CONF_PASSWORD]
-                self._region = user_input[CONF_REGION]
+        try:
+            return await self._async_validate_and_finish(credential_type, normalized)
+        except AuxApiError as err:
+            _LOGGER.warning(
+                "AUX Cloud credential validation failed (%s)", type(err).__name__
+            )
+            return self.async_show_form(
+                step_id=step_id,
+                data_schema=self._account_schema(credential_type, normalized),
+                errors={"base": config_flow_error_key(err)},
+            )
+        except AbortFlow:
+            raise
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected AUX Cloud credential validation failure")
+            return self.async_show_form(
+                step_id=step_id,
+                data_schema=self._account_schema(credential_type, normalized),
+                errors={"base": "unknown"},
+            )
 
-                if not self._email:
-                    errors["base"] = "email_required"
-                else:
-                    return await self._async_login_and_fetch_devices(user_input)
+    async def _async_validate_and_finish(
+        self, credential_type: str, user_input: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Authenticate, enforce account identity, and create/update the entry."""
+        region = user_input.get(CONF_REGION, "eu")
+        api = AuxCloudAPI(
+            region=region,
+            session=async_get_clientsession(self.hass),
+        )
+        if credential_type == "phone":
+            await api.login(
+                password=user_input[CONF_PASSWORD],
+                phone_number=user_input[CONF_PHONE_NUMBER],
+            )
+        else:
+            await api.login(user_input[CONF_EMAIL], user_input[CONF_PASSWORD])
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=self._login_schema(user_input),
-            errors=errors,
+        account_id = (
+            account_unique_id_from_user_id(region, api.userid)
+            if api.userid
+            else account_unique_id_from_credentials(
+                region,
+                email=user_input.get(CONF_EMAIL),
+                phone_number=user_input.get(CONF_PHONE_NUMBER),
+            )
+        )
+        if account_id is None:
+            return self.async_abort(reason="unknown")
+
+        data = _clean_entry_data(user_input)
+        data[CONF_ACCOUNT_ID] = account_id
+
+        if self._target_entry is None:
+            await self.async_set_unique_id(account_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=_entry_title(data),
+                data=data,
+            )
+
+        if not self._same_target_account(account_id, data):
+            return self.async_abort(reason="wrong_account")
+
+        # Deliberately preserve existing config-entry unique IDs. Older versions
+        # used credential-derived IDs and changing them provides no user benefit.
+        return self.async_update_reload_and_abort(
+            self._target_entry,
+            title=_entry_title(data),
+            data=data,
+            reason=(
+                "reauth_successful"
+                if self._mode == "reauth"
+                else "reconfigure_successful"
+            ),
         )
 
-    def _login_schema(self, user_input=None) -> vol.Schema:
-        """Return the combined email/phone login form schema."""
-        stored_config = self._stored_config()
-        defaults = {**stored_config, **(user_input or {})}
-        default_credential_type = defaults.get(
-            CONF_CREDENTIAL_TYPE,
-            CREDENTIAL_TYPE_PHONE
-            if defaults.get(CONF_PHONE_NUMBER)
-            else CREDENTIAL_TYPE_EMAIL,
-        )
-        default_region = defaults.get(
-            CONF_REGION,
-            "cn" if default_credential_type == CREDENTIAL_TYPE_PHONE else "eu",
-        )
+    def _same_target_account(self, account_id: str, new_data: dict[str, Any]) -> bool:
+        """Return whether validated credentials belong to the configured account."""
+        if self._target_entry is None:
+            return True
+        stored_account_id = self._target_entry.data.get(CONF_ACCOUNT_ID)
+        if stored_account_id:
+            return stored_account_id == account_id
 
+        old_data = self._target_entry.data
+        if old_data.get(CONF_REGION, "eu") != new_data.get(CONF_REGION, "eu"):
+            return False
+        if old_data.get(CONF_EMAIL):
+            return old_data[CONF_EMAIL].strip().lower() == new_data.get(CONF_EMAIL)
+        return _normalize_phone_number(
+            old_data.get(CONF_PHONE_NUMBER, "")
+        ) == new_data.get(CONF_PHONE_NUMBER)
+
+    def _target_credential_type(self) -> str:
+        """Return the credential type used by the target entry."""
+        if self._target_entry and self._target_entry.data.get(CONF_PHONE_NUMBER):
+            return "phone"
+        return "email"
+
+    def _entry_for_flow(self, flow_type: str) -> ConfigEntry:
+        """Return the target entry using current or legacy HA flow helpers."""
+        helper = getattr(self, f"_get_{flow_type}_entry", None)
+        if helper is not None:
+            return helper()
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            raise ValueError("AUX Cloud config entry no longer exists")
+        return entry
+
+    def _account_schema(
+        self,
+        credential_type: str,
+        submitted: dict[str, Any] | None = None,
+    ) -> vol.Schema:
+        """Return an email- or phone-specific schema with EU as default."""
+        defaults = dict(self._target_entry.data) if self._target_entry else {}
+        defaults.update(submitted or {})
+        credential_key = CONF_PHONE_NUMBER if credential_type == "phone" else CONF_EMAIL
+        credential_default = defaults.get(credential_key, "")
         return vol.Schema(
             {
                 vol.Required(
-                    CONF_CREDENTIAL_TYPE,
-                    default=default_credential_type,
-                ): vol.In(
-                    {
-                        CREDENTIAL_TYPE_EMAIL: "Email",
-                        CREDENTIAL_TYPE_PHONE: "Phone number",
-                    }
+                    credential_key, default=credential_default
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=(
+                            selector.TextSelectorType.TEL
+                            if credential_type == "phone"
+                            else selector.TextSelectorType.EMAIL
+                        ),
+                        autocomplete=("tel" if credential_type == "phone" else "email"),
+                    )
                 ),
-                vol.Optional(CONF_EMAIL, default=defaults.get(CONF_EMAIL, "")): str,
-                vol.Optional(
-                    CONF_PHONE_NUMBER,
-                    default=defaults.get(CONF_PHONE_NUMBER, ""),
-                ): str,
+                vol.Required(CONF_PASSWORD): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD,
+                        autocomplete="current-password",
+                    )
+                ),
                 vol.Required(
-                    CONF_PASSWORD,
-                    default=defaults.get(CONF_PASSWORD, ""),
-                ): str,
-                vol.Required(CONF_REGION, default=default_region): vol.In(
-                    ["eu", "usa", "cn", "rus"]
+                    CONF_REGION, default=defaults.get(CONF_REGION, "eu")
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=REGION_OPTIONS,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="region",
+                    )
                 ),
             }
         )
 
-    def _stored_config(self) -> dict:
-        """Return imported YAML defaults if available."""
-        if DATA_AUX_CLOUD_CONFIG in self.hass.data:
-            return self.hass.data[DATA_AUX_CLOUD_CONFIG]
-        return {}
 
-    async def _async_login_and_fetch_devices(self, user_input: dict):
-        """Login and fetch devices, returning config-flow errors on failure."""
-        await self._async_set_account_unique_id()
-
-        try:
-            await self._async_login()
-            return await self.async_step_fetch_devices()
-        except AuxApiError as ex:
-            _LOGGER.warning("AUX Cloud login failed: %s", ex)
-            return self.async_show_form(
-                step_id="user",
-                data_schema=self._login_schema(user_input),
-                errors={"base": config_flow_error_key(ex)},
-            )
-        except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected AUX Cloud login failure: %s", ex)
-            return self.async_show_form(
-                step_id="user",
-                data_schema=self._login_schema(user_input),
-                errors={"base": "unknown"},
-            )
-
-    async def _async_set_account_unique_id(self) -> None:
-        """Set and validate the account-level unique ID for this flow."""
-        account_unique_id = account_unique_id_from_credentials(
-            self._region,
-            email=self._email,
-            phone_number=self._phone_number,
-        )
-        if account_unique_id is None:
-            return
-
-        await self.async_set_unique_id(account_unique_id)
-        self._abort_if_unique_id_configured()
-
-    async def _async_login(self) -> None:
-        """Login using the configured email or phone credentials."""
-        self._aux_cloud = AuxCloudAPI(
-            region=self._region,
-            session=async_get_clientsession(self.hass),
-        )
-        if self._phone_number:
-            await self._aux_cloud.login(
-                password=self._password,
-                phone_number=self._phone_number,
-            )
-            return
-
-        await self._aux_cloud.login(self._email, self._password)
-
-    async def async_step_fetch_devices(self):
-        """Fetch all families and devices."""
-        if self._aux_cloud is None:
-            return self.async_abort(reason="login_required")
-
-        try:
-            # Fetch all families
-            families = await self._aux_cloud.get_families()
-            _LOGGER.debug("Fetched %d families", len(families))
-
-            # Log each family
-            for family in families:
-                _LOGGER.debug(
-                    "Family: ID=%s, Name=%s", family["familyid"], family["name"]
-                )
-
-            # Process families and fetch devices for each family
-            self._families = {}
-            self._available_devices = []
-            seen_device_ids = set()
-            device_query_errors = []
-            successful_device_queries = 0
-
-            for family in families:
-                family_id = family["familyid"]
-                family_name = family["name"]
-
-                # Decode base64 name if needed
-                if "_" in family_name:
-                    # Assume format is "<base64 encoded name>_<timestamp>"
-                    try:
-                        name_part = family_name.split("_")[0]
-                        decoded_name = base64.b64decode(name_part).decode("utf-8")
-                        family_name = decoded_name
-                        _LOGGER.debug(
-                            "Decoded family name from %s to %s",
-                            family["name"],
-                            family_name,
-                        )
-                    except Exception as e:
-                        _LOGGER.warning("Failed to decode family name: %s", e)
-                        # If decoding fails, use the original name
-
-                # Store family info
-                self._families[family_id] = {"name": family_name, "devices": []}
-
-                family_devices, query_errors, successful_queries = (
-                    await _async_fetch_family_devices(self._aux_cloud, family_id)
-                )
-                device_query_errors.extend(query_errors)
-                successful_device_queries += successful_queries
-
-                for device in family_devices:
-                    device_id = device["endpointId"]
-                    if device_id in seen_device_ids:
-                        _LOGGER.debug("Skipping duplicate AUX Cloud device discovery")
-                        continue
-                    seen_device_ids.add(device_id)
-
-                    device_name = device["friendlyName"]
-
-                    # Log each device's details
-                    _LOGGER.debug(
-                        "Device: ID=%s, Name=%s, Family=%s, ProductID=%s",
-                        device_id,
-                        device_name,
-                        family_name,
-                        device.get("productId", "Unknown"),
-                    )
-
-                    if "params" in device:
-                        _LOGGER.debug(
-                            "Device %s params: %s", device_id, device.get("params", {})
-                        )
-
-                    device_info = {
-                        "id": device_id,
-                        "name": device_name,
-                        "family_id": family_id,
-                        "family_name": family_name,
-                        "mac": device["mac"],
-                        "product_id": device["productId"],
-                        "room_id": device.get("roomId", ""),
-                    }
-
-                    self._families[family_id]["devices"].append(device_info)
-                    self._available_devices.append(device_info)
-
-            # If no devices were found, display an error
-            if not self._available_devices:
-                if successful_device_queries == 0 and device_query_errors:
-                    error = _preferred_device_discovery_error(device_query_errors)
-                    _LOGGER.warning("All AUX Cloud device queries failed: %s", error)
-                    return self.async_abort(reason=config_flow_error_key(error))
-                _LOGGER.error("No devices found in any family")
-                return self.async_abort(reason="no_devices_found")
-
-            _LOGGER.debug(
-                "Successfully processed %d devices across %d families",
-                len(self._available_devices),
-                len(self._families),
-            )
-
-            return self._create_entry_with_devices()
-
-        except AuxApiError as ex:
-            _LOGGER.warning("AUX Cloud fetch devices failed: %s", ex)
-            return self.async_abort(reason=config_flow_error_key(ex))
-        except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.exception("Error fetching devices: %s", ex)
-            # Always return a flow result, never None
-            return self.async_abort(reason="fetch_devices_failed")
-
-    def _create_entry_with_devices(self):
-        """Create the config entry with all discovered devices selected."""
-        selected_device_ids = deduplicate_ordered_values(
-            device["id"] for device in self._available_devices
-        )
-        config = {
-            CONF_PASSWORD: self._password,
-            CONF_REGION: self._region,
-            CONF_SELECTED_DEVICES: selected_device_ids,
-            CONF_FAMILIES: self._families,
-        }
-
-        if self._phone_number:
-            config[CONF_PHONE_NUMBER] = self._phone_number
-        else:
-            config[CONF_EMAIL] = self._email
-
-        return self.async_create_entry(
-            title="AUX Cloud",
-            data=config,
-        )
-
-    async def async_step_import(self, import_info):
-        """Import a config entry from configuration.yaml."""
-        # Check if we already have a config entry
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
-
-        # Process the import_info
-        if import_info and CONF_EMAIL in import_info and CONF_PASSWORD in import_info:
-            self._email = import_info[CONF_EMAIL]
-            self._password = import_info[CONF_PASSWORD]
-            self._region = import_info.get(CONF_REGION, "eu")
-            await self._async_set_account_unique_id()
-
-            # Show a message in logs recommending UI configuration
-            _LOGGER.info(
-                "AUX Cloud configured via configuration.yaml. For better security, "
-                "it is recommended to configure this integration through the UI where "
-                "credentials are stored encrypted."
-            )
-
-            # Create a config entry directly from the imported data
-            # For imports, we'll fetch and include all devices
-            try:
-                self._aux_cloud = AuxCloudAPI(
-                    region=self._region, session=async_get_clientsession(self.hass)
-                )
-                await self._aux_cloud.login(self._email, self._password)
-
-                # Fetch all families and devices
-                families = await self._aux_cloud.get_families()
-
-                all_devices = []
-                device_query_errors = []
-                successful_device_queries = 0
-                for family in families:
-                    family_id = family["familyid"]
-                    family_devices, query_errors, successful_queries = (
-                        await _async_fetch_family_devices(self._aux_cloud, family_id)
-                    )
-                    device_query_errors.extend(query_errors)
-                    successful_device_queries += successful_queries
-                    all_devices.extend(family_devices)
-
-                all_devices = deduplicate_devices_by_endpoint_id(all_devices)
-
-                if (
-                    not all_devices
-                    and successful_device_queries == 0
-                    and device_query_errors
-                ):
-                    raise _preferred_device_discovery_error(device_query_errors)
-
-                # Extract device IDs
-                device_ids = deduplicate_ordered_values(
-                    device["endpointId"] for device in all_devices
-                )
-
-                config = {
-                    CONF_EMAIL: self._email,
-                    CONF_PASSWORD: self._password,
-                    CONF_REGION: self._region,
-                    CONF_SELECTED_DEVICES: device_ids,
-                }
-
-                return self.async_create_entry(
-                    title="AUX Cloud", data=config
-                )
-
-            except AuxApiError as ex:
-                _LOGGER.warning("AUX Cloud import failed: %s", ex)
-                return self.async_abort(reason=config_flow_error_key(ex))
-            except Exception as ex:  # pylint: disable=broad-except
-                _LOGGER.exception("Import failed: %s", ex)
-                return self.async_abort(reason="unknown")
-
-        # If import data is incomplete, show the form
-        return await self.async_step_user()
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry):
-        """Get the options flow for this handler."""
-        return AuxCloudOptionsFlowHandler()
-
-
-class AuxCloudOptionsFlowHandler(OptionsFlow):
-    """Handle options flow for AUX Cloud."""
-
-    def __init__(self):
-        """Initialize options flow."""
-        self._aux_cloud = None
-        self._available_devices = []
-        self._families = {}
-
-    async def async_step_init(self, user_input=None):
-        """Handle options flow."""
-        if user_input is not None:
-            try:
-                # Update the config entry with new selected devices
-                selected_device_ids = user_input.get(CONF_SELECTED_DEVICES, [])
-
-                # Convert to list if it's a single value
-                if not isinstance(selected_device_ids, list):
-                    selected_device_ids = [selected_device_ids]
-                selected_device_ids = deduplicate_ordered_values(selected_device_ids)
-
-                # Get previously selected devices
-                previous_device_ids = self.config_entry.data.get(
-                    CONF_SELECTED_DEVICES, []
-                )
-
-                # Find devices to remove (previously selected but not in the new selection)
-                devices_to_remove = set(previous_device_ids) - set(selected_device_ids)
-
-                # Remove entities and devices from Home Assistant
-                device_registry = async_get_device_registry(self.hass)
-                entity_registry = async_get_entity_registry(self.hass)
-
-                device_registry_filtered = [
-                    device
-                    for device in device_registry.devices.values()
-                    if device.identifiers
-                    for identifiers in device.identifiers
-                    if len(identifiers) == 2
-                    and identifiers[0] == DOMAIN
-                    and identifiers[1] in devices_to_remove
-                ]
-
-                for device in device_registry_filtered:
-                    for entity in list(entity_registry.entities.values()):
-                        if entity.device_id == device.id:
-                            entity_registry.async_remove(entity.entity_id)
-
-                    device_registry.async_remove_device(device.id)
-
-                # Update the config entry with the new selected devices
-                new_data = {
-                    **self.config_entry.data,
-                    CONF_SELECTED_DEVICES: selected_device_ids,
-                }
-
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=new_data
-                )
-
-                self.hass.config_entries.async_schedule_reload(
-                    self.config_entry.entry_id
-                )
-
-                return self.async_create_entry(title="", data={})
-            except Exception as ex:
-                _LOGGER.error("Error updating config entry: %s", ex)
-        # Fetch all devices to allow re-selection
-        email = self.config_entry.data.get(CONF_EMAIL)
-        phone_number = self.config_entry.data.get(CONF_PHONE_NUMBER)
-        password = self.config_entry.data.get(CONF_PASSWORD)
-        region = self.config_entry.data.get(CONF_REGION, "eu")
-
-        if not password or not (email or phone_number):
-            return self.async_abort(reason="missing_credentials")
-
-        try:
-            no_devices_reason = await self._async_fetch_available_devices(
-                email,
-                password,
-                region,
-                phone_number=phone_number,
-            )
-            if no_devices_reason:
-                return self.async_abort(reason=no_devices_reason)
-
-            # Create options for the form
-            device_options = _device_options(self._available_devices)
-
-            # Get currently selected devices
-            current_devices = deduplicate_ordered_values(
-                self.config_entry.data.get(CONF_SELECTED_DEVICES, [])
-            )
-
-            return self.async_show_form(
-                step_id="init",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(
-                            CONF_SELECTED_DEVICES, default=current_devices
-                        ): cv.multi_select(device_options),
-                    }
-                ),
-                description_placeholders={
-                    "devices_count": str(len(self._available_devices)),
-                    "families_count": str(len(self._families)),
-                },
-            )
-        except AuxApiError as ex:
-            _LOGGER.warning("AUX Cloud options fetch devices failed: %s", ex)
-            return self.async_abort(reason=config_flow_error_key(ex))
-        except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.exception("Error fetching devices: %s", ex)
-            return self.async_abort(reason="fetch_devices_failed")
-
-    async def _async_fetch_available_devices(
-        self,
-        email: str | None,
-        password: str,
-        region: str,
-        *,
-        phone_number: str | None = None,
-    ) -> str | None:
-        """Fetch devices for the options flow and return an abort reason if empty."""
-        self._aux_cloud = AuxCloudAPI(
-            region=region, session=async_get_clientsession(self.hass)
-        )
-        if phone_number:
-            await self._aux_cloud.login(
-                password=password,
-                phone_number=phone_number,
-            )
-        else:
-            await self._aux_cloud.login(email, password)
-
-        families = await self._aux_cloud.get_families()
-        self._families = {}
-        self._available_devices = []
-        seen_device_ids = set()
-        device_query_errors = []
-        successful_device_queries = 0
-
-        for family in families:
-            family_id = family["familyid"]
-            family_name = family["name"]
-            self._families[family_id] = {"name": family_name, "devices": []}
-
-            family_devices, query_errors, successful_queries = (
-                await _async_fetch_family_devices(self._aux_cloud, family_id)
-            )
-            device_query_errors.extend(query_errors)
-            successful_device_queries += successful_queries
-
-            for device in family_devices:
-                device_id = device["endpointId"]
-                if device_id in seen_device_ids:
-                    _LOGGER.debug("Skipping duplicate AUX Cloud options device")
-                    continue
-                seen_device_ids.add(device_id)
-
-                device_info = {
-                    "id": device_id,
-                    "name": device["friendlyName"],
-                    "family_id": family_id,
-                    "family_name": family_name,
-                }
-                self._available_devices.append(device_info)
-                self._families[family_id]["devices"].append(device_info)
-
-        if self._available_devices:
-            return None
-        if successful_device_queries == 0 and device_query_errors:
-            error = _preferred_device_discovery_error(device_query_errors)
-            _LOGGER.warning("All AUX Cloud option device queries failed: %s", error)
-            return config_flow_error_key(error)
-        return "no_devices_found"
+def _entry_title(data: dict[str, Any]) -> str:
+    """Return a concise account-specific title without exposing a full phone."""
+    region = data.get(CONF_REGION, "eu").upper()
+    if email := data.get(CONF_EMAIL):
+        account = email
+    else:
+        phone = data.get(CONF_PHONE_NUMBER, "")
+        account = f"••••{phone[-4:]}" if phone else "phone"
+    return f"AUX Cloud · {account} · {region}"

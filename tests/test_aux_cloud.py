@@ -4,7 +4,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -39,16 +39,29 @@ from custom_components.aux_cloud.api.session import (
 from custom_components.aux_cloud.api.transports.http import parse_control_event
 from custom_components.aux_cloud.api.transports.websocket import (
     AuxCloudWebSocket,
-    AuxCloudWebSocket as TransportAuxCloudWebSocket,
     websocket_connect_url,
+)
+from custom_components.aux_cloud.api.transports.websocket import (
+    AuxCloudWebSocket as TransportAuxCloudWebSocket,
 )
 from custom_components.aux_cloud.config_flow import _async_fetch_family_devices
 from custom_components.aux_cloud.devices.normalizers import normalize_device_params
 from custom_components.aux_cloud.devices.profiles import (
     AC_MODE_SPECIAL,
     AC_POWER,
+    AC_POWER_LIMIT,
+    AC_PRODUCT_IDS,
+    AC_TEMPERATURE_CONVERSION,
+    AC_TEMPERATURE_DECIMAL,
+    AC_TEMPERATURE_TARGET,
+    AC_TEMPERATURE_UNIT,
+    AUX_PROTOCOL_VERSION,
+    AUX_QUERY_FAILURES,
     HP_HOT_WATER_TANK_TEMPERATURE,
+    V3_HEAT_PUMP_QUERIES,
     AuxProducts,
+    encode_ac_temperature_command,
+    get_product_profile,
     initial_param_queries,
     prepare_command,
 )
@@ -347,12 +360,14 @@ class TestAuxCloudAPI:
         assert websocket_connect_url("wss://example.com") == (
             "wss://example.com/appsync/apprelay/relayconnect"
         )
-        assert websocket_connect_url(
-            "wss://example.com/appsync/apprelay/relayconnect"
-        ) == "wss://example.com/appsync/apprelay/relayconnect"
-        assert websocket_connect_url(
-            "wss://example.com/appsync/apprelay/relayconnect/"
-        ) == "wss://example.com/appsync/apprelay/relayconnect"
+        assert (
+            websocket_connect_url("wss://example.com/appsync/apprelay/relayconnect")
+            == "wss://example.com/appsync/apprelay/relayconnect"
+        )
+        assert (
+            websocket_connect_url("wss://example.com/appsync/apprelay/relayconnect/")
+            == "wss://example.com/appsync/apprelay/relayconnect"
+        )
 
     async def test_email_login_payload_remains_email_payload(self, monkeypatch):
         """Test legacy email login still sends the original email-shaped payload."""
@@ -482,12 +497,13 @@ class TestAuxCloudAPI:
         session = AuxCloudSession(region="cn")
         session.phone_number = "13800138000"
         session.password = "secret"
-        session.login = AsyncMock(return_value=True)
+        session._login_unlocked = AsyncMock(return_value=True)
 
         assert await session.recover_session() is True
 
-        session.login.assert_awaited_once_with(
-            password="secret",
+        session._login_unlocked.assert_awaited_once_with(
+            None,
+            "secret",
             phone_number="13800138000",
         )
 
@@ -498,7 +514,8 @@ class TestAuxCloudAPI:
         aux_api.loginsession = "old-session"
         aux_api.userid = "old-user"
 
-        async def recover_session():
+        async def recover_session(*, expired_session=None):
+            assert expired_session == "old-session"
             aux_api.loginsession = "new-session"
             aux_api.userid = "new-user"
             return True
@@ -507,7 +524,9 @@ class TestAuxCloudAPI:
 
         auth_data = await aux_api._refresh_websocket_auth("wss://example.com")
 
-        aux_api.session.recover_session.assert_awaited_once()
+        aux_api.session.recover_session.assert_awaited_once_with(
+            expired_session="old-session"
+        )
         assert auth_data["loginsession"] == "new-session"
         assert auth_data["userid"] == "new-user"
         assert auth_data["headers"]["loginsession"] == "new-session"
@@ -543,7 +562,9 @@ class TestAuxCloudAPI:
             [],
             [HP_HOT_WATER_TANK_TEMPERATURE],
         ]
-        assert initial_param_queries(_mock_heat_pump(ver=3)) == [["ver"]]
+        assert initial_param_queries(_mock_heat_pump(ver=3)) == [
+            list(query) for query in V3_HEAT_PUMP_QUERIES
+        ]
 
     def test_v3_heat_pump_prepare_command_appends_version_marker(self):
         """Test v3 heat-pump command preparation appends AUX version marker."""
@@ -556,6 +577,79 @@ class TestAuxCloudAPI:
 
         assert params == ["hp_pwr", "ver"]
         assert vals[-1] == [{"idx": 1, "val": 3}]
+
+    def test_v3_heat_pump_prepare_command_preserves_resolved_version(self):
+        """Test v3 heat-pump commands do not hardcode protocol version three."""
+        params, vals = prepare_command(
+            _mock_heat_pump(ver=4),
+            "set",
+            ["hp_pwr"],
+            [[{"idx": 1, "val": 1}]],
+        )
+
+        assert params == ["hp_pwr", "ver"]
+        assert vals[-1] == [{"idx": 1, "val": 4}]
+
+    @pytest.mark.parametrize("product_id", AC_PRODUCT_IDS)
+    def test_all_apk_air_conditioner_product_ids_are_profiled(self, product_id):
+        """Test every verified AC Freedom product ID has a safe AC profile."""
+        profile = get_product_profile(product_id)
+
+        assert profile.device_type == "ac"
+        assert AC_POWER in profile.writable_params
+
+    @pytest.mark.parametrize(
+        ("suffix", "auto_mode", "extended_fan", "horizontal_swing", "power_limit"),
+        [
+            ("28620000", False, True, True, True),
+            ("45620000", False, True, True, False),
+            ("56ac0000", True, False, False, True),
+            ("a44e0000", True, False, False, True),
+            ("c5510000", False, True, True, True),
+            ("c9100100", False, True, True, False),
+        ],
+    )
+    def test_apk_product_profile_constraints(
+        self, suffix, auto_mode, extended_fan, horizontal_swing, power_limit
+    ):
+        """Test product-specific controls match verified AC Freedom behavior."""
+        profile = get_product_profile(f"{'0' * 24}{suffix}")
+
+        assert (4 in profile.hvac_modes) is auto_mode
+        assert (6 in profile.fan_speeds and 7 in profile.fan_speeds) is extended_fan
+        assert profile.horizontal_swing is horizontal_swing
+        assert (AC_POWER_LIMIT in profile.writable_params) is power_limit
+
+    def test_ac_temperature_wire_formats_and_normalization(self):
+        """Test standard, Fahrenheit, and half-degree AC wire formats."""
+        standard = _mock_device()
+        assert encode_ac_temperature_command(standard, 16.5) == {
+            AC_TEMPERATURE_TARGET: 165
+        }
+
+        fahrenheit = _mock_device()
+        fahrenheit["params"] = {AC_TEMPERATURE_UNIT: 2}
+        encoded = encode_ac_temperature_command(fahrenheit, 17.2)
+        assert encoded == {
+            AC_TEMPERATURE_TARGET: 170,
+            AC_TEMPERATURE_UNIT: 2,
+            AC_TEMPERATURE_DECIMAL: 0,
+            AC_TEMPERATURE_CONVERSION: 2,
+        }
+        fahrenheit["params"] = encoded
+        normalize_device_params(fahrenheit)
+        assert fahrenheit["params"][AC_TEMPERATURE_TARGET] == 172
+
+        half_degree = _mock_device()
+        half_degree["productId"] = f"{'0' * 24}1f620000"
+        encoded = encode_ac_temperature_command(half_degree, 16.5)
+        assert encoded == {
+            AC_TEMPERATURE_TARGET: 160,
+            AC_TEMPERATURE_DECIMAL: 1,
+        }
+        half_degree["params"] = encoded
+        normalize_device_params(half_degree)
+        assert half_degree["params"][AC_TEMPERATURE_TARGET] == 165
 
     def test_v3_heat_pump_tank_temperature_normalizer(self):
         """Test v3 heat-pump key_states tank temperature normalization."""
@@ -696,8 +790,46 @@ class TestAuxCloudAPI:
 
         assert devices[0]["params"] == {}
         assert "last_updated" not in devices[0]
-        assert "primary failed" in caplog.text
-        assert "special failed" in caplog.text
+        assert "primary AUX device params (ValueError)" in caplog.text
+        assert "special AUX device params (ValueError)" in caplog.text
+        assert "primary failed" not in caplog.text
+
+    async def test_repository_falls_back_to_v3_heat_pump_queries(self):
+        """Test unsupported legacy HP GET resolves and caches the v3 dialect."""
+        device = _mock_heat_pump(ver=2)
+        repository = AuxCloudRepository(_FakeRepositorySession(device), None)
+        repository._control = _FakeInitialParamsControl(
+            {
+                (): AuxDeviceError(code=-49025),
+                (HP_HOT_WATER_TANK_TEMPERATURE,): AuxDeviceError(code=-49025),
+                ("ver",): {"ver": 4},
+                ("ver", "key_states", "common_states"): {
+                    "ver": 4,
+                    "key_states": "000044",
+                },
+                ("ver", "hp_auto_wtemp", "water_tank_dif", "eco"): {"eco": 1},
+                ("ver", "mute"): {"mute": 0},
+            }
+        )
+
+        devices = await repository.get_devices("family1")
+
+        assert devices[0][AUX_PROTOCOL_VERSION] == 4
+        assert devices[0]["params"][HP_HOT_WATER_TANK_TEMPERATURE] == 360
+        assert devices[0][AUX_QUERY_FAILURES][0]["code"] == -49025
+
+    async def test_unsupported_product_command_is_rejected_before_transport(
+        self, aux_api
+    ):
+        """Test product profiles prevent known-unsafe parameters from being sent."""
+        device = _mock_device()
+        device["productId"] = f"{'0' * 24}c9100100"
+        aux_api.http_strategy.act_device_params = AsyncMock()
+
+        with pytest.raises(AuxDeviceError):
+            await aux_api.set_device_params(device, {AC_POWER_LIMIT: 50})
+
+        aux_api.http_strategy.act_device_params.assert_not_awaited()
 
     async def test_set_device_params_uses_websocket_first(self, aux_api):
         """Test websocket command payload generation and response parsing."""
@@ -887,12 +1019,13 @@ def test_error_reporting_translation_keys_exist():
         "cannot_connect",
         "unknown",
     }
-    issue_keys = {"api_unavailable", "auth_failed", "rate_limited"}
     exception_keys = {
         "api_unavailable",
         "cannot_connect",
         "device_error",
         "invalid_auth",
+        "invalid_operation",
+        "invalid_option",
         "rate_limited",
         "session_expired",
         "unknown",
@@ -902,8 +1035,13 @@ def test_error_reporting_translation_keys_exist():
         translations = json.loads((translation_dir / f"{language}.json").read_text())
         assert config_error_keys <= set(translations["config"]["error"])
         assert config_error_keys <= set(translations["config"]["abort"])
-        assert issue_keys <= set(translations["issues"])
         assert exception_keys <= set(translations["exceptions"])
+
+    strings = json.loads(
+        (translation_dir.parent / "strings.json").read_text(encoding="utf-8")
+    )
+    english = json.loads((translation_dir / "en.json").read_text(encoding="utf-8"))
+    assert strings == english
 
 
 def _mock_device():

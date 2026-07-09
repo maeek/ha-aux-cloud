@@ -3,16 +3,18 @@
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .devices.profiles import (
-    AuxProducts,
     HP_HEATER_AUTO_WATER_TEMP,
     HP_QUIET_MODE,
+    AuxProducts,
 )
-from .const import DOMAIN, _LOGGER
-from .util import BaseEntity
+from .util import BaseEntity, setup_dynamic_entities
+
+PARALLEL_UPDATES = 0
 
 SELECTS = {
     HP_QUIET_MODE: {
@@ -96,13 +98,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AUX select platform."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
 
-    entities = []
-
-    # Create select entities for each device
-    for device in coordinator.data["devices"]:
+    def entities_for_device(device):
+        entities = []
         supported_params = AuxProducts.get_params_list(device["productId"])
         supported_special_params = AuxProducts.get_special_params_list(
             device["productId"]
@@ -124,19 +123,13 @@ async def async_setup_entry(
                         options=entity["state_icons"],
                     )
                 )
-                _LOGGER.debug(
-                    "Adding select entity for %s with option %s",
-                    device["friendlyName"],
-                    entity["description"].key,
-                )
-    if entities:
-        async_add_entities(entities, True)
-    else:
-        _LOGGER.info("No AUX select devices added")
+        return entities
+
+    setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
 # pylint: disable=abstract-method
-class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
+class AuxSelectEntity(BaseEntity, SelectEntity):
     """AUX Cloud select entity."""
 
     def __init__(
@@ -152,7 +145,6 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
         self._attr_current_option = self._get_device_params().get(
             self.entity_description.key, None
         )
-        self.entity_id = f"select.{self._attr_unique_id}"
 
     @property
     def current_option(self):
@@ -166,9 +158,12 @@ class AuxSelectEntity(BaseEntity, CoordinatorEntity, SelectEntity):
         return self._options.get(self.current_option, {}).get("icon", None)
 
     async def async_select_option(self, option: str):
-        new_option = self._options.get(option).get("value", None)
         if option not in self._attr_options:
-            _LOGGER.error("Invalid option selected: %s=%s", option, new_option)
-            return
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_option",
+                translation_placeholders={"option": option},
+            )
 
+        new_option = self._options[option]["value"]
         await self._set_device_params({self.entity_description.key: new_option})

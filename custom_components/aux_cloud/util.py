@@ -1,9 +1,18 @@
-from collections.abc import Iterable
+import contextlib
+import hashlib
+from collections.abc import Callable, Iterable
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import AuxApiError
@@ -68,6 +77,74 @@ def account_unique_id_from_credentials(
     return None
 
 
+def account_unique_id_from_user_id(region: str, user_id: str) -> str:
+    """Return the stable account ID used for newly authenticated entries."""
+    return f"{(region or 'eu').strip().lower()}:user:{user_id}"
+
+
+def legacy_entity_unique_id(endpoint_id: str, entity_key: str) -> str:
+    """Return the immutable unique ID used by all released AUX entities.
+
+    Do not change this formula. Existing entity-registry rows depend on it.
+    """
+    return f"{DOMAIN}_{endpoint_id.lstrip('0')}_{entity_key}"
+
+
+def device_identifier(endpoint_id: str) -> tuple[str, str]:
+    """Return the immutable raw endpoint device-registry identifier."""
+    return (DOMAIN, endpoint_id)
+
+
+def collision_safe_entity_unique_id(
+    hass: Any,
+    entity_domain: str,
+    endpoint_id: str,
+    entity_key: str,
+    reserved: set[tuple[str, str]],
+    *,
+    config_entry_id: str | None = None,
+    identity_salt: str = "",
+) -> str:
+    """Preserve legacy IDs and use deterministic V2 IDs only for collisions."""
+    legacy_id = legacy_entity_unique_id(endpoint_id, entity_key)
+    digest_source = f"{endpoint_id}\0{identity_salt}"
+    digest = hashlib.sha256(digest_source.encode()).hexdigest()[:8]
+    candidates = (legacy_id, f"{legacy_id}_v2_{digest}")
+    entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+
+    for candidate in candidates:
+        reservation = (entity_domain, candidate)
+        matching_entries = [
+            entry
+            for entry in entity_registry.entities.values()
+            if entry.domain == entity_domain
+            and entry.platform == DOMAIN
+            and entry.unique_id == candidate
+        ]
+        for entry in matching_entries:
+            if config_entry_id is not None:
+                if entry.config_entry_id == config_entry_id:
+                    reserved.add(reservation)
+                    return candidate
+                continue
+            device = (
+                device_registry.async_get(entry.device_id) if entry.device_id else None
+            )
+            if device and device_identifier(endpoint_id) in device.identifiers:
+                reserved.add(reservation)
+                return candidate
+        if not matching_entries and reservation not in reserved:
+            reserved.add(reservation)
+            return candidate
+
+    # A SHA-256 prefix collision is extraordinarily unlikely. Keeping the full
+    # endpoint digest makes this final fallback deterministic too.
+    unique_id = f"{legacy_id}_v2_{hashlib.sha256(digest_source.encode()).hexdigest()}"
+    reserved.add((entity_domain, unique_id))
+    return unique_id
+
+
 class DeviceStateHelper:
     """Helper class to manage device parameters state, failsafe, and optimistic updates."""
 
@@ -77,7 +154,6 @@ class DeviceStateHelper:
         )
         self._failed_poll_count = 0
         self._max_failed_polls = max_failed_polls
-        self._backup_params: dict[str, Any] = {}
         self._last_logged_payload: str | None = None
         self._last_processed_update_id: int | None = None
 
@@ -93,16 +169,21 @@ class DeviceStateHelper:
             and self._failed_poll_count <= self._max_failed_polls
         )
 
-    def mark_unavailable(self, device_name: str) -> bool:
+    def mark_unavailable(self, _device_name: str) -> bool:
         """Mark the device unavailable because the cloud explicitly says it is offline."""
         was_available = self.is_available()
         if was_available:
-            _LOGGER.info("Device %s is offline. Marking as unavailable.", device_name)
+            _LOGGER.info("AUX device is offline; marking entities unavailable")
         self._cached_params = {}
         self._failed_poll_count = self._max_failed_polls + 1
-        self._backup_params.clear()
         self._last_logged_payload = None
         return was_available
+
+    def replace_params(self, params: dict[str, Any]) -> None:
+        """Replace cached state after an authoritative rollback or snapshot."""
+        self._cached_params = dict(params)
+        self._failed_poll_count = 0 if params else self._max_failed_polls + 1
+        self._last_logged_payload = None
 
     def process_new_payload(
         self,
@@ -125,25 +206,22 @@ class DeviceStateHelper:
 
         self._handle_valid_payload(current_params, device_name)
 
-    def _log_payload_if_changed(self, current_params: dict[str, Any], device_name: str):
-        """Logs the raw payload only if it differs from the last logged one."""
+    def _log_payload_if_changed(
+        self, current_params: dict[str, Any], _device_name: str
+    ):
+        """Track payload changes without logging private cloud state."""
         current_payload_str = str(current_params)
         if current_payload_str != self._last_logged_payload:
-            _LOGGER.debug(
-                "State changed or new poll. Raw payload for %s: %s",
-                device_name,
-                current_params,
-            )
+            _LOGGER.debug("AUX device state changed")
             self._last_logged_payload = current_payload_str
 
-    def _handle_empty_payload(self, device_name: str):
+    def _handle_empty_payload(self, _device_name: str):
         """Handles network errors or empty responses, managing the failsafe counter."""
         self._failed_poll_count += 1
 
         if self._failed_poll_count <= self._max_failed_polls:
             _LOGGER.warning(
-                "Empty payload for device %s (Attempt %s/%s). Using cache to prevent flapping.",
-                device_name,
+                "Empty AUX device payload (attempt %s/%s); retaining cached state",
                 self._failed_poll_count,
                 self._max_failed_polls,
             )
@@ -151,18 +229,16 @@ class DeviceStateHelper:
 
         if self._failed_poll_count == self._max_failed_polls + 1:
             _LOGGER.error(
-                "Device %s dropped connection for %s polls. Marking as unavailable.",
-                device_name,
+                "AUX device was unavailable for %s polls; marking entities unavailable",
                 self._failed_poll_count,
             )
             self._cached_params = {}
 
-    def _handle_valid_payload(self, current_params: dict[str, Any], device_name: str):
+    def _handle_valid_payload(self, current_params: dict[str, Any], _device_name: str):
         """Merges a valid partial or full payload into the cache and resets counters."""
         if self._failed_poll_count > 0:
             _LOGGER.info(
-                "Device %s connection restored after %s failed attempts.",
-                device_name,
+                "AUX device connection restored after %s failed attempts",
                 self._failed_poll_count,
             )
 
@@ -183,27 +259,6 @@ class DeviceStateHelper:
             params.pop(AC_TEMPERATURE_AMBIENT)
         return params
 
-    def apply_optimistic(self, new_params: dict[str, Any]):
-        """Applies new params optimistically and saves a backup for rollback."""
-        self._backup_params.clear()
-
-        for key, value in new_params.items():
-            if key in self._cached_params:
-                self._backup_params[key] = self._cached_params[key]
-            self._cached_params[key] = value
-
-        self._last_logged_payload = None
-
-    def rollback(self, failed_params: dict[str, Any]):
-        """Rolls back the optimistic update if API call fails."""
-        for key in failed_params:
-            if key in self._backup_params:
-                self._cached_params[key] = self._backup_params[key]
-            else:
-                self._cached_params.pop(key, None)
-        self._backup_params.clear()
-        self._last_logged_payload = None
-
 
 class BaseEntity(CoordinatorEntity):
     """Base class for all AUX Cloud entities."""
@@ -215,8 +270,15 @@ class BaseEntity(CoordinatorEntity):
         self._device = self.coordinator.get_device_by_endpoint_id(self._device_id)
         self._attr_has_entity_name = True
         self.entity_description = entity_description
-        self._attr_unique_id = (
-            f"{DOMAIN}_{self._device_id.lstrip('0')}_{self.entity_description.key}"
+        entity_domain = self.__class__.__module__.rsplit(".", maxsplit=1)[-1]
+        self._attr_unique_id = collision_safe_entity_unique_id(
+            coordinator.hass,
+            entity_domain,
+            self._device_id,
+            self.entity_description.key,
+            coordinator._reserved_entity_unique_ids,
+            config_entry_id=coordinator._entity_config_entry_id,
+            identity_salt=coordinator._entity_unique_id_salt,
         )
 
         initial_params = self._device.get("params", {}) if self._device else {}
@@ -234,14 +296,17 @@ class BaseEntity(CoordinatorEntity):
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
         info = DeviceInfo(
-            identifiers={(DOMAIN, str(self._device_id))},
+            identifiers={device_identifier(str(self._device_id))},
             name=str(self._device.get("friendlyName", "AUX")),
             manufacturer=MANUFACTURER,
             model=str(AuxProducts.get_device_name(self._device.get("productId", None))),
         )
 
-        if "mac" in self._device and self._device["mac"]:
-            info["connections"] = {(CONNECTION_NETWORK_MAC, str(self._device["mac"]))}
+        if self._device.get("mac"):
+            with contextlib.suppress(ValueError):
+                info["connections"] = {
+                    (CONNECTION_NETWORK_MAC, format_mac(str(self._device["mac"])))
+                }
 
         return info
 
@@ -270,7 +335,7 @@ class BaseEntity(CoordinatorEntity):
         self._state_helper.process_new_payload(
             raw_params,
             device_name,
-            update_id=id(self.coordinator.data),
+            update_id=self.coordinator.update_generation,
         )
 
         self.async_write_ha_state()
@@ -280,32 +345,42 @@ class BaseEntity(CoordinatorEntity):
         return self._state_helper.current_params
 
     async def _set_device_params(self, params: dict[str, Any]):
-        """Set parameters on the device using Optimistic Updates via Helper."""
-        device_name = self._device.get("friendlyName", self._device_id)
-        _LOGGER.debug("Optimistically setting %s for device %s", params, device_name)
-
-        # Apply changes to the internal state immediately
-        self._state_helper.apply_optimistic(params)
-        self.async_write_ha_state()
-
+        """Delegate the serialized optimistic transaction to the coordinator."""
         try:
             await self.coordinator.async_set_device_params(self._device, params)
         except AuxApiError as err:
-            _LOGGER.error(
-                "Failed to apply setting %s to %s: %s", params, device_name, err
-            )
-            self._state_helper.rollback(params)
-            self.async_write_ha_state()
+            _LOGGER.error("Failed to apply AUX device setting (%s)", type(err).__name__)
             raise HomeAssistantError(
                 str(err),
                 translation_domain=DOMAIN,
                 translation_key=err.translation_key,
                 translation_placeholders={"error": str(err)},
             ) from err
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to apply setting %s to %s: %s", params, device_name, err
-            )
-            self._state_helper.rollback(params)
-            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.error("Unexpected AUX device command failure")
             raise
+
+
+def setup_dynamic_entities(
+    entry: ConfigEntry,
+    coordinator: Any,
+    async_add_entities: Callable[[list[Any], bool], None],
+    entity_factory: Callable[[dict[str, Any]], Iterable[Any]],
+) -> None:
+    """Add initial and newly discovered entities without duplicating unique IDs."""
+    known_unique_ids: set[str] = set()
+
+    @callback
+    def add_devices(devices: list[dict[str, Any]]) -> None:
+        entities = []
+        for device in devices:
+            for entity in entity_factory(device):
+                if entity.unique_id in known_unique_ids:
+                    continue
+                known_unique_ids.add(entity.unique_id)
+                entities.append(entity)
+        if entities:
+            async_add_entities(entities, True)
+
+    add_devices((coordinator.data or {"devices": []})["devices"])
+    entry.async_on_unload(coordinator.async_add_device_listener(add_devices))

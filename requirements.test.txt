@@ -1,4 +1,7 @@
-pytest
-pytest-cov
+black==24.8.0
+mypy==1.18.2
+pylint==4.0.6
+pytest==8.0.2
+pytest-cov==4.1.0
 pytest-homeassistant-custom-component
-pylint
+ruff==0.14.10

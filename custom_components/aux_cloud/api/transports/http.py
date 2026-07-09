@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..errors import raise_for_cloud_response
@@ -66,16 +66,13 @@ class AuxCloudHttpStrategy:
             # this follows the original app request.
             params={"license": self._license_token},
             headers=self._get_headers(),
-            ssl=False,
         )
 
-        _LOGGER.debug("Device params HTTP response: %s", json_data)
+        _LOGGER.debug("AUX device parameter HTTP request completed")
         try:
             return parse_control_event(json_data["event"])
         except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Failed to query device state: {data}, {json_data}"
-            ) from exc
+            raise ValueError("Failed to parse AUX device control response") from exc
 
 
 def parse_control_event(event: dict) -> dict:

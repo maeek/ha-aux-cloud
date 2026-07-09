@@ -2,82 +2,76 @@
   "config": {
     "flow_title": "AUX Cloud: {name}",
     "abort": {
-      "single_instance_allowed": "Έχει ήδη διαμορφωθεί. Επιτρέπεται μόνο μία διαμόρφωση.",
-      "no_devices_found": "Δεν βρέθηκαν συσκευές AUX Cloud. Παρακαλώ ελέγξτε τον λογαριασμό σας.",
-      "fetch_devices_failed": "Αποτυχία ανάκτησης συσκευών από το AUX Cloud.",
-      "login_required": "Απαιτείται σύνδεση πριν από την ανακάλυψη συσκευών.",
+      "already_configured": "Αυτός ο λογαριασμός AUX Cloud έχει ήδη διαμορφωθεί.",
+      "missing_credentials": "Απαιτούνται email και κωδικός πρόσβασης.",
+      "wrong_account": "Τα στοιχεία ανήκουν σε διαφορετικό λογαριασμό AUX Cloud.",
+      "reauth_successful": "Ο έλεγχος ταυτότητας AUX Cloud ενημερώθηκε επιτυχώς.",
+      "reconfigure_successful": "Η διαμόρφωση AUX Cloud ενημερώθηκε επιτυχώς.",
       "bad_credentials": "Ο λογαριασμός ή ο κωδικός πρόσβασης AUX Cloud είναι λανθασμένος.",
       "session_expired": "Η συνεδρία AUX Cloud έληξε. Ελέγξτε τα στοιχεία σύνδεσης.",
       "api_unavailable": "Το API AUX Cloud δεν είναι διαθέσιμο αυτήν τη στιγμή.",
       "rate_limited": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα.",
       "cannot_connect": "Αποτυχία σύνδεσης με τον διακομιστή AUX Cloud.",
-      "email_required": "Απαιτείται email για σύνδεση με email.",
       "phone_number_required": "Απαιτείται αριθμός τηλεφώνου για σύνδεση με τηλέφωνο.",
       "unknown": "Απροσδόκητο σφάλμα"
     },
     "error": {
-      "user_login_failed": "Αποτυχία σύνδεσης. Ελέγξτε τα στοιχεία σας.",
       "bad_credentials": "Ο λογαριασμός ή ο κωδικός πρόσβασης AUX Cloud είναι λανθασμένος.",
       "session_expired": "Η συνεδρία AUX Cloud έληξε. Ελέγξτε τα στοιχεία σύνδεσης.",
       "api_unavailable": "Το API AUX Cloud δεν είναι διαθέσιμο αυτήν τη στιγμή. Δοκιμάστε ξανά αργότερα.",
       "rate_limited": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα. Δοκιμάστε ξανά αργότερα.",
       "cannot_connect": "Αποτυχία σύνδεσης με τον διακομιστή AUX Cloud.",
       "invalid_auth": "Μη έγκυρος έλεγχος ταυτότητας",
-      "email_required": "Απαιτείται email για σύνδεση με email.",
       "phone_number_required": "Απαιτείται αριθμός τηλεφώνου για σύνδεση με τηλέφωνο.",
       "unknown": "Απροσδόκητο σφάλμα"
     },
     "step": {
       "user": {
         "title": "Σύνδεση στο AUX Cloud",
-        "description": "Εισαγάγετε τα στοιχεία σύνδεσης του AUX Cloud.",
+        "description": "Επιλέξτε τρόπο σύνδεσης. Το email συνιστάται για ευρωπαϊκούς λογαριασμούς.",
+        "menu_options": {
+          "email": "Διεύθυνση email",
+          "phone": "Αριθμός τηλεφώνου"
+        }
+      },
+      "email": {
+        "title": "Σύνδεση με email",
+        "description": "Η Ευρώπη είναι προεπιλεγμένη. Επιλέξτε την περιοχή του λογαριασμού AUX Cloud.",
         "data": {
-          "credential_type": "Μέθοδος σύνδεσης",
-          "email": "Email",
+          "email": "Διεύθυνση email",
+          "password": "Κωδικός πρόσβασης",
+          "region": "Περιοχή"
+        }
+      },
+      "phone": {
+        "title": "Σύνδεση με τηλέφωνο",
+        "description": "Εισαγάγετε τον αριθμό που χρησιμοποιείτε στο AUX Cloud και επιλέξτε περιοχή.",
+        "data": {
+          "phone_number": "Αριθμός τηλεφώνου",
+          "password": "Κωδικός πρόσβασης",
+          "region": "Περιοχή"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ενημέρωση ελέγχου ταυτότητας AUX Cloud",
+        "description": "Εισαγάγετε τα τρέχοντα στοιχεία αυτού του λογαριασμού AUX Cloud.",
+        "data": {
+          "email": "Διεύθυνση email",
+          "phone_number": "Αριθμός τηλεφώνου",
+          "password": "Κωδικός πρόσβασης",
+          "region": "Περιοχή"
+        }
+      },
+      "reconfigure": {
+        "title": "Επαναδιαμόρφωση AUX Cloud",
+        "description": "Ενημερώστε στοιχεία ή περιοχή. Ο λογαριασμός AUX Cloud πρέπει να παραμείνει ίδιος.",
+        "data": {
+          "email": "Διεύθυνση email",
           "phone_number": "Αριθμός τηλεφώνου",
           "password": "Κωδικός πρόσβασης",
           "region": "Περιοχή"
         }
       }
-    },
-    "progress": {
-      "fetching_devices": "Ανάκτηση των συσκευών σας... Αυτό μπορεί να διαρκέσει λίγο."
-    }
-  },
-  "options": {
-    "abort": {
-      "missing_credentials": "Λείπουν τα στοιχεία σύνδεσης. Παρακαλώ επαναδιαμορφώστε την ολοκλήρωση.",
-      "no_devices_found": "Δεν βρέθηκαν συσκευές AUX Cloud. Παρακαλώ ελέγξτε τον λογαριασμό σας.",
-      "fetch_devices_failed": "Αποτυχία ανάκτησης συσκευών από το AUX Cloud.",
-      "bad_credentials": "Ο λογαριασμός ή ο κωδικός πρόσβασης AUX Cloud είναι λανθασμένος.",
-      "session_expired": "Η συνεδρία AUX Cloud έληξε. Ελέγξτε τα στοιχεία σύνδεσης.",
-      "api_unavailable": "Το API AUX Cloud δεν είναι διαθέσιμο αυτήν τη στιγμή.",
-      "rate_limited": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα.",
-      "cannot_connect": "Αποτυχία σύνδεσης με τον διακομιστή AUX Cloud.",
-      "unknown": "Απροσδόκητο σφάλμα"
-    },
-    "step": {
-      "init": {
-        "title": "Ενημέρωση συσκευών AUX Cloud",
-        "description": "Επιλέξτε ποιες συσκευές θέλετε να παρακολουθείτε και να ελέγχετε με το Home Assistant.",
-        "data": {
-          "selected_devices": "Επιλογή συσκευών"
-        }
-      }
-    }
-  },
-  "issues": {
-    "api_unavailable": {
-      "title": "Το API AUX Cloud δεν είναι διαθέσιμο",
-      "description": "Το Home Assistant δεν μπορεί να συνδεθεί με το AUX Cloud αυτήν τη στιγμή. Η ολοκλήρωση θα συνεχίσει να προσπαθεί αυτόματα. Τελευταίο σφάλμα: {error}"
-    },
-    "auth_failed": {
-      "title": "Αποτυχία ελέγχου ταυτότητας AUX Cloud",
-      "description": "Το AUX Cloud απέρριψε τα αποθηκευμένα στοιχεία σύνδεσης ή τη συνεδρία. Ενημερώστε τα στοιχεία σύνδεσης της ολοκλήρωσης και φορτώστε την ξανά. Τελευταίο σφάλμα: {error}"
-    },
-    "rate_limited": {
-      "title": "Επιτεύχθηκε όριο αιτημάτων AUX Cloud",
-      "description": "Το AUX Cloud περιορίζει προσωρινά τα αιτήματα από αυτόν τον λογαριασμό ή την εγκατάσταση. Το Home Assistant θα συνεχίσει να προσπαθεί αυτόματα. Τελευταίο σφάλμα: {error}"
     }
   },
   "exceptions": {
@@ -101,6 +95,22 @@
     },
     "unknown": {
       "message": "Απροσδόκητο σφάλμα AUX Cloud: {error}"
+    },
+    "invalid_option": {
+      "message": "Το {option} δεν είναι έγκυρη επιλογή AUX Cloud"
+    },
+    "invalid_operation": {
+      "message": "Το {operation} δεν είναι έγκυρη λειτουργία AUX Cloud"
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Ευρώπη",
+        "usa": "Άλλες περιοχές / ΗΠΑ",
+        "cn": "Κίνα",
+        "rus": "Ρωσία"
+      }
     }
   },
   "entity": {

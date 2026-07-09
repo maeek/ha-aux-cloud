@@ -2,7 +2,6 @@ from homeassistant.components.switch import SwitchEntity, SwitchEntityDescriptio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .devices.profiles import (
     AC_AUXILIARY_HEAT,
@@ -16,13 +15,14 @@ from .devices.profiles import (
     AC_SCREEN_DISPLAY,
     AC_SLEEP,
     AUX_ECOMODE,
-    AuxProducts,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
+    AuxProducts,
 )
-from .const import DOMAIN, _LOGGER
-from .util import BaseEntity
+from .util import BaseEntity, setup_dynamic_entities
+
+PARALLEL_UPDATES = 0
 
 SWITCHES = {
     AUX_ECOMODE: {
@@ -146,12 +146,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AUX switch platform."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
 
-    entities = []
-
-    for device in coordinator.data["devices"]:
+    def entities_for_device(device):
+        entities = []
         supported_params = AuxProducts.get_params_list(device["productId"])
         supported_special_params = AuxProducts.get_special_params_list(
             device["productId"]
@@ -177,20 +175,14 @@ async def async_setup_entry(
                         ),
                     )
                 )
-                _LOGGER.debug(
-                    "Adding switch entity for %s with option %s",
-                    device["friendlyName"],
-                    entity["description"].key,
-                )
 
-    if entities:
-        async_add_entities(entities, True)
-    else:
-        _LOGGER.info("No AUX switch devices added")
+        return entities
+
+    setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
 # pylint: disable=abstract-method
-class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
+class AuxSwitchEntity(BaseEntity, SwitchEntity):
     """AUX Cloud switch entity."""
 
     def __init__(self, coordinator, device_id, entity_description, custom_mapping=None):
@@ -199,7 +191,6 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
         self._device_id = device_id
         self._option = self.entity_description.key
         self._custom_mapping = custom_mapping
-        self.entity_id = f"switch.{self._attr_unique_id}"
 
     @property
     def is_on(self):
@@ -222,10 +213,6 @@ class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
 
     async def _send_command(self, state: bool):
         """Send the command to the device."""
-        try:
-            if self._custom_mapping:
-                state = self._custom_mapping.get(state)
-
-            await self._set_device_params({self._option: int(state)})
-        except Exception as ex:
-            _LOGGER.error("Failed to set switch state for %s: %s", self._device_id, ex)
+        if self._custom_mapping:
+            state = self._custom_mapping.get(state)
+        await self._set_device_params({self._option: int(state)})

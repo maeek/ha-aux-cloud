@@ -1,35 +1,45 @@
+from typing import Any
+
 from homeassistant.components.water_heater import (
-    WaterHeaterEntity,
-    WaterHeaterEntityFeature,
-    WaterHeaterEntityDescription,
     STATE_HEAT_PUMP,
     STATE_OFF,
     STATE_PERFORMANCE,
+    WaterHeaterEntity,
+    WaterHeaterEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+try:
+    from homeassistant.components.water_heater import WaterHeaterEntityDescription
+except ImportError:  # Home Assistant before the 2026.4 minimum, for migration tests.
+    from homeassistant.helpers.entity import (
+        EntityDescription as WaterHeaterEntityDescription,
+    )
+
+from .const import DOMAIN
 from .devices.profiles import (
-    AuxProducts,
     AUX_ECOMODE,
     HP_HOT_WATER_TANK_TEMPERATURE,
     HP_HOT_WATER_TEMPERATURE_TARGET,
+    HP_QUIET_MODE,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_FAST_HOTWATER_OFF,
     HP_WATER_FAST_HOTWATER_ON,
     HP_WATER_POWER,
     HP_WATER_POWER_OFF,
     HP_WATER_POWER_ON,
-    HP_QUIET_MODE,
+    AuxProducts,
 )
-from .const import DOMAIN, _LOGGER
-from .util import BaseEntity
+from .util import BaseEntity, setup_dynamic_entities
+
+PARALLEL_UPDATES = 0
 
 
-WATER_HEATER_ENTITIES: dict[str, dict[str, any]] = {
+WATER_HEATER_ENTITIES: dict[str, dict[str, Any]] = {
     "water_heater": {
         "description": WaterHeaterEntityDescription(
             key="water_heater",
@@ -47,34 +57,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AUX water heater platform."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
 
-    entities = []
-
-    for device in coordinator.data["devices"]:
+    def entities_for_device(device):
         if device["productId"] in AuxProducts.DeviceType.HEAT_PUMP:
-            entities.append(
-                AuxWaterHeaterEntity(
-                    coordinator,
-                    device["endpointId"],
-                    entity_description=WATER_HEATER_ENTITIES["water_heater"][
-                        "description"
-                    ],
-                )
+            entity = AuxWaterHeaterEntity(
+                coordinator,
+                device["endpointId"],
+                entity_description=WATER_HEATER_ENTITIES["water_heater"]["description"],
             )
-            _LOGGER.debug(
-                "Adding water heater entity for %s",
-                device.get("friendlyName", device["endpointId"]),
-            )
+            return [entity]
+        return []
 
-    if entities:
-        async_add_entities(entities, True)
-    else:
-        _LOGGER.info("No AUX water heater devices added")
+    setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
+class AuxWaterHeaterEntity(BaseEntity, WaterHeaterEntity):
     """AUX Cloud water heater entity."""
 
     def __init__(
@@ -95,8 +93,6 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
             | WaterHeaterEntityFeature.OPERATION_MODE
             | WaterHeaterEntityFeature.ON_OFF
         )
-
-        self.entity_id = f"water_heater.{self._attr_unique_id}"
 
     @property
     def current_temperature(self):
@@ -151,6 +147,12 @@ class AuxWaterHeaterEntity(BaseEntity, CoordinatorEntity, WaterHeaterEntity):
         elif operation_mode == STATE_PERFORMANCE:
             await self._set_device_params(
                 {**HP_WATER_POWER_ON, **HP_WATER_FAST_HOTWATER_ON}
+            )
+        else:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_operation",
+                translation_placeholders={"operation": operation_mode},
             )
 
     async def async_turn_on(self, **kwargs):

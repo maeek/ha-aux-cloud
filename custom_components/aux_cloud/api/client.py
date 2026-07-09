@@ -7,14 +7,13 @@ from typing import TypedDict
 import aiohttp
 
 from ..devices.normalizers import (
-    decode_v3_hp_tank_temp_from_key_states as _decode_v3_hp_tank_temp_from_key_states,
     normalize_device_params,
 )
 from .control import AuxCloudControlService, AuxCloudWebSocketStrategy
 from .errors import AuxApiError, AuxNetworkError, AuxServerError, AuxSessionExpired
 from .protocol.common import (
-    build_directive_header,
     build_device_params_directive,
+    build_directive_header,
     decode_json_payload,
     parse_std_data,
 )
@@ -155,11 +154,10 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
         self,
         method: str,
         endpoint: str,
-        headers: dict = None,
-        data: dict = None,
-        data_raw: str | bytes = None,
-        params: dict = None,
-        ssl: bool = False,
+        headers: dict | None = None,
+        data: dict | None = None,
+        data_raw: str | bytes | None = None,
+        params: dict | None = None,
     ) -> dict:
         """Compatibility wrapper for HTTP requests."""
         return await self.session.make_request(
@@ -169,15 +167,14 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
             data=data,
             data_raw=data_raw,
             params=params,
-            ssl=ssl,
         )
 
     async def login(
         self,
-        email: str = None,
-        password: str = None,
+        email: str | None = None,
+        password: str | None = None,
         *,
-        phone_number: str = None,
+        phone_number: str | None = None,
     ) -> bool:
         """Login to AUX Cloud services."""
         try:
@@ -211,11 +208,10 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
         self,
         familyid: str,
         shared=False,
-        selected_devices: list[str] = None,
     ):
         """List devices associated with a family."""
         try:
-            return await self.repository.get_devices(familyid, shared, selected_devices)
+            return await self.repository.get_devices(familyid, shared)
         except ValueError as exc:
             raise AuxApiError(str(exc)) from exc
 
@@ -306,7 +302,7 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
         """Decode a websocket payload value into a dict."""
         return decode_json_payload(value)
 
-    async def get_device_params(self, device: dict, params: list[str] = None):
+    async def get_device_params(self, device: dict, params: list[str] | None = None):
         """Query device parameters over HTTP."""
         try:
             return await self.control.get_device_params(device, params)
@@ -327,7 +323,6 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
                 method="POST",
                 endpoint="appsync/apprelay/geturl",
                 headers=self._get_headers(),
-                ssl=False,
             )
             urls = json_data.get("data", {}).get("url", [])
             if json_data.get("status") == 0 and urls:
@@ -339,6 +334,8 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
 
     def _build_websocket_client(self, websocket_url: str, devices: list[dict] | None):
         """Build a websocket transport for the selected relay URL."""
+        if self.loginsession is None or self.userid is None:
+            raise AuxSessionExpired("AUX Cloud websocket authentication is missing")
         origin = websocket_origin(websocket_url) or self.url
         return AuxCloudWebSocket(
             websocket_url=websocket_url,
@@ -388,7 +385,7 @@ class AuxCloudAPI:  # pylint: disable=too-many-public-methods
         if not self.password or not (self.email or self.phone_number):
             raise AuxApiError("Cannot refresh websocket auth without credentials.")
 
-        await self.session.recover_session()
+        await self.session.recover_session(expired_session=self.loginsession)
         origin = websocket_origin(websocket_url) or self.url
         return {
             "loginsession": self.loginsession,
