@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import auto
 from typing import Any
@@ -493,7 +494,7 @@ def fallback_param_queries(device: dict) -> list[list[str]]:
     return [list(query) for query in V3_HEAT_PUMP_QUERIES]
 
 
-def get_protocol_version(device: dict) -> int | None:
+def get_protocol_version(device: Mapping[str, Any]) -> int | None:
     """Return the resolved device protocol version without guessing."""
     candidates = [
         device.get(AUX_PROTOCOL_VERSION),
@@ -562,7 +563,7 @@ def encode_ac_temperature_command(device: dict, temperature_c: float) -> dict[st
     return {AC_TEMPERATURE_TARGET: target_x10}
 
 
-def is_v3_heat_pump(device: dict) -> bool:
+def is_v3_heat_pump(device: Mapping[str, Any]) -> bool:
     """Determine if a device is a v3 or later heat pump based on its metadata."""
     version = get_protocol_version(device)
     return bool(

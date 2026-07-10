@@ -1,7 +1,8 @@
 black==24.8.0
 mypy==1.18.2
 pylint==4.0.6
-pytest==8.0.2
-pytest-cov==4.1.0
-pytest-homeassistant-custom-component
+pycryptodome==3.23.0
+pytest==9.0.0
+pytest-cov==7.0.0
+pytest-homeassistant-custom-component==0.13.325
 ruff==0.14.10

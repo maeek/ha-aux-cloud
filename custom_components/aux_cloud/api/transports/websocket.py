@@ -274,7 +274,7 @@ class AuxCloudWebSocket:
         self.websocket = await self._session.ws_connect(
             url,
             headers=self.headers,
-            timeout=CONNECT_TIMEOUT,
+            timeout=aiohttp.ClientWSTimeout(ws_close=CONNECT_TIMEOUT),
         )
         _LOGGER.debug("AUX Cloud websocket connection established")
 

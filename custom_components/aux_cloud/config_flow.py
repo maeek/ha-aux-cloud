@@ -56,7 +56,7 @@ def _clean_entry_data(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle an AUX Cloud config flow."""
 
     VERSION = 2

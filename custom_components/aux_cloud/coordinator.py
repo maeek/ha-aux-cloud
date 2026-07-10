@@ -57,18 +57,27 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         phone_number: str | None = None,
     ) -> None:
         """Initialize the coordinator."""
-        coordinator_kwargs = {
-            "name": "AUX Cloud",
-            "update_interval": TOPOLOGY_SCAN_INTERVAL,
-            "always_update": False,
-        }
         if (
             config_entry is not None
             and "config_entry"
             in inspect.signature(DataUpdateCoordinator.__init__).parameters
         ):
-            coordinator_kwargs["config_entry"] = config_entry
-        super().__init__(hass, _LOGGER, **coordinator_kwargs)
+            super().__init__(
+                hass,
+                _LOGGER,
+                config_entry=config_entry,
+                name="AUX Cloud",
+                update_interval=TOPOLOGY_SCAN_INTERVAL,
+                always_update=False,
+            )
+        else:
+            super().__init__(
+                hass,
+                _LOGGER,
+                name="AUX Cloud",
+                update_interval=TOPOLOGY_SCAN_INTERVAL,
+                always_update=False,
+            )
         self.api = api
         self._aux_config_entry = config_entry
         self._entity_config_entry_id = config_entry.entry_id if config_entry else None

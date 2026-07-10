@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import contextlib
 import hashlib
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
@@ -18,6 +20,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import AuxApiError
 from .const import _LOGGER, DOMAIN, MANUFACTURER
 from .devices.profiles import AC_TEMPERATURE_AMBIENT, AuxProducts
+
+if TYPE_CHECKING:
+    from .coordinator import AuxCloudCoordinator  # noqa: F401
 
 
 def deduplicate_devices_by_endpoint_id(devices: Iterable[dict]) -> list[dict]:
@@ -278,14 +283,14 @@ class DeviceStateHelper:
         return params
 
 
-class BaseEntity(CoordinatorEntity):
+class BaseEntity(CoordinatorEntity["AuxCloudCoordinator"]):
     """Base class for all AUX Cloud entities."""
 
     def __init__(self, coordinator: Any, device_id: str, entity_description: Any):
         """Initialize the entity."""
         super().__init__(coordinator)
         self._device_id = device_id
-        self._device = self.coordinator.get_device_by_endpoint_id(self._device_id)
+        self._device = self.coordinator.get_device_by_endpoint_id(self._device_id) or {}
         self._attr_has_entity_name = True
         self.entity_description = entity_description
         entity_domain = self.__class__.__module__.rsplit(".", maxsplit=1)[-1]

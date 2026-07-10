@@ -5,6 +5,7 @@ from homeassistant.components.water_heater import (
     STATE_OFF,
     STATE_PERFORMANCE,
     WaterHeaterEntity,
+    WaterHeaterEntityDescription,
     WaterHeaterEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -12,13 +13,6 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
-try:
-    from homeassistant.components.water_heater import WaterHeaterEntityDescription
-except ImportError:  # Home Assistant before the 2026.4 minimum, for migration tests.
-    from homeassistant.helpers.entity import (
-        EntityDescription as WaterHeaterEntityDescription,
-    )
 
 from .const import DOMAIN
 from .devices.profiles import (
