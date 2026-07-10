@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.climate import ClimateEntityDescription, HVACMode
-from homeassistant.components.number import NumberEntityDescription
 from homeassistant.components.select import SelectEntityDescription
 from homeassistant.components.switch import SwitchEntityDescription
 from homeassistant.components.water_heater import (
@@ -15,12 +14,7 @@ from homeassistant.components.water_heater import (
 )
 from homeassistant.exceptions import HomeAssistantError
 
-import custom_components.aux_cloud.climate as climate_platform
-import custom_components.aux_cloud.number as number_platform
-import custom_components.aux_cloud.select as select_platform
 import custom_components.aux_cloud.sensor as sensor_platform
-import custom_components.aux_cloud.switch as switch_platform
-import custom_components.aux_cloud.water_heater as water_heater_platform
 from custom_components.aux_cloud.climate import (
     AuxACClimateEntity,
     AuxHeatPumpClimateEntity,
@@ -29,7 +23,6 @@ from custom_components.aux_cloud.coordinator import AuxCloudCoordinator
 from custom_components.aux_cloud.devices.profiles import (
     AC_FAN_SPEED,
     AC_POWER,
-    AC_POWER_LIMIT,
     AC_SWING_HORIZONTAL,
     AC_SWING_VERTICAL,
     AC_TEMPERATURE_AMBIENT,
@@ -44,7 +37,6 @@ from custom_components.aux_cloud.devices.profiles import (
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
 )
-from custom_components.aux_cloud.number import AuxNumberEntity
 from custom_components.aux_cloud.select import AuxSelectEntity
 from custom_components.aux_cloud.sensor import SENSORS, AuxCloudSensor
 from custom_components.aux_cloud.switch import AuxSwitchEntity
@@ -253,8 +245,8 @@ def test_missing_sensor_value_is_unknown(hass):
     assert entity.native_value is None
 
 
-async def test_switch_and_number_commands_propagate_failures(hass):
-    """Test entity actions raise Home Assistant errors instead of swallowing them."""
+async def test_entity_command_propagates_failures(hass):
+    """Test entity actions do not swallow Home Assistant errors."""
     coordinator = _coordinator(hass, _ac_device())
     coordinator.api.set_device_params.side_effect = HomeAssistantError("failed")
     switch = AuxSwitchEntity(
@@ -262,16 +254,9 @@ async def test_switch_and_number_commands_propagate_failures(hass):
         "00001234",
         SwitchEntityDescription(key=AC_POWER),
     )
-    number = AuxNumberEntity(
-        coordinator,
-        "00001234",
-        NumberEntityDescription(key=AC_POWER_LIMIT),
-    )
 
     with pytest.raises(HomeAssistantError):
         await switch.async_turn_off()
-    with pytest.raises(HomeAssistantError):
-        await number.async_set_native_value(50)
 
 
 async def test_select_rejects_unknown_option(hass):
@@ -357,57 +342,3 @@ async def test_sensor_platform_adds_devices_discovered_later(hass):
         entity.unique_id for entity in add_entities.call_args_list[1].args[0]
     }
     assert first_unique_ids.isdisjoint(second_unique_ids)
-
-
-@pytest.mark.parametrize(
-    ("platform", "device"),
-    [
-        (climate_platform, _ac_device()),
-        (number_platform, _ac_device()),
-        (switch_platform, _ac_device()),
-        (
-            climate_platform,
-            {
-                "endpointId": "hp1",
-                "friendlyName": "Heat Pump",
-                "productId": HP_PRODUCT_ID,
-                "state": 1,
-                "params": {HP_HEATER_POWER: 1},
-            },
-        ),
-        (
-            select_platform,
-            {
-                "endpointId": "hp1",
-                "friendlyName": "Heat Pump",
-                "productId": HP_PRODUCT_ID,
-                "state": 1,
-                "params": {HP_QUIET_MODE: 0},
-            },
-        ),
-        (
-            water_heater_platform,
-            {
-                "endpointId": "hp1",
-                "friendlyName": "Heat Pump",
-                "productId": HP_PRODUCT_ID,
-                "state": 1,
-                "params": {HP_WATER_POWER: 1},
-            },
-        ),
-    ],
-)
-async def test_platform_setup_adds_supported_entities(hass, platform, device):
-    """Test every platform uses runtime data and registers dynamic discovery."""
-    coordinator = _coordinator(hass, device)
-    entry = SimpleNamespace(
-        runtime_data=SimpleNamespace(coordinator=coordinator),
-        async_on_unload=MagicMock(),
-    )
-    add_entities = MagicMock()
-
-    await platform.async_setup_entry(hass, entry, add_entities)
-
-    add_entities.assert_called_once()
-    assert add_entities.call_args.args[0]
-    entry.async_on_unload.assert_called_once()

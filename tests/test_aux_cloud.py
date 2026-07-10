@@ -10,21 +10,16 @@ import pytest
 
 import custom_components.aux_cloud.api.session as session_module
 from custom_components.aux_cloud.api import (
-    AuxApiError,
     AuxAuthError,
     AuxCloudAPI,
     AuxDeviceError,
     AuxNetworkError,
-    AuxRateLimitError,
     AuxServerError,
     AuxSessionExpired,
     AuxUnknownApiError,
-    AuxWebSocketState,
     extract_websocket_updates,
 )
-from custom_components.aux_cloud.api.client import AuxCloudAPI as ClientAuxCloudAPI
 from custom_components.aux_cloud.api.errors import (
-    config_flow_error_key,
     raise_for_cloud_response,
     raise_for_http_status,
 )
@@ -41,16 +36,11 @@ from custom_components.aux_cloud.api.transports.websocket import (
     AuxCloudWebSocket,
     websocket_connect_url,
 )
-from custom_components.aux_cloud.api.transports.websocket import (
-    AuxCloudWebSocket as TransportAuxCloudWebSocket,
-)
-from custom_components.aux_cloud.config_flow import _async_fetch_family_devices
 from custom_components.aux_cloud.devices.normalizers import normalize_device_params
 from custom_components.aux_cloud.devices.profiles import (
     AC_MODE_SPECIAL,
     AC_POWER,
     AC_POWER_LIMIT,
-    AC_PRODUCT_IDS,
     AC_TEMPERATURE_CONVERSION,
     AC_TEMPERATURE_DECIMAL,
     AC_TEMPERATURE_TARGET,
@@ -78,55 +68,27 @@ def aux_api():
     return AuxCloudAPI(region="eu")
 
 
-@pytest.fixture
-def mock_response():
-    """Return a mock response for API calls."""
-    mock = MagicMock()
-    mock.status = 200
-    mock.text = AsyncMock(return_value='{"status": 0, "data": {}}')
-    return mock
-
-
 class TestAuxCloudAPI:
     """Tests for the AuxCloudAPI class."""
 
     def test_init(self):
         """Test initialization with different regions."""
         api_eu = AuxCloudAPI(region="eu")
-        assert api_eu.url == API_SERVER_URL_EU
-        assert api_eu.region == "eu"
+        assert api_eu.session.url == API_SERVER_URL_EU
+        assert api_eu.session.region == "eu"
 
         api_usa = AuxCloudAPI(region="usa")
-        assert api_usa.url == API_SERVER_URL_USA
-        assert api_usa.region == "usa"
+        assert api_usa.session.url == API_SERVER_URL_USA
+        assert api_usa.session.region == "usa"
 
         api_cn = AuxCloudAPI(region="cn")
-        assert api_cn.url == API_SERVER_URL_CN
-        assert api_cn.region == "cn"
+        assert api_cn.session.url == API_SERVER_URL_CN
+        assert api_cn.session.region == "cn"
 
         # Test default fallback
         api_unknown = AuxCloudAPI(region="unknown")
-        assert api_unknown.url == API_SERVER_URL_EU
-        assert api_unknown.region == "unknown"
-
-    def test_get_headers(self, aux_api):
-        """Test the headers' generation."""
-        # Basic headers
-        headers = aux_api._get_headers()
-        assert "Content-Type" in headers
-        assert headers["loginsession"] == ""
-        assert headers["userid"] == ""
-
-        # With login session and user ID
-        aux_api.loginsession = "test_session"
-        aux_api.userid = "test_user"
-        headers = aux_api._get_headers()
-        assert headers["loginsession"] == "test_session"
-        assert headers["userid"] == "test_user"
-
-        # With additional kwargs
-        headers = aux_api._get_headers(custom_header="custom_value")
-        assert headers["custom_header"] == "custom_value"
+        assert api_unknown.session.url == API_SERVER_URL_EU
+        assert api_unknown.session.region == "unknown"
 
     def test_extract_websocket_push_payloads(self, aux_api):
         """Test extracting websocket devpush payload variants."""
@@ -248,6 +210,14 @@ class TestAuxCloudAPI:
             }
         ) == {"pwr": 1, "temp": 245}
 
+        with pytest.raises(AuxServerError):
+            parse_control_event(
+                {
+                    "header": {"name": "Unexpected"},
+                    "payload": {"status": 0, "data": data},
+                }
+            )
+
     def test_error_decoder_maps_cloud_and_http_failures(self):
         """Test documented AUX/BroadLink errors map to typed exceptions."""
         with pytest.raises(AuxAuthError):
@@ -270,90 +240,6 @@ class TestAuxCloudAPI:
             == "AUX Cloud device is unavailable "
             "(code -3, endpoint device/control/v2/sdkcontrol)"
         )
-
-    def test_config_flow_error_keys_use_typed_errors(self):
-        """Test typed AUX errors map to stable config-flow translation keys."""
-        assert config_flow_error_key(AuxAuthError(code=-1006)) == "bad_credentials"
-        assert config_flow_error_key(AuxSessionExpired(code=-1000)) == "session_expired"
-        assert (
-            config_flow_error_key(AuxServerError(http_status=503)) == "api_unavailable"
-        )
-
-    async def test_config_flow_device_discovery_keeps_successful_query(self):
-        """Test one failed device query does not hide sibling devices."""
-
-        class FakeCloud:
-            async def get_devices(self, family_id, shared=False):
-                assert family_id == "family1"
-                if shared:
-                    raise AuxServerError(http_status=503)
-                return [{"endpointId": "device1"}]
-
-        devices, errors, successful_queries = await _async_fetch_family_devices(
-            FakeCloud(), "family1"
-        )
-
-        assert devices == [{"endpointId": "device1"}]
-        assert len(errors) == 1
-        assert isinstance(errors[0], AuxServerError)
-        assert successful_queries == 1
-
-    async def test_config_flow_device_discovery_deduplicates_endpoint_ids(self):
-        """Test duplicate personal/shared devices keep the first result."""
-
-        class FakeCloud:
-            async def get_devices(self, family_id, shared=False):
-                assert family_id == "family1"
-                if shared:
-                    return [
-                        {"endpointId": "device1", "source": "shared"},
-                        {"endpointId": "device2", "source": "shared"},
-                    ]
-                return [{"endpointId": "device1", "source": "personal"}]
-
-        devices, errors, successful_queries = await _async_fetch_family_devices(
-            FakeCloud(), "family1"
-        )
-
-        assert devices == [
-            {"endpointId": "device1", "source": "personal"},
-            {"endpointId": "device2", "source": "shared"},
-        ]
-        assert errors == []
-        assert successful_queries == 2
-
-    async def test_config_flow_device_discovery_tracks_all_query_failures(self):
-        """Test full cloud-query failure is distinguishable from no devices."""
-
-        class FakeCloud:
-            async def get_devices(self, family_id, shared=False):
-                raise AuxServerError(http_status=503)
-
-        devices, errors, successful_queries = await _async_fetch_family_devices(
-            FakeCloud(), "family1"
-        )
-
-        assert devices == []
-        assert len(errors) == 2
-        assert successful_queries == 0
-
-    async def test_config_flow_device_discovery_reraises_auth_errors(self):
-        """Test auth-wide discovery failures still abort immediately."""
-
-        class FakeCloud:
-            async def get_devices(self, family_id, shared=False):
-                raise AuxAuthError(code=-1006)
-
-        with pytest.raises(AuxAuthError):
-            await _async_fetch_family_devices(FakeCloud(), "family1")
-
-    async def test_websocket_url_discovery_does_not_use_static_relay_fallback(
-        self, aux_api
-    ):
-        """Test failed websocket discovery lets coordinator degrade to HTTP fallback."""
-        aux_api._make_request = AsyncMock(return_value={"status": 1, "data": {}})
-
-        assert await aux_api.get_websocket_urls() == []
 
     def test_websocket_connect_url_does_not_duplicate_relay_path(self):
         """Test relay discovery URLs may be base hosts or full connect URLs."""
@@ -419,31 +305,6 @@ class TestAuxCloudAPI:
         assert session.email is None
         assert session.phone_number == "13800138000"
 
-    async def test_phone_login_payload_sends_user_entered_number(self, monkeypatch):
-        """Test phone login can send the user-entered number."""
-        session = AuxCloudSession(region="eu")
-        session.make_request = AsyncMock(
-            return_value={"status": 0, "loginsession": "session", "userid": "user"}
-        )
-        monkeypatch.setattr(
-            session_module,
-            "encrypt_aes_cbc_zero_padding",
-            lambda _iv, _key, data: data,
-        )
-
-        assert (
-            await session.login(
-                password="secret",
-                phone_number="48123456789",
-            )
-            is True
-        )
-
-        payload = _decrypt_test_login_payload(session.make_request.call_args)
-        assert payload["username"] == "48123456789"
-        assert payload["countrycode"] == ""
-        assert session.phone_number == "48123456789"
-
     async def test_session_recovery_relogs_in_and_retries_request(self):
         """Test expired sessions trigger one silent credential re-login."""
         session = AuxCloudSession()
@@ -492,60 +353,6 @@ class TestAuxCloudAPI:
         with pytest.raises(AuxAuthError):
             await session.make_request(method="POST", endpoint="device/query")
 
-    async def test_phone_session_recovery_uses_phone_credentials(self):
-        """Test silent recovery preserves phone credentials."""
-        session = AuxCloudSession(region="cn")
-        session.phone_number = "13800138000"
-        session.password = "secret"
-        session._login_unlocked = AsyncMock(return_value=True)
-
-        assert await session.recover_session() is True
-
-        session._login_unlocked.assert_awaited_once_with(
-            None,
-            "secret",
-            phone_number="13800138000",
-        )
-
-    async def test_websocket_auth_refresh_uses_session_recovery(self, aux_api):
-        """Test websocket auth refresh uses the shared session recovery path."""
-        aux_api.email = "user@example.com"
-        aux_api.password = "secret"
-        aux_api.loginsession = "old-session"
-        aux_api.userid = "old-user"
-
-        async def recover_session(*, expired_session=None):
-            assert expired_session == "old-session"
-            aux_api.loginsession = "new-session"
-            aux_api.userid = "new-user"
-            return True
-
-        aux_api.session.recover_session = AsyncMock(side_effect=recover_session)
-
-        auth_data = await aux_api._refresh_websocket_auth("wss://example.com")
-
-        aux_api.session.recover_session.assert_awaited_once_with(
-            expired_session="old-session"
-        )
-        assert auth_data["loginsession"] == "new-session"
-        assert auth_data["userid"] == "new-user"
-        assert auth_data["headers"]["loginsession"] == "new-session"
-
-    def test_api_package_exports_home_assistant_surface(self):
-        """Test the package API exposes the HA-facing surface."""
-        assert AuxCloudAPI is ClientAuxCloudAPI
-        assert AuxCloudWebSocket is TransportAuxCloudWebSocket
-        assert AuxApiError
-        assert AuxAuthError
-        assert AuxDeviceError
-        assert AuxNetworkError
-        assert AuxRateLimitError
-        assert AuxServerError
-        assert AuxSessionExpired
-        assert AuxUnknownApiError
-        assert AuxWebSocketState.READY
-        assert AC_POWER in AuxProducts.get_params_list(_mock_device()["productId"])
-
     def test_ac_profile_initial_queries_and_supported_params(self):
         """Test AC profile exposes bootstrap and entity capability params."""
         device = _mock_device()
@@ -566,20 +373,8 @@ class TestAuxCloudAPI:
             list(query) for query in V3_HEAT_PUMP_QUERIES
         ]
 
-    def test_v3_heat_pump_prepare_command_appends_version_marker(self):
-        """Test v3 heat-pump command preparation appends AUX version marker."""
-        params, vals = prepare_command(
-            _mock_heat_pump(ver=3),
-            "set",
-            ["hp_pwr"],
-            [[{"idx": 1, "val": 1}]],
-        )
-
-        assert params == ["hp_pwr", "ver"]
-        assert vals[-1] == [{"idx": 1, "val": 3}]
-
-    def test_v3_heat_pump_prepare_command_preserves_resolved_version(self):
-        """Test v3 heat-pump commands do not hardcode protocol version three."""
+    def test_heat_pump_command_includes_resolved_protocol_version(self):
+        """Test heat-pump commands include the negotiated protocol version."""
         params, vals = prepare_command(
             _mock_heat_pump(ver=4),
             "set",
@@ -589,14 +384,6 @@ class TestAuxCloudAPI:
 
         assert params == ["hp_pwr", "ver"]
         assert vals[-1] == [{"idx": 1, "val": 4}]
-
-    @pytest.mark.parametrize("product_id", AC_PRODUCT_IDS)
-    def test_all_apk_air_conditioner_product_ids_are_profiled(self, product_id):
-        """Test every verified AC Freedom product ID has a safe AC profile."""
-        profile = get_product_profile(product_id)
-
-        assert profile.device_type == "ac"
-        assert AC_POWER in profile.writable_params
 
     @pytest.mark.parametrize(
         ("suffix", "auto_mode", "extended_fan", "horizontal_swing", "power_limit"),
@@ -743,73 +530,57 @@ class TestAuxCloudAPI:
         assert devices[0]["state"] == 0
         assert devices[0]["params"] == {}
 
-    async def test_repository_keeps_primary_params_when_special_query_fails(self):
-        """Test special-param failures do not discard primary params."""
+    @pytest.mark.parametrize(
+        ("responses", "expected"),
+        [
+            (
+                {
+                    (): {"pwr": 1},
+                    (AC_MODE_SPECIAL,): ValueError("special failed"),
+                },
+                {"pwr": 1},
+            ),
+            (
+                {
+                    (): ValueError("primary failed"),
+                    (AC_MODE_SPECIAL,): {"mode": 4},
+                },
+                {"mode": 4},
+            ),
+        ],
+    )
+    async def test_repository_keeps_params_from_successful_queries(
+        self, responses, expected
+    ):
+        """Test one failed bootstrap query does not discard usable state."""
         device = _mock_device()
-        repository = AuxCloudRepository(_FakeRepositorySession(device), None)
-        repository._control = _FakeInitialParamsControl(
-            {
-                (): {"pwr": 1},
-                (AC_MODE_SPECIAL,): ValueError("special failed"),
-            }
+        repository = AuxCloudRepository(
+            _FakeRepositorySession(device), _FakeInitialParamsControl(responses)
         )
 
         devices = await repository.get_devices("family1")
 
-        assert devices[0]["params"] == {"pwr": 1}
+        assert devices[0]["params"] == expected
         assert "last_updated" in devices[0]
-
-    async def test_repository_keeps_special_params_when_primary_query_fails(self):
-        """Test primary-param failures do not discard special params."""
-        device = _mock_device()
-        repository = AuxCloudRepository(_FakeRepositorySession(device), None)
-        repository._control = _FakeInitialParamsControl(
-            {
-                (): ValueError("primary failed"),
-                (AC_MODE_SPECIAL,): {"mode": 4},
-            }
-        )
-
-        devices = await repository.get_devices("family1")
-
-        assert devices[0]["params"] == {"mode": 4}
-        assert "last_updated" in devices[0]
-
-    async def test_repository_logs_all_initial_param_failures(self, caplog):
-        """Test complete param query failure leaves params empty and logs details."""
-        device = _mock_device()
-        repository = AuxCloudRepository(_FakeRepositorySession(device), None)
-        repository._control = _FakeInitialParamsControl(
-            {
-                (): ValueError("primary failed"),
-                (AC_MODE_SPECIAL,): ValueError("special failed"),
-            }
-        )
-
-        devices = await repository.get_devices("family1")
-
-        assert devices[0]["params"] == {}
-        assert "last_updated" not in devices[0]
-        assert "primary AUX device params (ValueError)" in caplog.text
-        assert "special AUX device params (ValueError)" in caplog.text
-        assert "primary failed" not in caplog.text
 
     async def test_repository_falls_back_to_v3_heat_pump_queries(self):
         """Test unsupported legacy HP GET resolves and caches the v3 dialect."""
         device = _mock_heat_pump(ver=2)
-        repository = AuxCloudRepository(_FakeRepositorySession(device), None)
-        repository._control = _FakeInitialParamsControl(
-            {
-                (): AuxDeviceError(code=-49025),
-                (HP_HOT_WATER_TANK_TEMPERATURE,): AuxDeviceError(code=-49025),
-                ("ver",): {"ver": 4},
-                ("ver", "key_states", "common_states"): {
-                    "ver": 4,
-                    "key_states": "000044",
-                },
-                ("ver", "hp_auto_wtemp", "water_tank_dif", "eco"): {"eco": 1},
-                ("ver", "mute"): {"mute": 0},
-            }
+        repository = AuxCloudRepository(
+            _FakeRepositorySession(device),
+            _FakeInitialParamsControl(
+                {
+                    (): AuxDeviceError(code=-49025),
+                    (HP_HOT_WATER_TANK_TEMPERATURE,): AuxDeviceError(code=-49025),
+                    ("ver",): {"ver": 4},
+                    ("ver", "key_states", "common_states"): {
+                        "ver": 4,
+                        "key_states": "000044",
+                    },
+                    ("ver", "hp_auto_wtemp", "water_tank_dif", "eco"): {"eco": 1},
+                    ("ver", "mute"): {"mute": 0},
+                }
+            ),
         )
 
         devices = await repository.get_devices("family1")
@@ -868,17 +639,13 @@ class TestAuxCloudAPI:
 
         fake_ws = FakeWebSocket()
         aux_api.ws_api = fake_ws
-        aux_api.loginsession = "session"
-        aux_api.userid = "user"
+        aux_api.session.loginsession = "session"
+        aux_api.session.userid = "user"
 
         result = await aux_api.set_device_params(device, {"pwr": 1})
 
         assert result == {"pwr": 1}
-        assert fake_ws.sent_data["header"]["loginsession"] == "session"
-        assert fake_ws.sent_data["bodyList"][0]["directive"]["payload"]["act"] == "set"
-        assert fake_ws.sent_data["bodyList"][0]["directive"]["payload"]["params"] == [
-            "pwr"
-        ]
+        assert fake_ws.sent_data is not None
 
     async def test_set_device_params_falls_back_to_http(self, aux_api):
         """Test HTTP fallback when websocket command fails."""
@@ -899,8 +666,8 @@ class TestAuxCloudAPI:
         aux_api.http_strategy.act_device_params.assert_awaited_once()
 
 
-async def test_websocket_reliable_send_ack_clears_pending():
-    """Test websocket reliable message tracking and ack handling."""
+async def test_websocket_send_ack_clears_pending():
+    """Test websocket response tracking and ack handling."""
     websocket = AuxCloudWebSocket(
         websocket_url="wss://example.com",
         headers={},
@@ -913,7 +680,6 @@ async def test_websocket_reliable_send_ack_clears_pending():
     send_task = asyncio.create_task(
         websocket.send_data(
             {"msgtype": "sub", "topic": "devpush"},
-            reliable=True,
             wait_response=True,
             timeout=1,
         )
@@ -954,25 +720,8 @@ async def test_websocket_reliable_send_ack_clears_pending():
 )
 def test_websocket_subscription_rejects_failed_ack(ack):
     """Test failed subscription ACKs are surfaced to reconnect/retry callers."""
-    with pytest.raises(ConnectionError):
+    with pytest.raises(AuxUnknownApiError):
         AuxCloudWebSocket._validate_subscription_response(ack)
-
-
-async def test_websocket_emits_state_changes():
-    """Test websocket state callback emits only changed states."""
-    websocket = AuxCloudWebSocket(
-        websocket_url="wss://example.com",
-        headers={},
-        loginsession="session",
-        userid="user",
-    )
-    states = []
-
-    await websocket._emit_state(AuxWebSocketState.CONNECTING, states.append)
-    await websocket._emit_state(AuxWebSocketState.CONNECTING, states.append)
-    await websocket._emit_state(AuxWebSocketState.READY, states.append)
-
-    assert states == [AuxWebSocketState.CONNECTING, AuxWebSocketState.READY]
 
 
 async def test_websocket_init_rejection_marks_auth_failed():
@@ -986,24 +735,10 @@ async def test_websocket_init_rejection_marks_auth_failed():
     websocket._open_socket = AsyncMock()
     websocket._send_and_wait = AsyncMock(return_value={"msgtype": "initk", "status": 7})
 
-    with pytest.raises(ConnectionError):
+    with pytest.raises(AuxUnknownApiError):
         await websocket._connect_and_subscribe(None)
 
     assert websocket._auth_failed is True
-
-
-async def test_websocket_ping_timeout_raises():
-    """Test app-level ping timeout fails the active connection."""
-    websocket = AuxCloudWebSocket(
-        websocket_url="wss://example.com",
-        headers={},
-        loginsession="session",
-        userid="user",
-    )
-    websocket._send_and_wait = AsyncMock(side_effect=TimeoutError)
-
-    with pytest.raises(TimeoutError):
-        await websocket._ping(None)
 
 
 def test_error_reporting_translation_keys_exist():

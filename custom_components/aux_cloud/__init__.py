@@ -102,10 +102,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuxCloudConfigEntry) -> 
 
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    except asyncio.CancelledError:
-        await coordinator.async_close()
-        raise
-    except Exception:
+    except (asyncio.CancelledError, Exception):
         await coordinator.async_close()
         raise
 

@@ -82,7 +82,7 @@ async def async_setup_entry(
                     ),
                 )
             ]
-        elif device.get("productId") in AuxProducts.DeviceType.HEAT_PUMP:
+        if device.get("productId") in AuxProducts.DeviceType.HEAT_PUMP:
             return [
                 AuxHeatPumpClimateEntity(
                     coordinator,
@@ -206,7 +206,6 @@ class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
     async def async_set_fan_mode(self, fan_mode):
         """Set new fan mode."""
         _LOGGER.warning("Fan mode setting is not supported for heat pump devices")
-        return
 
 
 class AuxACClimateEntity(BaseEntity, ClimateEntity):

@@ -14,9 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
     AuxApiError,
-    AuxAuthError,
     AuxCloudAPI,
-    AuxSessionExpired,
     config_flow_error_key,
 )
 from .const import (
@@ -29,7 +27,6 @@ from .const import (
 from .util import (
     account_unique_id_from_credentials,
     account_unique_id_from_user_id,
-    deduplicate_devices_by_endpoint_id,
 )
 
 if TYPE_CHECKING:
@@ -57,24 +54,6 @@ def _clean_entry_data(data: dict[str, Any]) -> dict[str, Any]:
         for key, value in data.items()
         if key not in {CONF_FAMILIES, CONF_SELECTED_DEVICES}
     }
-
-
-async def _async_fetch_family_devices(
-    api: AuxCloudAPI, family_id: str
-) -> tuple[list[dict[str, Any]], list[AuxApiError], int]:
-    """Compatibility helper for callers that need partial family discovery."""
-    devices: list[dict[str, Any]] = []
-    errors: list[AuxApiError] = []
-    successful_queries = 0
-    for shared in (False, True):
-        try:
-            devices.extend(await api.get_devices(family_id, shared=shared) or [])
-            successful_queries += 1
-        except (AuxAuthError, AuxSessionExpired):
-            raise
-        except AuxApiError as err:
-            errors.append(err)
-    return deduplicate_devices_by_endpoint_id(devices), errors, successful_queries
 
 
 class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
@@ -176,9 +155,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
         try:
             return await self._async_validate_and_finish(credential_type, normalized)
         except AuxApiError as err:
-            _LOGGER.warning(
-                "AUX Cloud credential validation failed (%s)", type(err).__name__
-            )
             return self.async_show_form(
                 step_id=step_id,
                 data_schema=self._account_schema(credential_type, normalized),

@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from ..errors import AuxApiError, raise_for_cloud_response
+from ..errors import AuxApiError, AuxServerError, raise_for_cloud_response
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -165,10 +165,6 @@ class AuxCloudWebSocket:
             await self._session.close()
         self._session = None
 
-    async def close_websocket(self) -> None:
-        """Backward-compatible close alias."""
-        await self.async_close()
-
     def set_subscriptions(self, devices: list[dict]) -> None:
         """Store the device subscription list for initial connect and reconnect."""
         self._subscriptions = [
@@ -204,17 +200,10 @@ class AuxCloudWebSocket:
             timeout=timeout,
         )
 
-    async def send_opencontrol(
-        self, data: dict, *, timeout: int = COMMAND_TIMEOUT
-    ) -> dict:
-        """Backward-compatible opencontrol alias."""
-        return await self.async_send_opencontrol(data, timeout=timeout)
-
     async def send_data(
         self,
         data: dict,
         *,
-        reliable: bool = False,  # pylint: disable=unused-argument
         wait_response: bool = False,
         timeout: int | None = None,
     ) -> dict:
@@ -260,12 +249,15 @@ class AuxCloudWebSocket:
         )
         try:
             raise_for_cloud_response(init_response, endpoint="websocket/init")
-        except AuxApiError as exc:
+        except AuxApiError:
             self._auth_failed = True
-            raise ConnectionError("AUX Cloud websocket init failed") from exc
+            raise
         if not self._is_success_status(init_response.get("status")):
             self._auth_failed = True
-            raise ConnectionError("AUX Cloud websocket init failed")
+            raise AuxServerError(
+                "Invalid AUX websocket init response",
+                endpoint="websocket/init",
+            )
 
         self._auth_failed = False
         if self._subscriptions:
@@ -308,12 +300,15 @@ class AuxCloudWebSocket:
         )
         try:
             raise_for_cloud_response(response, endpoint="websocket/ping")
-        except AuxApiError as exc:
+        except AuxApiError:
             self._auth_failed = True
-            raise ConnectionError("AUX Cloud websocket ping failed") from exc
+            raise
         if not self._is_success_status(response.get("status")):
             self._auth_failed = True
-            raise ConnectionError("AUX Cloud websocket ping failed")
+            raise AuxServerError(
+                "Invalid AUX websocket ping response",
+                endpoint="websocket/ping",
+            )
 
     async def _subscribe_from_cache(
         self,
@@ -422,10 +417,8 @@ class AuxCloudWebSocket:
             result = listener(message)
             if inspect.isawaitable(result):
                 await result
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error(
-                "Error in AUX Cloud websocket listener (%s)", type(exc).__name__
-            )
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Error in AUX Cloud websocket listener")
 
     async def _send_raw(self, raw_data: str) -> None:
         """Send a raw websocket string."""
@@ -480,29 +473,21 @@ class AuxCloudWebSocket:
     @classmethod
     def _validate_subscription_response(cls, response: dict) -> None:
         """Raise if the relay rejected a subscription request."""
-        try:
-            raise_for_cloud_response(response, endpoint="websocket/subscribe")
-        except AuxApiError as exc:
-            raise ConnectionError("AUX Cloud websocket subscription failed") from exc
+        raise_for_cloud_response(response, endpoint="websocket/subscribe")
 
         if not cls._is_success_status(response.get("status")):
-            raise ConnectionError("AUX Cloud websocket subscription failed")
-
-        failed_devices = []
-        for item in (response.get("data") or {}).get("devList", []) or []:
-            try:
-                raise_for_cloud_response(item, endpoint="websocket/subscribe")
-            except AuxApiError as exc:
-                raise ConnectionError(
-                    "AUX Cloud websocket subscription failed"
-                ) from exc
-            if not cls._is_success_status(item.get("status")):
-                failed_devices.append(item.get("endpointId") or item.get("did"))
-
-        if failed_devices:
-            raise ConnectionError(
-                "AUX Cloud websocket subscription failed for a device"
+            raise AuxServerError(
+                "Invalid AUX websocket subscription response",
+                endpoint="websocket/subscribe",
             )
+
+        for item in (response.get("data") or {}).get("devList", []) or []:
+            raise_for_cloud_response(item, endpoint="websocket/subscribe")
+            if not cls._is_success_status(item.get("status")):
+                raise AuxServerError(
+                    "Invalid AUX websocket device subscription response",
+                    endpoint="websocket/subscribe",
+                )
 
     def _next_message_id(self) -> str:
         """Return a mostly monotonic millisecond message id."""

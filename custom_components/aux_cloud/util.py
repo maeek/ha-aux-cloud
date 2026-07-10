@@ -55,6 +55,24 @@ def deduplicate_ordered_values(values: Iterable[str]) -> list[str]:
     return deduplicated
 
 
+def supported_entity_definitions(
+    device: dict[str, Any], definitions: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return entity definitions backed by a device product profile."""
+    product_id = device.get("productId")
+    if not product_id:
+        return []
+    supported_params = {
+        *(AuxProducts.get_params_list(product_id) or ()),
+        *(AuxProducts.get_special_params_list(product_id) or ()),
+    }
+    return [
+        definition
+        for definition in definitions
+        if definition["description"].key in supported_params
+    ]
+
+
 def account_unique_id_from_credentials(
     region: str,
     *,
@@ -349,16 +367,12 @@ class BaseEntity(CoordinatorEntity):
         try:
             await self.coordinator.async_set_device_params(self._device, params)
         except AuxApiError as err:
-            _LOGGER.error("Failed to apply AUX device setting (%s)", type(err).__name__)
             raise HomeAssistantError(
                 str(err),
                 translation_domain=DOMAIN,
                 translation_key=err.translation_key,
                 translation_placeholders={"error": str(err)},
             ) from err
-        except Exception:
-            _LOGGER.error("Unexpected AUX device command failure")
-            raise
 
 
 def setup_dynamic_entities(

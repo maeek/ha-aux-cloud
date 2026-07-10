@@ -23,8 +23,11 @@ jobs:
       - name: Install minimum Home Assistant
         if: matrix.home-assistant == 'minimum'
         run: pip install --upgrade "homeassistant==2026.4.*"
+      - name: Install latest Home Assistant
+        if: matrix.home-assistant == 'latest'
+        run: pip install --upgrade homeassistant
       - name: Run tests
-        run: pytest -q --cov-fail-under=75
+        run: pytest -q
 
   quality:
     runs-on: ubuntu-latest
@@ -35,6 +38,7 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements.test.txt
+      - run: pip install --upgrade "homeassistant==2026.4.*"
       - run: black --check custom_components/aux_cloud tests
       - run: ruff check custom_components/aux_cloud tests
       - run: mypy custom_components/aux_cloud

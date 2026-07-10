@@ -87,7 +87,6 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._update_generation = 0
         self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
-        self._cloud_failure_logged = False
 
     @callback
     def async_add_device_listener(self, listener: DeviceListener) -> Callable[[], None]:
@@ -120,15 +119,9 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
                         listener=self._async_handle_websocket_message,
                         state_listener=self._async_handle_websocket_state,
                     )
-                except asyncio.CancelledError:
-                    raise
-                except (AuxApiError, ConnectionError, TimeoutError) as exc:
-                    _LOGGER.debug(
-                        "AUX websocket runner restarting (%s)", type(exc).__name__
-                    )
                 except Exception as exc:  # Protect HA from third-party relay faults.
                     _LOGGER.debug(
-                        "Unexpected AUX websocket failure (%s)", type(exc).__name__
+                        "AUX websocket runner restarting (%s)", type(exc).__name__
                     )
                 await self._async_handle_websocket_state(AuxWebSocketState.DEGRADED)
                 await asyncio.sleep(retry_delay)
@@ -318,65 +311,54 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     async def _async_update_data(self) -> CoordinatorData:
         """Run an authoritative account topology and state scan."""
         try:
-            await self._async_ensure_login()
-            await self.api.get_families()
-            family_ids = list((self.api.families or {}).keys())
-            tasks = [
-                self.api.get_devices(family_id, shared=shared)
-                for family_id in family_ids
-                for shared in (False, True)
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            discovered, complete = self._collect_device_results(results)
-            previous_ids = {
-                device["endpointId"]
-                for device in self.devices
-                if device.get("endpointId")
-            }
-            self.devices = self._reconcile_inventory(discovered, complete=complete)
-            current_ids = {
-                device["endpointId"]
-                for device in self.devices
-                if device.get("endpointId")
-            }
-            new_ids = current_ids - previous_ids
-            removed_ids = previous_ids - current_ids
-            for endpoint_id in removed_ids:
-                self._device_state_helpers.pop(endpoint_id, None)
-                self._command_locks.pop(endpoint_id, None)
-            self._async_remove_stale_devices(removed_ids)
-
-            if self._cloud_failure_logged:
-                _LOGGER.info("AUX Cloud communication restored")
-            self._cloud_failure_logged = False
-            if new_ids:
-                new_devices = [
-                    device
-                    for device in self.devices
-                    if device.get("endpointId") in new_ids
-                ]
-                for listener in tuple(self._device_listeners):
-                    listener(new_devices)
-            if new_ids or removed_ids:
-                self.hass.async_create_task(self._async_refresh_websocket_membership())
-            self._update_generation += 1
-            return {"devices": list(self.devices)}
+            return await self._async_scan_devices()
         except (AuxAuthError, AuxSessionExpired) as exc:
             raise ConfigEntryAuthFailed(
                 "AUX Cloud credentials must be updated"
             ) from exc
         except AuxRateLimitError as exc:
-            self._log_cloud_failure_once(exc)
-            if exc.retry_after is not None:
-                raise UpdateFailed(str(exc), retry_after=exc.retry_after) from exc
-            raise UpdateFailed(str(exc)) from exc
-        except (AuxNetworkError, AuxServerError) as exc:
-            self._log_cloud_failure_once(exc)
-            raise UpdateFailed(str(exc)) from exc
+            raise UpdateFailed(str(exc), retry_after=exc.retry_after) from exc
         except AuxApiError as exc:
             raise UpdateFailed(str(exc)) from exc
-        except Exception as exc:
-            raise UpdateFailed("Unexpected AUX Cloud update failure") from exc
+
+    async def _async_scan_devices(self) -> CoordinatorData:
+        """Fetch, reconcile, and publish an account inventory snapshot."""
+        await self._async_ensure_login()
+        await self.api.get_families()
+        family_ids = list((self.api.families or {}).keys())
+        results = await asyncio.gather(
+            *(
+                self.api.get_devices(family_id, shared=shared)
+                for family_id in family_ids
+                for shared in (False, True)
+            ),
+            return_exceptions=True,
+        )
+        discovered, complete = self._collect_device_results(results)
+        previous_ids = _device_endpoint_ids(self.devices)
+        self.devices = self._reconcile_inventory(discovered, complete=complete)
+        self._handle_inventory_changes(previous_ids)
+        self._update_generation += 1
+        return {"devices": list(self.devices)}
+
+    def _handle_inventory_changes(self, previous_ids: set[str]) -> None:
+        """Clean up removals and notify consumers about membership changes."""
+        current_ids = _device_endpoint_ids(self.devices)
+        new_ids = current_ids - previous_ids
+        removed_ids = previous_ids - current_ids
+        for endpoint_id in removed_ids:
+            self._device_state_helpers.pop(endpoint_id, None)
+            self._command_locks.pop(endpoint_id, None)
+        self._async_remove_stale_devices(removed_ids)
+
+        if new_ids:
+            new_devices = [
+                device for device in self.devices if device.get("endpointId") in new_ids
+            ]
+            for listener in tuple(self._device_listeners):
+                listener(new_devices)
+        if new_ids or removed_ids:
+            self.hass.async_create_task(self._async_refresh_websocket_membership())
 
     async def _async_ensure_login(self) -> None:
         """Authenticate when the shared API session has no active identity."""
@@ -484,17 +466,17 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
                     remove_config_entry_id=self._aux_config_entry.entry_id,
                 )
 
-    def _log_cloud_failure_once(self, error: BaseException) -> None:
-        """Log a transient cloud outage once until a successful scan."""
-        if self.data is None or self._cloud_failure_logged:
-            return
-        self._cloud_failure_logged = True
-        _LOGGER.warning("AUX Cloud update unavailable (%s)", type(error).__name__)
-
 
 def _timestamp() -> str:
     """Return a display-only timestamp for diagnostics."""
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+
+def _device_endpoint_ids(devices: list[AuxDevice]) -> set[str]:
+    """Return the non-empty endpoint IDs in a device collection."""
+    return {
+        endpoint_id for device in devices if (endpoint_id := device.get("endpointId"))
+    }
 
 
 def _preferred_query_error(errors: list[BaseException]) -> BaseException:

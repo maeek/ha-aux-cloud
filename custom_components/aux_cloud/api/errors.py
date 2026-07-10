@@ -37,18 +37,6 @@ DEVICE_ERROR_CODES = {
     -4046,
 }
 
-SENSITIVE_KEYS = {
-    "aeskey",
-    "cookie",
-    "license",
-    "licenseid",
-    "lid",
-    "loginsession",
-    "password",
-    "token",
-    "userid",
-}
-
 ERROR_CODE_MESSAGES = {
     -3: "AUX Cloud device is unavailable",
     -7: "AUX Cloud device command failed",
@@ -85,18 +73,13 @@ class AuxApiError(Exception):
         code: int | None = None,
         http_status: int | None = None,
         endpoint: str | None = None,
-        response: Any = None,
-        translation_key: str | None = None,
         retry_after: int | None = None,
     ) -> None:
         """Initialize an AUX Cloud API error."""
         self.code = code
         self.http_status = http_status
         self.endpoint = endpoint
-        self.response = sanitize_response(response)
         self.retry_after = retry_after
-        if translation_key is not None:
-            self.translation_key = translation_key
         super().__init__(message or self._format_message())
 
     def _format_message(self) -> str:
@@ -165,19 +148,10 @@ class AuxUnknownApiError(AuxApiError):
     default_message = "Unknown AUX Cloud API error"
 
 
-def sanitize_response(value: Any, *, max_length: int = 1000) -> Any:
-    """Return a sanitized response context safe enough for diagnostics."""
-    sanitized = _sanitize_value(value)
-    if isinstance(sanitized, str) and len(sanitized) > max_length:
-        return f"{sanitized[:max_length]}..."
-    return sanitized
-
-
 def raise_for_http_status(
     status: int,
     *,
     endpoint: str | None = None,
-    response: Any = None,
     retry_after: str | None = None,
 ) -> None:
     """Raise a typed error for an unsuccessful HTTP status."""
@@ -188,32 +162,27 @@ def raise_for_http_status(
         raise AuxSessionExpired(
             http_status=status,
             endpoint=endpoint,
-            response=response,
         )
     if status == 429:
         raise AuxRateLimitError(
             http_status=status,
             endpoint=endpoint,
-            response=response,
             retry_after=parse_retry_after(retry_after),
         )
     if status in (408, 425):
         raise AuxNetworkError(
             http_status=status,
             endpoint=endpoint,
-            response=response,
         )
     if status >= 500:
         raise AuxServerError(
             http_status=status,
             endpoint=endpoint,
-            response=response,
         )
 
     raise AuxUnknownApiError(
         http_status=status,
         endpoint=endpoint,
-        response=response,
     )
 
 
@@ -241,7 +210,7 @@ def raise_for_cloud_response(payload: Any, *, endpoint: str | None = None) -> No
         return
 
     error_cls = error_class_for_code(code)
-    raise error_cls(code=code, endpoint=endpoint, response=payload)
+    raise error_cls(code=code, endpoint=endpoint)
 
 
 def extract_error_code(payload: Any) -> int | None:
@@ -305,31 +274,6 @@ def config_flow_error_key(error: BaseException) -> str:
         if isinstance(error, error_type):
             return error_key
     return "unknown"
-
-
-def issue_id_for_error(error: AuxApiError) -> str:
-    """Return the Home Assistant Repairs issue ID for an API error."""
-    if isinstance(error, (AuxAuthError, AuxSessionExpired)):
-        return "auth_failed"
-    if isinstance(error, AuxRateLimitError):
-        return "rate_limited"
-    if isinstance(error, (AuxNetworkError, AuxServerError)):
-        return "api_unavailable"
-    return "api_unavailable"
-
-
-def _sanitize_value(value: Any) -> Any:
-    """Recursively sanitize response content."""
-    if isinstance(value, dict):
-        return {
-            key: "***" if str(key).lower() in SENSITIVE_KEYS else _sanitize_value(val)
-            for key, val in value.items()
-        }
-    if isinstance(value, list):
-        return [_sanitize_value(item) for item in value]
-    if isinstance(value, bytes):
-        return value.decode(errors="replace")
-    return value
 
 
 def _code_at_path(payload: dict, path: Iterable[str]) -> int | None:

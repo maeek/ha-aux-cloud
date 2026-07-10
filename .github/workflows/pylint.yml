@@ -2,7 +2,7 @@ name: Lint with Pylint
 
 on:
   pull_request:
-    branches: [ main ]  # or your default branch
+    branches: [ main, "2.0" ]
 
 jobs:
   lint:
@@ -22,6 +22,7 @@ jobs:
         python -m venv venv
         source venv/bin/activate
         pip install -r requirements.test.txt
+        pip install --upgrade "homeassistant==2026.4.*"
 
     - name: Run pylint
       run: |

@@ -6,7 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from ..errors import raise_for_cloud_response
+from ..errors import AuxServerError, raise_for_cloud_response
 from ..protocol.common import (
     build_device_params_directive,
     device_values_to_params,
@@ -69,10 +69,13 @@ class AuxCloudHttpStrategy:
         )
 
         _LOGGER.debug("AUX device parameter HTTP request completed")
-        try:
-            return parse_control_event(json_data["event"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("Failed to parse AUX device control response") from exc
+        event = json_data.get("event")
+        if not isinstance(event, dict):
+            raise AuxServerError(
+                "AUX device control response has no event",
+                endpoint="device/control/v2/sdkcontrol",
+            )
+        return parse_control_event(event)
 
 
 def parse_control_event(event: dict) -> dict:
@@ -80,12 +83,22 @@ def parse_control_event(event: dict) -> dict:
     raise_for_cloud_response(event, endpoint="device/control/v2/sdkcontrol")
 
     if event.get("header", {}).get("name") != "Response":
-        raise ValueError("Unexpected control response")
+        raise AuxServerError(
+            "Unexpected AUX device control response",
+            endpoint="device/control/v2/sdkcontrol",
+        )
 
     payload = event.get("payload", {})
-    status = payload.get("status")
+    if not isinstance(payload, dict):
+        raise AuxServerError(
+            "Invalid AUX device control payload",
+            endpoint="device/control/v2/sdkcontrol",
+        )
     data = payload.get("data")
-    if status not in (None, 0) and not data:
-        raise ValueError(f"Control response status {status}")
-
-    return parse_std_data(data)
+    try:
+        return parse_std_data(data)
+    except (TypeError, ValueError) as exc:
+        raise AuxServerError(
+            "Invalid AUX device control data",
+            endpoint="device/control/v2/sdkcontrol",
+        ) from exc

@@ -18,9 +18,8 @@ from .devices.profiles import (
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
-    AuxProducts,
 )
-from .util import BaseEntity, setup_dynamic_entities
+from .util import BaseEntity, setup_dynamic_entities, supported_entity_definitions
 
 PARALLEL_UPDATES = 0
 
@@ -149,34 +148,15 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
 
     def entities_for_device(device):
-        entities = []
-        supported_params = AuxProducts.get_params_list(device["productId"])
-        supported_special_params = AuxProducts.get_special_params_list(
-            device["productId"]
-        )
-
-        for entity in SWITCHES.values():
-            if "productId" in device and (
-                (supported_params and entity["description"].key in supported_params)
-                or (
-                    supported_special_params
-                    and entity["description"].key in supported_special_params
-                )
-            ):
-                entities.append(
-                    AuxSwitchEntity(
-                        coordinator,
-                        device["endpointId"],
-                        entity["description"],
-                        (
-                            entity["custom_mapping"]
-                            if "custom_mapping" in entity
-                            else None
-                        ),
-                    )
-                )
-
-        return entities
+        return [
+            AuxSwitchEntity(
+                coordinator,
+                device["endpointId"],
+                entity["description"],
+                entity.get("custom_mapping"),
+            )
+            for entity in supported_entity_definitions(device, SWITCHES.values())
+        ]
 
     setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 

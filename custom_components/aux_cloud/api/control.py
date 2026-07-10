@@ -60,7 +60,10 @@ class AuxCloudWebSocketStrategy:
         raise_for_cloud_response(response, endpoint="websocket/transit.opencontrol")
         status = response.get("status")
         if status not in (None, 0, "0"):
-            raise ValueError(f"WebSocket control failed: {response}")
+            raise AuxServerError(
+                "Invalid AUX websocket control response",
+                endpoint="websocket/transit.opencontrol",
+            )
 
         updates = extract_websocket_updates(response)
         for update in updates:
@@ -105,7 +108,7 @@ class AuxCloudControlService:
                 )
                 return response or values
         except (ConnectionError, TimeoutError, AuxNetworkError, AuxServerError) as exc:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "AUX Cloud websocket command unavailable; falling back to HTTP (%s)",
                 type(exc).__name__,
             )

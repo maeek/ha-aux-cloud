@@ -213,7 +213,6 @@ class AuxCloudSession:
                 raise_for_http_status(
                     response.status,
                     endpoint=endpoint,
-                    response=response_text,
                     retry_after=response.headers.get("Retry-After"),
                 )
                 try:
@@ -223,7 +222,6 @@ class AuxCloudSession:
                         "AUX Cloud returned invalid JSON",
                         http_status=response.status,
                         endpoint=endpoint,
-                        response=response_text,
                     ) from exc
 
                 raise_for_cloud_response(json_data, endpoint=endpoint)
@@ -324,7 +322,6 @@ class AuxCloudSession:
         raise AuxAuthError(
             "AUX Cloud login response did not include a session",
             endpoint="account/login",
-            response=json_data,
         )
 
     async def recover_session(self, *, expired_session: str | None = None) -> bool:
