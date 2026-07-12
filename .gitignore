@@ -4,7 +4,11 @@ pipfile
 pipfile.lock
 .idea
 /config.yaml
+.venv/
+*.log
+.DS_Store
 
-# Local Home Assistant dev/debug instance
+# Local Home Assistant dev/debug instance (contains DB, auth tokens, logs)
 /venv
 /config
+custom_components/aux_cloud/config/
