@@ -64,6 +64,7 @@ class AuxApiError(Exception):
     """Base exception raised for AUX Cloud API failures."""
 
     translation_key = "unknown"
+    config_flow_key = "unknown"
     default_message = "AUX Cloud API error"
 
     def __init__(
@@ -103,6 +104,7 @@ class AuxAuthError(AuxApiError):
     """Raised when AUX Cloud rejects stored credentials."""
 
     translation_key = "invalid_auth"
+    config_flow_key = "bad_credentials"
     default_message = "AUX Cloud authentication failed"
 
 
@@ -110,6 +112,7 @@ class AuxSessionExpired(AuxApiError):
     """Raised when the current AUX Cloud login session is no longer valid."""
 
     translation_key = "session_expired"
+    config_flow_key = "session_expired"
     default_message = "AUX Cloud session expired"
 
 
@@ -117,6 +120,7 @@ class AuxNetworkError(AuxApiError):
     """Raised when the AUX Cloud request cannot reach the network/server."""
 
     translation_key = "cannot_connect"
+    config_flow_key = "cannot_connect"
     default_message = "AUX Cloud network error"
 
 
@@ -124,6 +128,7 @@ class AuxServerError(AuxApiError):
     """Raised when the AUX Cloud service returns an unavailable/server error."""
 
     translation_key = "api_unavailable"
+    config_flow_key = "api_unavailable"
     default_message = "AUX Cloud server error"
 
 
@@ -131,6 +136,7 @@ class AuxRateLimitError(AuxApiError):
     """Raised when AUX Cloud throttles the request."""
 
     translation_key = "rate_limited"
+    config_flow_key = "rate_limited"
     default_message = "AUX Cloud rate limit reached"
 
 
@@ -261,22 +267,7 @@ def should_recover_session(error: AuxApiError) -> bool:
     return isinstance(error, AuxSessionExpired) or error.http_status in (401, 403)
 
 
-def config_flow_error_key(error: BaseException) -> str:
-    """Return a config-flow error/abort key for an exception."""
-    error_keys = (
-        (AuxAuthError, "bad_credentials"),
-        (AuxSessionExpired, "session_expired"),
-        (AuxRateLimitError, "rate_limited"),
-        (AuxServerError, "api_unavailable"),
-        (AuxNetworkError, "cannot_connect"),
-    )
-    for error_type, error_key in error_keys:
-        if isinstance(error, error_type):
-            return error_key
-    return "unknown"
-
-
-def _code_at_path(payload: dict, path: Iterable[str]) -> int | None:
+def _code_at_path(payload: dict[str, Any], path: Iterable[str]) -> int | None:
     """Return a non-success integer code at a nested path."""
     current: Any = payload
     for key in path:
@@ -298,12 +289,12 @@ def _coerce_error_code(value: Any) -> int | None:
         return None
 
 
-def _response_list_items(payload: dict) -> list[dict]:
+def _response_list_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Return nested websocket response-list event payloads."""
     data = payload.get("data") or {}
     if not isinstance(data, dict):
         return []
-    items = []
+    items: list[dict[str, Any]] = []
     for item in data.get("responseList", []) or []:
         if isinstance(item, dict):
             event = item.get("event")

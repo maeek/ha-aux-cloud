@@ -32,6 +32,11 @@ jobs:
           pytest-homeassistant-custom-component
       - name: Run tests
         run: pytest -q
+      - name: Require complete config-flow coverage
+        run: >-
+          coverage report
+          --include=custom_components/aux_cloud/config_flow.py
+          --fail-under=100
 
   quality:
     runs-on: ubuntu-latest
@@ -43,7 +48,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.test.txt
       - run: pip install --upgrade "homeassistant==2026.4.*"
-      - run: black --check custom_components/aux_cloud tests
+      - run: ruff format --check custom_components/aux_cloud tests
       - run: ruff check custom_components/aux_cloud tests
       - run: mypy custom_components/aux_cloud
       - run: pylint custom_components/aux_cloud --fail-under=9.7

@@ -1,7 +1,5 @@
 """AUX Cloud HTTP session and authentication helpers."""
 
-# pylint: disable=too-many-arguments
-
 from __future__ import annotations
 
 import asyncio
@@ -9,8 +7,11 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Mapping
+from typing import Any, cast
 
 import aiohttp
+from Crypto.Cipher import AES
 
 from .errors import (
     AuxApiError,
@@ -21,10 +22,10 @@ from .errors import (
     raise_for_http_status,
     should_recover_session,
 )
-from .util import encrypt_aes_cbc_zero_padding
+from .models import AuxCredentials
 
-TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"
-PASSWORD_ENCRYPT_KEY = "4969fj#k23#"
+TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"  # noqa: S105
+PASSWORD_ENCRYPT_KEY = "4969fj#k23#"  # noqa: S105
 BODY_ENCRYPT_KEY = "xgx3d*fe3478$ukx"
 
 AES_INITIAL_VECTOR = bytes(
@@ -71,12 +72,16 @@ _LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
 
 
+def _encrypt_login_payload(iv: bytes, key: bytes, data: bytes) -> bytes:
+    """Encrypt a vendor login payload using its required zero padding."""
+    padding = b"\x00" * (AES.block_size - len(data) % AES.block_size)
+    return AES.new(key, AES.MODE_CBC, iv).encrypt(data + padding)
+
+
 class AuxCloudSession:
     """AUX Cloud authenticated HTTP session wrapper."""
 
-    def __init__(
-        self, region: str = "eu", session: aiohttp.ClientSession | None = None
-    ) -> None:
+    def __init__(self, region: str, session: aiohttp.ClientSession) -> None:
         """Initialize the session wrapper."""
         self.url = {
             "eu": API_SERVER_URL_EU,
@@ -85,15 +90,13 @@ class AuxCloudSession:
             "rus": API_SERVER_URL_RUS,
         }.get(region, API_SERVER_URL_EU)
         self.region = region
-        self.email: str | None = None
-        self.phone_number: str | None = None
-        self.password: str | None = None
+        self._credentials: AuxCredentials | None = None
         self.loginsession: str | None = None
         self.userid: str | None = None
         self._session = session
         self._login_lock = asyncio.Lock()
 
-    def get_headers(self, **kwargs: str) -> dict:
+    def get_headers(self, **kwargs: str) -> dict[str, str]:
         """Return AUX Cloud app headers."""
         return {
             "Content-Type": "application/x-java-serialized-object",
@@ -109,100 +112,69 @@ class AuxCloudSession:
             **kwargs,
         }
 
+    @property
+    def websession(self) -> aiohttp.ClientSession:
+        """Return the injected Home Assistant web session."""
+        return self._session
+
     async def make_request(
         self,
-        method: str,
         endpoint: str,
-        headers: dict | None = None,
-        data: dict | None = None,
+        *,
+        header_overrides: Mapping[str, str] | None = None,
+        data: dict[str, Any] | None = None,
         data_raw: str | bytes | None = None,
-        params: dict | None = None,
-        recover_session: bool = True,
-    ) -> dict:
-        """Make an HTTP request and parse JSON response data."""
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Make one POST request with at most one session recovery attempt."""
         url = f"{self.url}/{endpoint}"
         session_at_request = self.loginsession
-        _LOGGER.debug("Making %s request to %s", method, endpoint)
+        _LOGGER.debug("Making POST request to %s", endpoint)
 
-        try:
-            if self._session is not None:
+        for attempt in range(2):
+            try:
                 return await self._request_once(
-                    self._session,
-                    method=method,
                     url=url,
                     endpoint=endpoint,
-                    headers=headers,
+                    headers=self.get_headers(**dict(header_overrides or {})),
                     data=data,
                     data_raw=data_raw,
                     params=params,
                 )
-
-            async with aiohttp.ClientSession() as session:
-                return await self._request_once(
-                    session,
-                    method=method,
-                    url=url,
-                    endpoint=endpoint,
-                    headers=headers,
-                    data=data,
-                    data_raw=data_raw,
-                    params=params,
-                )
-        except AuxApiError as exc:
-            if (
-                recover_session
-                and endpoint != "account/login"
-                and should_recover_session(exc)
-            ):
+            except AuxApiError as exc:
+                if (
+                    attempt > 0
+                    or endpoint == "account/login"
+                    or not should_recover_session(exc)
+                ):
+                    raise
                 _LOGGER.debug("AUX Cloud session expired; attempting silent re-login")
                 await self.recover_session(expired_session=session_at_request)
-                return await self.make_request(
-                    method=method,
-                    endpoint=endpoint,
-                    headers=(
-                        self.get_headers(
-                            **{
-                                key: value
-                                for key, value in (headers or {}).items()
-                                if key.lower()
-                                not in {
-                                    "loginsession",
-                                    "userid",
-                                }
-                            }
-                        )
-                        if headers is not None
-                        else None
-                    ),
-                    data=data,
-                    data_raw=data_raw,
-                    params=params,
-                    recover_session=False,
-                )
-            raise
+
+        raise RuntimeError("Unreachable AUX Cloud request state")
 
     async def _request_once(
         self,
-        session: aiohttp.ClientSession,
         *,
-        method: str,
         url: str,
         endpoint: str,
-        headers: dict | None,
-        data: dict | None,
+        headers: dict[str, str],
+        data: dict[str, Any] | None,
         data_raw: str | bytes | None,
-        params: dict | None,
-    ) -> dict:
+        params: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         """Perform one HTTP request without session recovery."""
         request_data = (
             data_raw
-            if data_raw
-            else json.dumps(data, separators=(",", ":")) if data else None
+            if data_raw is not None
+            else json.dumps(data, separators=(",", ":"))
+            if data
+            else None
         )
 
         try:
-            async with session.request(
-                method=method,
+            async with self._session.request(
+                method="POST",
                 url=url,
                 headers=headers,
                 data=request_data,
@@ -225,129 +197,89 @@ class AuxCloudSession:
                     ) from exc
 
                 raise_for_cloud_response(json_data, endpoint=endpoint)
-                return json_data
+                return cast(dict[str, Any], json_data)
         except (aiohttp.ClientError, TimeoutError) as exc:
             raise AuxNetworkError(endpoint=endpoint) from exc
 
-    async def login(
-        self,
-        email: str | None = None,
-        password: str | None = None,
-        *,
-        phone_number: str | None = None,
-    ) -> bool:
+    async def login(self, credentials: AuxCredentials) -> None:
         """Login to AUX Cloud services."""
         async with self._login_lock:
-            return await self._login_unlocked(
-                email, password, phone_number=phone_number
-            )
+            await self._login_unlocked(credentials)
 
-    async def _login_unlocked(
-        self,
-        email: str | None,
-        password: str | None,
-        *,
-        phone_number: str | None,
-    ) -> bool:
+    async def _login_unlocked(self, credentials: AuxCredentials) -> None:
         """Log in while the single-flight authentication lock is held."""
-        password = password if password is not None else self.password
-        use_phone_login = phone_number is not None or self.phone_number is not None
-
-        if use_phone_login:
-            phone_number = (
-                phone_number if phone_number is not None else self.phone_number
-            )
-            if not phone_number or password is None:
-                raise AuxAuthError(
-                    "Missing AUX Cloud phone credentials",
-                    endpoint="account/login",
-                )
-        else:
-            email = email if email is not None else self.email
-            if email is None or password is None:
-                raise AuxAuthError(
-                    "Missing AUX Cloud credentials",
-                    endpoint="account/login",
-                )
-
-        self.password = password
-
         current_time = time.time()
         sha_password = hashlib.sha1(
-            f"{password}{PASSWORD_ENCRYPT_KEY}".encode()
+            f"{credentials.password}{PASSWORD_ENCRYPT_KEY}".encode(),
+            usedforsecurity=False,
         ).hexdigest()
-        if use_phone_login:
-            self.email = None
-            self.phone_number = phone_number
+        if credentials.kind == "phone":
             payload = {
-                "username": phone_number,
+                "username": credentials.username,
                 "password": sha_password,
                 "countrycode": "",
                 "companyid": COMPANY_ID,
                 "lid": LICENSE_ID,
             }
         else:
-            self.email = email
-            self.phone_number = None
             payload = {
-                "email": email,
+                "email": credentials.username,
                 "password": sha_password,
                 "companyid": COMPANY_ID,
                 "lid": LICENSE_ID,
             }
         json_payload = json.dumps(payload, separators=(",", ":"))
 
-        token = hashlib.md5(f"{json_payload}{BODY_ENCRYPT_KEY}".encode()).hexdigest()
+        token = hashlib.md5(
+            f"{json_payload}{BODY_ENCRYPT_KEY}".encode(), usedforsecurity=False
+        ).hexdigest()
         md5 = hashlib.md5(
-            f"{current_time}{TIMESTAMP_TOKEN_ENCRYPT_KEY}".encode()
+            f"{current_time}{TIMESTAMP_TOKEN_ENCRYPT_KEY}".encode(),
+            usedforsecurity=False,
         ).digest()
 
         json_data = await self.make_request(
-            method="POST",
             endpoint="account/login",
-            headers=self.get_headers(timestamp=f"{current_time}", token=token),
-            data_raw=encrypt_aes_cbc_zero_padding(
+            header_overrides={"timestamp": f"{current_time}", "token": token},
+            data_raw=_encrypt_login_payload(
                 AES_INITIAL_VECTOR, md5, json_payload.encode()
             ),
-            recover_session=False,
         )
 
-        if "status" in json_data and json_data["status"] == 0:
-            self.loginsession = json_data["loginsession"]
-            self.userid = json_data["userid"]
-            _LOGGER.debug("AUX Cloud login successful")
-            return True
+        self._store_login_identity(json_data, credentials)
 
-        raise_for_cloud_response(json_data, endpoint="account/login")
-        raise AuxAuthError(
-            "AUX Cloud login response did not include a session",
-            endpoint="account/login",
-        )
+    def _store_login_identity(
+        self, json_data: dict[str, Any], credentials: AuxCredentials
+    ) -> None:
+        """Validate and store one successful login response."""
+        if json_data.get("status") != 0:
+            raise_for_cloud_response(json_data, endpoint="account/login")
+        login_session = json_data.get("loginsession")
+        user_id = json_data.get("userid")
+        if not isinstance(login_session, str) or not isinstance(user_id, str):
+            raise AuxServerError(
+                "AUX Cloud login response did not include an identity",
+                endpoint="account/login",
+            )
+        self.loginsession = login_session
+        self.userid = user_id
+        self._credentials = credentials
+        _LOGGER.debug("AUX Cloud login successful")
 
-    async def recover_session(self, *, expired_session: str | None = None) -> bool:
+    async def recover_session(self, *, expired_session: str | None = None) -> None:
         """Recover an expired session by logging in again with stored credentials."""
         async with self._login_lock:
             if self.is_logged_in() and (
                 expired_session is None or self.loginsession != expired_session
             ):
-                return True
+                return
             self.loginsession = None
             self.userid = None
-            if not self.password or not (self.email or self.phone_number):
+            if self._credentials is None:
                 raise AuxAuthError(
                     "Cannot recover AUX Cloud session without credentials"
                 )
-            if self.phone_number:
-                return await self._login_unlocked(
-                    None,
-                    self.password,
-                    phone_number=self.phone_number,
-                )
-            return await self._login_unlocked(
-                self.email,
-                self.password,
-                phone_number=None,
-            )
+            await self._login_unlocked(self._credentials)
 
     def is_logged_in(self) -> bool:
         """Return whether the session has active login identifiers."""

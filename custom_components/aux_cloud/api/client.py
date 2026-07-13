@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import aiohttp
 
-from ..devices.normalizers import (
-    normalize_device_params,
-)
-from .control import AuxCloudControlService, AuxCloudWebSocketStrategy
+from .control import AuxCloudControl
 from .errors import AuxApiError, AuxSessionExpired
-from .protocol.websocket import extract_websocket_updates
+from .models import AuxCredentials, AuxDevice, DeviceUpdate
 from .repository import AuxCloudRepository
 from .session import (
     COMPANY_ID,
-    LICENSE,
     LICENSE_ID,
     AuxCloudSession,
 )
-from .transports.http import AuxCloudHttpStrategy
 from .transports.websocket import (
     AuxCloudWebSocket,
     websocket_origin,
@@ -27,146 +25,99 @@ from .transports.websocket import (
 class AuxCloudAPI:
     """Stable facade for interacting with AUX Cloud services."""
 
-    def __init__(
-        self, region: str = "eu", session: aiohttp.ClientSession | None = None
-    ) -> None:
+    def __init__(self, region: str, session: aiohttp.ClientSession) -> None:
         """Initialize the AUX Cloud facade."""
-        self.session = AuxCloudSession(region=region, session=session)
-        self.ws_api: AuxCloudWebSocket | None = None
-        http_strategy = AuxCloudHttpStrategy(
-            self.session.make_request, self.session.get_headers, LICENSE
+        self._session = AuxCloudSession(region=region, session=session)
+        self._websocket: AuxCloudWebSocket | None = None
+        self._control = AuxCloudControl(
+            self._session,
+            lambda: self._websocket,
+            self._get_app_header,
         )
-        websocket_strategy = AuxCloudWebSocketStrategy(
-            lambda: self.ws_api, self._get_app_header
-        )
-        self.control = AuxCloudControlService(http_strategy, websocket_strategy)
-        self.repository = AuxCloudRepository(self.session, self.control)
+        self._repository = AuxCloudRepository(self._session, self._control)
 
     @property
-    def loginsession(self) -> str | None:
-        """Return the cloud login session ID."""
-        return self.session.loginsession
-
-    @property
-    def userid(self) -> str | None:
+    def user_id(self) -> str | None:
         """Return the cloud user ID."""
-        return self.session.userid
+        return self._session.userid
 
-    @property
-    def families(self) -> dict | None:
-        """Return cached family data."""
-        return self.repository.families
-
-    @property
-    def http_strategy(self) -> AuxCloudHttpStrategy:
-        """Return the HTTP control strategy."""
-        return self.control.http_strategy
-
-    @property
-    def websocket_strategy(self) -> AuxCloudWebSocketStrategy:
-        """Return the websocket control strategy."""
-        return self.control.websocket_strategy
-
-    async def login(
-        self,
-        email: str | None = None,
-        password: str | None = None,
-        *,
-        phone_number: str | None = None,
-    ) -> bool:
+    async def login(self, credentials: AuxCredentials) -> None:
         """Login to AUX Cloud services."""
-        return await self.session.login(
-            email,
-            password,
-            phone_number=phone_number,
-        )
+        await self._session.login(credentials)
 
     def is_logged_in(self) -> bool:
         """Check if the user is logged in."""
-        return self.session.is_logged_in()
+        return self._session.is_logged_in()
 
-    async def get_families(self):
+    async def get_families(self) -> list[dict[str, Any]]:
         """List families associated with the user."""
-        return await self.repository.get_families()
-
-    async def get_rooms(self, familyid: str):
-        """List rooms associated with a family."""
-        return await self.repository.get_rooms(familyid)
+        return await self._repository.get_families()
 
     async def get_devices(
         self,
         familyid: str,
-        shared=False,
-    ):
+        shared: bool = False,
+    ) -> list[AuxDevice]:
         """List devices associated with a family."""
-        return await self.repository.get_devices(familyid, shared)
+        return await self._repository.get_devices(familyid, shared)
 
-    def normalize_device_params(self, device: dict) -> None:
-        """Normalize decoded params in-place."""
-        normalize_device_params(device)
-
-    async def query_device_state(self, device_id: str, dev_session: str):
-        """Query one device state."""
-        return await self.repository.query_device_state(device_id, dev_session)
-
-    async def bulk_query_device_state(self, devices: list[dict]):
-        """Query state for a list of devices."""
-        return await self.repository.bulk_query_device_state(devices)
-
-    def _get_app_header(self, family_id: str | None = None) -> dict:
+    def _get_app_header(self, family_id: str | None = None) -> dict[str, Any]:
         """Return the app relay header used inside transit.opencontrol."""
         return {
             "familyId": family_id or "",
             "language": "en",
             "licenseid": LICENSE_ID,
-            "loginsession": self.loginsession or "",
-            "userid": self.userid or "",
+            "loginsession": self._session.loginsession or "",
+            "userid": self._session.userid or "",
         }
 
-    async def get_device_params(self, device: dict, params: list[str] | None = None):
-        """Query device parameters over HTTP."""
-        return await self.control.get_device_params(device, params)
-
-    async def set_device_params(self, device: dict, values: dict):
+    async def set_device_params(
+        self, device: AuxDevice, values: dict[str, Any]
+    ) -> dict[str, Any]:
         """Set device parameters, preferring websocket and falling back to HTTP."""
-        return await self.control.set_device_params(device, values)
+        expired_session = self._session.loginsession
+        try:
+            return await self._control.set_device_params(device, values)
+        except AuxSessionExpired:
+            await self.close_websocket()
+            await self._session.recover_session(expired_session=expired_session)
+            return await self._control.set_device_params_http(device, values)
 
     async def get_websocket_urls(self) -> list[str]:
         """Get websocket relay URLs from the cloud."""
-        json_data = await self.session.make_request(
-            method="POST",
+        json_data = await self._session.make_request(
             endpoint="appsync/apprelay/geturl",
-            headers=self.session.get_headers(),
         )
         urls = json_data.get("data", {}).get("url", [])
         return urls if json_data.get("status") == 0 and urls else []
 
-    def _build_websocket_client(self, websocket_url: str, devices: list[dict] | None):
+    def _build_websocket_client(
+        self, websocket_url: str, devices: list[AuxDevice] | None
+    ) -> AuxCloudWebSocket:
         """Build a websocket transport for the selected relay URL."""
-        if self.loginsession is None or self.userid is None:
+        if self._session.loginsession is None or self._session.userid is None:
             raise AuxSessionExpired("AUX Cloud websocket authentication is missing")
-        origin = websocket_origin(websocket_url) or self.session.url
+        origin = websocket_origin(websocket_url) or self._session.url
         return AuxCloudWebSocket(
             websocket_url=websocket_url,
-            headers=self.session.get_headers(
+            headers=self._session.get_headers(
                 CompanyId=COMPANY_ID,
                 Origin=origin,
                 licenseid=LICENSE_ID,
             ),
-            loginsession=self.loginsession,
-            userid=self.userid,
-            session=self.session._session,  # pylint: disable=protected-access
-            auth_refresh_callback=self._refresh_websocket_auth,
+            loginsession=self._session.loginsession,
+            userid=self._session.userid,
+            session=self._session.websession,
             devices=devices,
         )
 
     async def async_run_websocket(
         self,
-        devices: list[dict] | None = None,
-        listener=None,
-        state_listener=None,
-    ):
-        """Run the WebSocket connection to receive real-time updates."""
+        devices: list[AuxDevice] | None = None,
+        listener: Callable[[tuple[DeviceUpdate, ...]], None] | None = None,
+        on_ready: Callable[[], None] | None = None,
+    ) -> None:
+        """Run one WebSocket connection attempt for real-time updates."""
         if not self.is_logged_in():
             raise AuxApiError("Cannot run WebSocket without being logged in.")
 
@@ -174,38 +125,40 @@ class AuxCloudAPI:
         if not urls:
             raise AuxApiError("No AUX Cloud websocket relay URL available.")
 
-        websocket_url = urls[0].rstrip("/")
-        self.ws_api = self._build_websocket_client(websocket_url, devices)
-        try:
-            await self.ws_api.async_run(listener, state_listener)
-        finally:
-            self.ws_api = None
+        expired_session = self._session.loginsession
+        for websocket_url in urls:
+            reached_ready = False
 
-    async def _refresh_websocket_auth(self, websocket_url: str) -> dict:
-        """Refresh login credentials for websocket reconnect."""
-        if not self.session.password or not (
-            self.session.email or self.session.phone_number
-        ):
-            raise AuxApiError("Cannot refresh websocket auth without credentials.")
+            def ready() -> None:
+                nonlocal reached_ready
+                reached_ready = True
+                if on_ready is not None:
+                    on_ready()
 
-        await self.session.recover_session(expired_session=self.loginsession)
-        origin = websocket_origin(websocket_url) or self.session.url
-        return {
-            "loginsession": self.loginsession,
-            "userid": self.userid,
-            "headers": self.session.get_headers(
-                CompanyId=COMPANY_ID,
-                Origin=origin,
-                licenseid=LICENSE_ID,
-            ),
-        }
+            self._websocket = self._build_websocket_client(
+                websocket_url.rstrip("/"), devices
+            )
+            try:
+                await self._websocket.async_run(listener, ready)
+                return
+            except AuxSessionExpired:
+                await self._session.recover_session(expired_session=expired_session)
+                raise
+            except AuxApiError:
+                if reached_ready or websocket_url == urls[-1]:
+                    raise
+            finally:
+                self._websocket = None
+
+    async def async_update_websocket_subscriptions(
+        self, devices: list[AuxDevice]
+    ) -> None:
+        """Reset subscriptions on the active relay connection."""
+        if self._websocket is not None and self._websocket.connected:
+            await self._websocket.subscribe_devices(devices)
 
     async def close_websocket(self) -> None:
         """Close the websocket connection."""
-        if self.ws_api is not None:
-            await self.ws_api.async_close()
-            self.ws_api = None
-
-    def extract_websocket_updates(self, message: dict) -> list[dict]:
-        """Extract endpoint param updates from websocket messages."""
-        return extract_websocket_updates(message)
+        if self._websocket is not None:
+            await self._websocket.async_close()
+            self._websocket = None

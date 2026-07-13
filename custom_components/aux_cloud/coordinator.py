@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
-import time
-from collections.abc import Callable
+import logging
+import random
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
@@ -24,23 +24,28 @@ from .api import (
     AuxRateLimitError,
     AuxServerError,
     AuxSessionExpired,
-    AuxWebSocketState,
-    extract_websocket_updates,
 )
-from .const import _LOGGER, MAX_FAILED_POLLS, TOPOLOGY_SCAN_INTERVAL_MINUTES
-from .models import AuxDevice, CoordinatorData
-from .util import (
-    DeviceStateHelper,
-    deduplicate_devices_by_endpoint_id,
-    device_identifier,
+from .api.models import AuxCredentials, AuxDevice, DeviceUpdate
+from .const import (
+    CONF_PHONE_NUMBER,
+    DOMAIN,
+    TOPOLOGY_SCAN_INTERVAL_MINUTES,
 )
+from .devices.normalizers import normalize_device_params
+from .identifiers import device_identifier
+from .state import (
+    AccountState,
+    CoordinatorData,
+    InventoryDelta,
+    deduplicate_devices,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=TOPOLOGY_SCAN_INTERVAL_MINUTES)
 WEBSOCKET_SETUP_RETRY_INITIAL_DELAY = 5
 WEBSOCKET_SETUP_RETRY_MAX_DELAY = 60
-
-DeviceListener = Callable[[list[AuxDevice]], None]
 
 
 class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
@@ -50,116 +55,61 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self,
         hass: HomeAssistant,
         api: AuxCloudAPI,
-        email: str | None,
-        password: str,
         *,
-        config_entry: ConfigEntry | None = None,
-        phone_number: str | None = None,
+        config_entry: ConfigEntry,
     ) -> None:
         """Initialize the coordinator."""
-        if (
-            config_entry is not None
-            and "config_entry"
-            in inspect.signature(DataUpdateCoordinator.__init__).parameters
-        ):
-            super().__init__(
-                hass,
-                _LOGGER,
-                config_entry=config_entry,
-                name="AUX Cloud",
-                update_interval=TOPOLOGY_SCAN_INTERVAL,
-                always_update=False,
-            )
-        else:
-            super().__init__(
-                hass,
-                _LOGGER,
-                name="AUX Cloud",
-                update_interval=TOPOLOGY_SCAN_INTERVAL,
-                always_update=False,
-            )
-        self.api = api
-        self._aux_config_entry = config_entry
-        self._entity_config_entry_id = config_entry.entry_id if config_entry else None
-        self._entity_unique_id_salt = (
-            (config_entry.unique_id or config_entry.entry_id) if config_entry else ""
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=config_entry,
+            name="AUX Cloud",
+            update_interval=TOPOLOGY_SCAN_INTERVAL,
+            always_update=False,
         )
-        self.email = email
-        self.phone_number = phone_number
-        self.password = password
-        self.devices: list[AuxDevice] = []
-        self._device_state_helpers: dict[str, DeviceStateHelper] = {}
+        self.config_entry: ConfigEntry = config_entry
+        self.api = api
+        self._state = AccountState(normalize_device_params)
         self._command_locks: dict[str, asyncio.Lock] = {}
-        self._reserved_entity_unique_ids: set[tuple[str, str]] = set()
-        self._device_listeners: set[DeviceListener] = set()
-        self._missing_complete_scans: dict[str, int] = {}
-        self._update_generation = 0
+        self._reserved_entity_unique_ids: dict[tuple[str, str], str] = {}
         self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
 
     @callback
-    def async_add_device_listener(self, listener: DeviceListener) -> Callable[[], None]:
-        """Register a listener that receives newly discovered devices."""
-        self._device_listeners.add(listener)
-
-        @callback
-        def remove_listener() -> None:
-            self._device_listeners.discard(listener)
-
-        return remove_listener
-
-    async def async_start_websocket(self) -> None:
-        """Start the supervised websocket update task."""
+    def start_realtime(self) -> None:
+        """Start relay supervision after platforms finish setup."""
         if self._websocket_task is not None and not self._websocket_task.done():
             return
-        self._websocket_task = self.hass.async_create_task(
-            self._async_run_websocket(),
+        self._websocket_task = self.config_entry.async_create_background_task(
+            self.hass,
+            self._run_websocket(),
             "aux_cloud_websocket_runner",
         )
 
-    async def _async_run_websocket(self) -> None:
-        """Run websocket updates until the config entry unloads."""
-        retry_delay = WEBSOCKET_SETUP_RETRY_INITIAL_DELAY
-        try:
-            while True:
-                try:
-                    await self.api.async_run_websocket(
-                        devices=cast(list[dict], self.devices),
-                        listener=self._async_handle_websocket_message,
-                        state_listener=self._async_handle_websocket_state,
-                    )
-                except Exception as exc:  # Protect HA from third-party relay faults.
-                    _LOGGER.debug(
-                        "AUX websocket runner restarting (%s)", type(exc).__name__
-                    )
-                await self._async_handle_websocket_state(AuxWebSocketState.DEGRADED)
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, WEBSOCKET_SETUP_RETRY_MAX_DELAY)
-        finally:
-            if self._websocket_task is asyncio.current_task():
-                self._websocket_task = None
-
-    async def _async_handle_websocket_state(self, state: AuxWebSocketState) -> None:
-        """Adjust fallback polling according to websocket health."""
-        if state is AuxWebSocketState.READY:
-            if self._websocket_degraded:
-                _LOGGER.info("AUX Cloud websocket restored")
-            self._websocket_degraded = False
-            self.update_interval = TOPOLOGY_SCAN_INTERVAL
+    @callback
+    def _set_websocket_connected(self, connected: bool) -> None:
+        """Publish relay health transitions and adjust topology polling."""
+        degraded = not connected
+        if degraded == self._websocket_degraded:
             return
-        if state is not AuxWebSocketState.DEGRADED:
-            return
-        if not self._websocket_degraded:
-            _LOGGER.warning(
-                "AUX Cloud websocket unavailable; enabling fallback polling"
+        self._websocket_degraded = degraded
+        _LOGGER.info(
+            "AUX Cloud websocket %s",
+            "unavailable; enabling fallback polling" if degraded else "restored",
+        )
+        self.update_interval = (
+            TOPOLOGY_SCAN_INTERVAL if connected else FALLBACK_SCAN_INTERVAL
+        )
+        if not connected:
+            self.config_entry.async_create_task(
+                self.hass,
+                self.async_request_refresh(),
+                "aux_cloud_fallback_refresh",
             )
-            self._websocket_degraded = True
-            self.update_interval = FALLBACK_SCAN_INTERVAL
-            self.hass.async_create_task(self.async_request_refresh())
 
     async def async_close(self) -> None:
         """Close coordinator resources."""
-        if self._websocket_task and not self._websocket_task.done():
+        if self._websocket_task is not None and not self._websocket_task.done():
             self._websocket_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._websocket_task
@@ -168,28 +118,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     def get_device_by_endpoint_id(self, endpoint_id: str) -> AuxDevice | None:
         """Return a device by its raw cloud endpoint ID."""
-        return next(
-            (
-                device
-                for device in (self.data or {"devices": self.devices})["devices"]
-                if device.get("endpointId") == endpoint_id
-            ),
-            None,
-        )
-
-    def get_state_helper(
-        self, endpoint_id: str, initial_params: dict[str, Any]
-    ) -> DeviceStateHelper:
-        """Return the shared state helper for one physical device."""
-        return self._device_state_helpers.setdefault(
-            endpoint_id,
-            DeviceStateHelper(initial_params, MAX_FAILED_POLLS),
-        )
-
-    @property
-    def update_generation(self) -> int:
-        """Return a monotonic identifier for entity cache synchronization."""
-        return self._update_generation
+        return (self.data or self._state.data).get(endpoint_id)
 
     @property
     def websocket_degraded(self) -> bool:
@@ -197,125 +126,40 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         return self._websocket_degraded
 
     async def async_set_device_params(
-        self, device: AuxDevice, params: dict[str, Any]
+        self, endpoint_id: str, params: dict[str, Any]
     ) -> None:
         """Serialize and publish one optimistic device command transaction."""
-        endpoint_id = device["endpointId"]
         async with self._command_locks.setdefault(endpoint_id, asyncio.Lock()):
             current = self.get_device_by_endpoint_id(endpoint_id)
             if current is None:
                 raise AuxApiError("AUX Cloud device is no longer available")
-            if not self.devices and self.data:
-                self.devices = list(self.data["devices"])
-            previous = dict(current.get("params", {}))
-            self._replace_device_params(endpoint_id, {**previous, **params})
-            self._publish_devices()
-            try:
-                confirmed = await self.api.set_device_params(
-                    cast(dict, current), params
-                )
-            except Exception:
-                self._replace_device_params(endpoint_id, previous)
-                if helper := self._device_state_helpers.get(endpoint_id):
-                    helper.replace_params(previous)
+            token = self._state.begin_command(endpoint_id, params)
+            if token is None:
+                raise AuxApiError("AUX Cloud device is no longer available")
+            if token.changed:
                 self._publish_devices()
+            try:
+                confirmed = await self.api.set_device_params(current, params)
+            except (asyncio.CancelledError, Exception):
+                if self._state.rollback_command(token):
+                    self._publish_devices()
                 raise
-            self._replace_device_params(
-                endpoint_id,
-                {**previous, **(confirmed or params)},
-            )
+            if self._state.confirm_command(token, confirmed or params):
+                self._publish_devices()
+
+    @callback
+    def _handle_websocket_updates(self, updates: tuple[DeviceUpdate, ...]) -> None:
+        """Merge one validated relay frame in one coordinator write."""
+        if self._state.apply_updates(updates):
             self._publish_devices()
 
-    async def _async_handle_websocket_message(self, message: dict[str, Any]) -> None:
-        """Merge all updates from one websocket frame in one coordinator write."""
-        updates = extract_websocket_updates(message)
-        if not updates:
-            return
-        self.devices = [
-            {**device, "params": dict(device.get("params", {}))}
-            for device in self.devices
-        ]
-        changed = False
-        for update in updates:
-            endpoint_id = update["endpointId"]
-            if update.get("available") is False:
-                changed = self._mark_device_unavailable(endpoint_id) or changed
-            else:
-                changed = (
-                    self._merge_device_params(
-                        endpoint_id,
-                        update["params"],
-                        available=update.get("available"),
-                    )
-                    or changed
-                )
-        if changed:
-            self._publish_devices()
-
-    def _mark_device_unavailable(self, endpoint_id: str) -> bool:
-        """Mark a device unavailable after an explicit cloud offline event."""
-        device = next(
-            (item for item in self.devices if item.get("endpointId") == endpoint_id),
-            None,
-        )
-        if device is None:
-            return False
-        helper = self._device_state_helpers.get(endpoint_id)
-        helper_changed = helper.mark_unavailable("AUX device") if helper else False
-        changed = (
-            bool(device.get("params")) or device.get("state") != 0 or helper_changed
-        )
-        device["state"] = 0
-        device["params"] = {}
-        device["last_updated"] = _timestamp()
-        return changed
-
-    def _merge_device_params(
-        self,
-        endpoint_id: str,
-        params: dict[str, Any],
-        *,
-        available: bool | None = None,
-    ) -> bool:
-        """Merge pushed parameters into the current copy-on-write snapshot."""
-        device = next(
-            (item for item in self.devices if item.get("endpointId") == endpoint_id),
-            None,
-        )
-        if device is None:
-            return False
-        cleaned = {
-            key: value for key, value in params.items() if key not in {"did", "pid"}
-        }
-        if not cleaned and available is not True:
-            return False
-        if available is True:
-            device["state"] = 1
-        device["params"] = {**device.get("params", {}), **cleaned}
-        device["last_updated"] = _timestamp()
-        self.api.normalize_device_params(cast(dict, device))
-        return True
-
-    def _replace_device_params(self, endpoint_id: str, params: dict[str, Any]) -> None:
-        """Replace one device parameter mapping without mutating published data."""
-        updated_devices: list[AuxDevice] = []
-        for device in self.devices:
-            if device.get("endpointId") != endpoint_id:
-                updated_devices.append(device)
-                continue
-            updated_device: AuxDevice = {
-                **device,
-                "params": dict(params),
-                "last_updated": _timestamp(),
-            }
-            self.api.normalize_device_params(cast(dict, updated_device))
-            updated_devices.append(updated_device)
-        self.devices = updated_devices
-
+    @callback
     def _publish_devices(self) -> None:
-        """Publish the current inventory as a new coordinator snapshot."""
-        self._update_generation += 1
-        self.async_set_updated_data({"devices": list(self.devices)})
+        """Publish push state without postponing the topology scan timer."""
+        self.data = self._state.data
+        self.last_update_success = True
+        self.logger.debug("Manually updated %s data", self.name)
+        self.async_update_listeners()
 
     async def _async_update_data(self) -> CoordinatorData:
         """Run an authoritative account topology and state scan."""
@@ -332,9 +176,10 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _async_scan_devices(self) -> CoordinatorData:
         """Fetch, reconcile, and publish an account inventory snapshot."""
+        scan_revision = self._state.revision
         await self._async_ensure_login()
-        await self.api.get_families()
-        family_ids = list((self.api.families or {}).keys())
+        families = await self.api.get_families()
+        family_ids = [family["familyid"] for family in families]
         results = await asyncio.gather(
             *(
                 self.api.get_devices(family_id, shared=shared)
@@ -344,44 +189,95 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             return_exceptions=True,
         )
         discovered, complete = self._collect_device_results(results)
-        previous_ids = _device_endpoint_ids(self.devices)
-        self.devices = self._reconcile_inventory(discovered, complete=complete)
-        self._handle_inventory_changes(previous_ids)
-        self._update_generation += 1
-        return {"devices": list(self.devices)}
+        delta = self._state.reconcile(
+            discovered,
+            complete=complete,
+            scan_revision=scan_revision,
+            registry_ids=self._registered_endpoint_ids(),
+        )
+        self._handle_inventory_changes(delta)
+        return self._state.data
 
-    def _handle_inventory_changes(self, previous_ids: set[str]) -> None:
-        """Clean up removals and notify consumers about membership changes."""
-        current_ids = _device_endpoint_ids(self.devices)
-        new_ids = current_ids - previous_ids
-        removed_ids = previous_ids - current_ids
-        for endpoint_id in removed_ids:
-            self._device_state_helpers.pop(endpoint_id, None)
+    def _handle_inventory_changes(self, delta: InventoryDelta) -> None:
+        """Clean up removals and refresh relay membership."""
+        for endpoint_id in delta.removed:
             self._command_locks.pop(endpoint_id, None)
-        self._async_remove_stale_devices(removed_ids)
+            self._reserved_entity_unique_ids = {
+                key: owner
+                for key, owner in self._reserved_entity_unique_ids.items()
+                if owner != endpoint_id
+            }
+        self._async_remove_stale_devices(set(delta.removed))
 
-        if new_ids:
-            new_devices = [
-                device for device in self.devices if device.get("endpointId") in new_ids
-            ]
-            for listener in tuple(self._device_listeners):
-                listener(new_devices)
-        if new_ids or removed_ids:
-            self.hass.async_create_task(self._async_refresh_websocket_membership())
+        if delta.added or delta.removed:
+            self.config_entry.async_create_task(
+                self.hass,
+                self._async_refresh_websocket_subscriptions(),
+                "aux_cloud_websocket_membership",
+            )
+
+    async def _async_refresh_websocket_subscriptions(self) -> None:
+        """Reset relay membership after account inventory changes."""
+        try:
+            await self.api.async_update_websocket_subscriptions(self._state.devices)
+        except AuxApiError:
+            await self.api.close_websocket()
+
+    async def _run_websocket(self) -> None:
+        """Reconnect the account relay until the config entry unloads."""
+        retry_delay = WEBSOCKET_SETUP_RETRY_INITIAL_DELAY
+        try:
+            while True:
+                reached_ready = False
+                retry_after: int | None = None
+
+                @callback
+                def on_ready() -> None:
+                    nonlocal reached_ready, retry_delay
+                    reached_ready = True
+                    retry_delay = WEBSOCKET_SETUP_RETRY_INITIAL_DELAY
+                    self._set_websocket_connected(True)
+
+                try:
+                    await self.api.async_run_websocket(
+                        devices=self._state.devices,
+                        listener=self._handle_websocket_updates,
+                        on_ready=on_ready,
+                    )
+                except AuxRateLimitError as exc:
+                    retry_after = exc.retry_after
+                    _LOGGER.debug("AUX websocket runner was rate limited")
+                except AuxApiError as exc:
+                    _LOGGER.debug(
+                        "AUX websocket runner restarting (%s)", type(exc).__name__
+                    )
+                except Exception:
+                    _LOGGER.exception("Unexpected AUX websocket runner failure")
+                self._set_websocket_connected(False)
+                retry_floor = max(retry_delay, retry_after or 0)
+                await asyncio.sleep(
+                    retry_floor * random.uniform(1, 1.2)  # noqa: S311
+                )
+                if not reached_ready:
+                    retry_delay = min(retry_delay * 2, WEBSOCKET_SETUP_RETRY_MAX_DELAY)
+        finally:
+            if self._websocket_task is asyncio.current_task():
+                self._websocket_task = None
 
     async def _async_ensure_login(self) -> None:
         """Authenticate when the shared API session has no active identity."""
         if self.api.is_logged_in():
             return
-        if self.phone_number:
-            success = await self.api.login(
-                password=self.password,
-                phone_number=self.phone_number,
-            )
+        entry_data = self.config_entry.data
+        password = entry_data[CONF_PASSWORD]
+        if phone_number := entry_data.get(CONF_PHONE_NUMBER):
+            credentials = AuxCredentials.phone(phone_number, password)
         else:
-            success = await self.api.login(self.email, self.password)
-        if not success:
-            raise AuxAuthError("Login to AUX Cloud failed")
+            email = entry_data.get(CONF_EMAIL)
+            if not email:
+                raise AuxAuthError("Missing AUX Cloud account credentials")
+            credentials = AuxCredentials.email(email, password)
+        await self.api.login(credentials)
 
     def _collect_device_results(
         self, results: list[Any]
@@ -402,67 +298,23 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
                     devices.append(device)
         if not devices and errors:
             raise _preferred_query_error(errors)
-        return (
-            cast(
-                list[AuxDevice],
-                deduplicate_devices_by_endpoint_id(cast(list[dict], devices)),
-            ),
-            not errors,
-        )
+        return deduplicate_devices(devices), not errors
 
-    def _reconcile_inventory(
-        self, discovered: list[AuxDevice], *, complete: bool
-    ) -> list[AuxDevice]:
-        """Avoid destructive removals on partial or one-off empty scans."""
-        discovered_by_id = {
-            device["endpointId"]: device
-            for device in discovered
-            if device.get("endpointId")
+    def _registered_endpoint_ids(self) -> set[str]:
+        """Return this entry's AUX endpoint IDs from the device registry."""
+        registry = dr.async_get(self.hass)
+        return {
+            identifier[1]
+            for device in registry.devices.values()
+            if self.config_entry.entry_id in device.config_entries
+            for identifier in device.identifiers
+            if identifier[0] == DOMAIN
         }
-        previous_by_id = {
-            device["endpointId"]: device
-            for device in self.devices
-            if device.get("endpointId")
-        }
-        if not complete:
-            return list(discovered_by_id.values()) + [
-                device
-                for endpoint_id, device in previous_by_id.items()
-                if endpoint_id not in discovered_by_id
-            ]
-
-        retained = list(discovered_by_id.values())
-        for endpoint_id, old_device in previous_by_id.items():
-            if endpoint_id in discovered_by_id:
-                self._missing_complete_scans.pop(endpoint_id, None)
-                continue
-            missing_count = self._missing_complete_scans.get(endpoint_id, 0) + 1
-            self._missing_complete_scans[endpoint_id] = missing_count
-            if missing_count < 2:
-                retained.append(old_device)
-        return retained
-
-    async def _async_refresh_websocket_membership(self) -> None:
-        """Reset relay subscriptions after inventory membership changes."""
-        websocket = self.api.ws_api
-        subscribe = getattr(websocket, "subscribe_devices", None)
-        if (
-            websocket is None
-            or not websocket.connected
-            or not inspect.iscoroutinefunction(subscribe)
-        ):
-            return
-        try:
-            await websocket.subscribe_devices(
-                cast(list[dict], self.devices), reset=True
-            )
-        except (ConnectionError, TimeoutError, AuxApiError):
-            await self.api.close_websocket()
 
     @callback
     def _async_remove_stale_devices(self, endpoint_ids: set[str]) -> None:
         """Remove devices confirmed absent from two complete inventory scans."""
-        if not endpoint_ids or self._aux_config_entry is None:
+        if not endpoint_ids:
             return
         registry = dr.async_get(self.hass)
         for endpoint_id in endpoint_ids:
@@ -472,20 +324,8 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             if device is not None:
                 registry.async_update_device(
                     device_id=device.id,
-                    remove_config_entry_id=self._aux_config_entry.entry_id,
+                    remove_config_entry_id=self.config_entry.entry_id,
                 )
-
-
-def _timestamp() -> str:
-    """Return a display-only timestamp for diagnostics."""
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-
-def _device_endpoint_ids(devices: list[AuxDevice]) -> set[str]:
-    """Return the non-empty endpoint IDs in a device collection."""
-    return {
-        endpoint_id for device in devices if (endpoint_id := device.get("endpointId"))
-    }
 
 
 def _preferred_query_error(errors: list[BaseException]) -> BaseException:

@@ -3,8 +3,40 @@ target-version = "py314"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF", "ARG", "C90", "PERF", "S", "SIM"]
 ignore = ["ASYNC109", "E501", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["SLF001"]
+"tests/*" = ["ARG001", "ARG002", "S101", "S105", "S106", "SLF001"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.coverage.run]
+source = ["custom_components/aux_cloud"]
+
+[tool.coverage.report]
+fail_under = 95.1
+precision = 2
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git"]
+asyncio_mode = "auto"
+addopts = [
+  "--strict-markers",
+  "--cov=custom_components/aux_cloud",
+  "--cov-report=term-missing",
+]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+follow_imports = "silent"
+ignore_missing_imports = true

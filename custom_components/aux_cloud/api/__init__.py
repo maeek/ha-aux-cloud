@@ -10,10 +10,8 @@ from .errors import (
     AuxServerError,
     AuxSessionExpired,
     AuxUnknownApiError,
-    config_flow_error_key,
 )
 from .protocol.websocket import extract_websocket_updates
-from .transports.websocket import AuxWebSocketState
 
 __all__ = [
     "AuxApiError",
@@ -25,7 +23,5 @@ __all__ = [
     "AuxServerError",
     "AuxSessionExpired",
     "AuxUnknownApiError",
-    "AuxWebSocketState",
-    "config_flow_error_key",
     "extract_websocket_updates",
 ]

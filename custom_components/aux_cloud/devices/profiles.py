@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import auto
-from typing import Any
+from typing import Any, Final, Literal
+
+from ..api.models import AuxDevice
+from ..api.protocol.common import decode_device_cookie
 
 # Common constants
 AUX_MODE = "ac_mode"
@@ -27,11 +29,11 @@ AC_TEMPERATURE_UNIT = "tempunit"
 AC_TEMPERATURE_DECIMAL = "ac_tempdec"
 AC_TEMPERATURE_CONVERSION = "ac_tempconvert"
 
-AC_MODE_COOLING = {AUX_MODE: 0}
-AC_MODE_HEATING = {AUX_MODE: 1}
-AC_MODE_DRY = {AUX_MODE: 2}
-AC_MODE_FAN = {AUX_MODE: 3}
-AC_MODE_AUTO = {AUX_MODE: 4}
+AC_MODE_COOLING = 0
+AC_MODE_HEATING = 1
+AC_MODE_DRY = 2
+AC_MODE_FAN = 3
+AC_MODE_AUTO = 4
 
 AC_SWING_VERTICAL = "ac_vdir"
 AC_SWING_VERTICAL_ON = {AC_SWING_VERTICAL: 1}
@@ -42,67 +44,41 @@ AC_SWING_HORIZONTAL_ON = {AC_SWING_HORIZONTAL: 1}
 AC_SWING_HORIZONTAL_OFF = {AC_SWING_HORIZONTAL: 0}
 
 AC_AUXILIARY_HEAT = "ac_astheat"
-AC_AUXILIARY_HEAT_OFF = {AC_AUXILIARY_HEAT: 0}
-AC_AUXILIARY_HEAT_ON = {AC_AUXILIARY_HEAT: 1}
 
 AC_CLEAN = "ac_clean"
-AC_CLEAN_OFF = {AC_CLEAN: 0}
-AC_CLEAN_ON = {AC_CLEAN: 1}
 
 AC_HEALTH = "ac_health"
-AC_HEALTH_OFF = {AC_HEALTH: 0}
-AC_HEALTH_ON = {AC_HEALTH: 1}
 
 AC_CHILD_LOCK = "childlock"
-AC_CHILD_LOCK_OFF = {AC_CHILD_LOCK: 0}
-AC_CHILD_LOCK_ON = {AC_CHILD_LOCK: 1}
 
 AC_COMFORTABLE_WIND = "comfwind"
-AC_COMFORTABLE_WIND_OFF = {AC_COMFORTABLE_WIND: 0}
-AC_COMFORTABLE_WIND_ON = {AC_COMFORTABLE_WIND: 1}
 
 AC_MILDEW_PROOF = "mldprf"
-AC_MILDEW_PROOF_OFF = {AC_MILDEW_PROOF: 0}
-AC_MILDEW_PROOF_ON = {AC_MILDEW_PROOF: 1}
 
 AC_SLEEP = "ac_slp"
-AC_SLEEP_OFF = {AC_SLEEP: 0}
-AC_SLEEP_ON = {AC_SLEEP: 1}
 
 AC_SCREEN_DISPLAY = "scrdisp"
-AC_SCREEN_DISPLAY_OFF = {AC_SCREEN_DISPLAY: 0}
-AC_SCREEN_DISPLAY_ON = {AC_SCREEN_DISPLAY: 1}
 
 AC_POWER_LIMIT = "pwrlimit"
 AC_POWER_LIMIT_SWITCH = "pwrlimitswitch"
-AC_POWER_LIMIT_OFF = {AC_POWER_LIMIT: 0}
-AC_POWER_LIMIT_ON = {AC_POWER_LIMIT: 1}
 
 # This is a special parameter that allows for fetching envtemp from the AC.
 AC_MODE_SPECIAL = "mode"
 
 AC_FAN_SPEED = "ac_mark"
-
-
-class ACFanSpeed(auto):
-    PARAM_NAME = "ac_mark"
-
-    """Fan speed levels for AUX air conditioners."""
-
-    AUTO = 0
-    LOW = 1
-    MEDIUM = 2
-    HIGH = 3
-    TURBO = 4
-    MUTE = 5
-    MEDIUM_LOW = 6
-    MEDIUM_HIGH = 7
+AC_FAN_AUTO = 0
+AC_FAN_LOW = 1
+AC_FAN_MEDIUM = 2
+AC_FAN_HIGH = 3
+AC_FAN_TURBO = 4
+AC_FAN_MUTE = 5
+AC_FAN_MEDIUM_LOW = 6
+AC_FAN_MEDIUM_HIGH = 7
 
 
 # Heat Pump constants
-HP_MODE_AUTO = {AUX_MODE: 0}
-HP_MODE_COOLING = {AUX_MODE: 1}
-HP_MODE_HEATING = {AUX_MODE: 4}
+HP_MODE_COOLING = 1
+HP_MODE_HEATING = 4
 
 HP_HEATER_POWER = "ac_pwr"
 HP_HEATER_POWER_OFF = {HP_HEATER_POWER: 0}
@@ -131,19 +107,6 @@ HP_WATER_FAST_HOTWATER = "hp_fast_hotwater"
 HP_WATER_FAST_HOTWATER_ON = {HP_WATER_FAST_HOTWATER: 1}
 HP_WATER_FAST_HOTWATER_OFF = {HP_WATER_FAST_HOTWATER: 0}
 
-AC_PRODUCT_IDS = (
-    "000000000000000000000000c0620000",
-    "0000000000000000000000002a4e0000",
-    "0000000000000000000000001f620000",
-    "00000000000000000000000028620000",
-    "00000000000000000000000045620000",
-    "00000000000000000000000056ac0000",
-    "0000000000000000000000007faf0000",
-    "00000000000000000000000082af0000",
-    "000000000000000000000000a44e0000",
-    "000000000000000000000000c5510000",
-    "000000000000000000000000c9100100",
-)
 HEAT_PUMP_PRODUCT_IDS = ("000000000000000000000000c3aa0000",)
 
 STANDARD_AC_PRODUCT_IDS = (
@@ -164,8 +127,10 @@ VRV_AC_PRODUCT_IDS = (
 MULTI_SPLIT_AC_PRODUCT_IDS = ("00000000000000000000000045620000",)
 SUBDEVICE_AC_PRODUCT_IDS = ("000000000000000000000000c9100100",)
 
-AUX_PROTOCOL_VERSION = "_aux_protocol_version"
-AUX_QUERY_FAILURES = "_aux_query_failures"
+AUX_PROTOCOL_VERSION: Final = "_aux_protocol_version"
+AUX_QUERY_FAILURES: Final = "_aux_query_failures"
+_MAX_COOKIE_PROFILE_PARAMS: Final = 512
+_MAX_COOKIE_PARAM_LENGTH: Final = 128
 
 AC_PARAMS = (
     AC_AUXILIARY_HEAT,
@@ -277,7 +242,8 @@ V3_HEAT_PUMP_QUERIES = (
 )
 
 
-@dataclass(frozen=True)
+# pylint: disable=too-many-instance-attributes
+@dataclass(frozen=True, slots=True)
 class ProductProfile:
     """Capabilities and quirks for an AUX product family."""
 
@@ -285,7 +251,7 @@ class ProductProfile:
     model_name: str
     params: tuple[str, ...]
     special_params: tuple[str, ...] = ()
-    device_type: str = "unknown"
+    device_type: Literal["ac", "heat_pump", "unknown"] = "unknown"
     writable_params: tuple[str, ...] = ()
     hvac_modes: tuple[int, ...] = ()
     fan_speeds: tuple[int, ...] = ()
@@ -293,31 +259,41 @@ class ProductProfile:
     vertical_swing: bool = False
     half_degree_via_flag: bool = False
 
-    def matches(self, product_id: str | None) -> bool:
-        """Return whether this profile supports a product ID."""
-        return product_id in self.product_ids
-
-    def initial_param_queries(self, _device: dict) -> list[list[str]]:
+    def initial_param_queries(self, _device: AuxDevice) -> list[list[str]]:
         """Return HTTP parameter query batches used during device bootstrap."""
+        if self.device_type == "unknown":
+            return []
         if self.special_params:
             return [[], list(self.special_params)]
         return [[]]
 
     def prepare_command(
         self,
-        device: dict,  # pylint: disable=unused-argument
-        act: str,  # pylint: disable=unused-argument
+        _device: AuxDevice,
         params: list[str],
-        vals: list,
-    ) -> tuple[list[str], list]:
+        vals: list[Any],
+    ) -> tuple[list[str], list[Any]]:
         """Apply product-specific command adjustments before transport serialization."""
         return list(params), list(vals)
+
+    def fallback_param_queries(self, _device: AuxDevice) -> list[list[str]]:
+        """Return alternate bootstrap queries after an unsupported primary GET."""
+        return []
+
+    def invalid_command_parameter(self, values: Mapping[str, Any]) -> str | None:
+        """Return the first command parameter or value this profile rejects."""
+        for param in values:
+            if param not in self.writable_params:
+                return param
+        if self.device_type == "ac":
+            return _invalid_ac_command_parameter(self, values)
+        return None
 
 
 class HeatPumpProfile(ProductProfile):
     """AUX heat-pump profile with v3-specific command and bootstrap rules."""
 
-    def initial_param_queries(self, device: dict) -> list[list[str]]:
+    def initial_param_queries(self, device: AuxDevice) -> list[list[str]]:
         """Return heat-pump bootstrap query batches."""
         if is_v3_heat_pump(device):
             return [list(query) for query in V3_HEAT_PUMP_QUERIES]
@@ -325,102 +301,83 @@ class HeatPumpProfile(ProductProfile):
 
     def prepare_command(
         self,
-        device: dict,
-        act: str,
+        device: AuxDevice,
         params: list[str],
-        vals: list,
-    ) -> tuple[list[str], list]:
+        vals: list[Any],
+    ) -> tuple[list[str], list[Any]]:
         """Append the v3 heat-pump version marker required by AUX set commands."""
         prepared_params = list(params)
         prepared_vals = list(vals)
         version = get_protocol_version(device)
-        if (
-            version is not None
-            and version >= 3
-            and act == "set"
-            and "ver" not in prepared_params
-        ):
+        if version is not None and version >= 3 and "ver" not in prepared_params:
             prepared_params.append("ver")
             prepared_vals.append([{"idx": 1, "val": version}])
         return prepared_params, prepared_vals
 
+    def fallback_param_queries(self, device: AuxDevice) -> list[list[str]]:
+        """Return the versioned bootstrap required by newer heat pumps."""
+        if is_v3_heat_pump(device):
+            return []
+        return [list(query) for query in V3_HEAT_PUMP_QUERIES]
 
-STANDARD_AC_PROFILE = ProductProfile(
-    product_ids=STANDARD_AC_PRODUCT_IDS,
-    model_name="AUX Air Conditioner",
-    params=AC_PARAMS,
-    special_params=AC_SPECIAL_PARAMS,
-    device_type="ac",
-    writable_params=AC_WRITABLE_PARAMS,
-    hvac_modes=STANDARD_AC_MODES,
-    fan_speeds=STANDARD_FAN_SPEEDS,
-    horizontal_swing=True,
-    vertical_swing=True,
-)
-TEMPDEC_AC_PROFILE = ProductProfile(
-    product_ids=TEMPDEC_AC_PRODUCT_IDS,
-    model_name="AUX Air Conditioner",
-    params=AC_PARAMS,
-    special_params=AC_SPECIAL_PARAMS,
-    device_type="ac",
-    writable_params=AC_WRITABLE_PARAMS,
-    hvac_modes=STANDARD_AC_MODES,
-    fan_speeds=STANDARD_FAN_SPEEDS,
-    horizontal_swing=True,
-    vertical_swing=True,
+
+def _ac_profile(
+    product_ids: tuple[str, ...],
+    *,
+    model_name: str = "AUX Air Conditioner",
+    params: tuple[str, ...] = AC_PARAMS,
+    hvac_modes: tuple[int, ...] = STANDARD_AC_MODES,
+    fan_speeds: tuple[int, ...] = STANDARD_FAN_SPEEDS,
+    horizontal_swing: bool = True,
+    vertical_swing: bool = True,
+    half_degree_via_flag: bool = False,
+) -> ProductProfile:
+    """Build an AC profile from shared capabilities and explicit deviations."""
+    return ProductProfile(
+        product_ids=product_ids,
+        model_name=model_name,
+        params=params,
+        special_params=AC_SPECIAL_PARAMS,
+        device_type="ac",
+        writable_params=tuple(param for param in AC_WRITABLE_PARAMS if param in params),
+        hvac_modes=hvac_modes,
+        fan_speeds=fan_speeds,
+        horizontal_swing=horizontal_swing,
+        vertical_swing=vertical_swing,
+        half_degree_via_flag=half_degree_via_flag,
+    )
+
+
+STANDARD_AC_PROFILE = _ac_profile(STANDARD_AC_PRODUCT_IDS)
+TEMPDEC_AC_PROFILE = _ac_profile(
+    TEMPDEC_AC_PRODUCT_IDS,
     half_degree_via_flag=True,
 )
-EXTENDED_FAN_AC_PROFILE = ProductProfile(
-    product_ids=EXTENDED_FAN_AC_PRODUCT_IDS,
-    model_name="AUX Air Conditioner",
-    params=AC_PARAMS,
-    special_params=AC_SPECIAL_PARAMS,
-    device_type="ac",
-    writable_params=AC_WRITABLE_PARAMS,
+EXTENDED_FAN_AC_PROFILE = _ac_profile(
+    EXTENDED_FAN_AC_PRODUCT_IDS,
     hvac_modes=NO_AUTO_AC_MODES,
     fan_speeds=EXTENDED_FAN_SPEEDS,
-    horizontal_swing=True,
-    vertical_swing=True,
 )
-VRV_AC_PROFILE = ProductProfile(
-    product_ids=VRV_AC_PRODUCT_IDS,
+VRV_AC_PROFILE = _ac_profile(
+    VRV_AC_PRODUCT_IDS,
     model_name="AUX VRV Air Conditioner",
-    params=AC_PARAMS,
-    special_params=AC_SPECIAL_PARAMS,
-    device_type="ac",
-    writable_params=AC_WRITABLE_PARAMS,
-    hvac_modes=STANDARD_AC_MODES,
     fan_speeds=VRV_FAN_SPEEDS,
-    vertical_swing=True,
+    horizontal_swing=False,
 )
-MULTI_SPLIT_AC_PROFILE = ProductProfile(
-    product_ids=MULTI_SPLIT_AC_PRODUCT_IDS,
+MULTI_SPLIT_AC_PROFILE = _ac_profile(
+    MULTI_SPLIT_AC_PRODUCT_IDS,
     model_name="AUX Multi-split Air Conditioner",
     params=MULTI_SPLIT_PARAMS,
-    special_params=AC_SPECIAL_PARAMS,
-    device_type="ac",
-    writable_params=tuple(
-        param for param in AC_WRITABLE_PARAMS if param in MULTI_SPLIT_PARAMS
-    ),
     hvac_modes=NO_AUTO_AC_MODES,
     fan_speeds=EXTENDED_FAN_SPEEDS,
-    horizontal_swing=True,
-    vertical_swing=True,
     half_degree_via_flag=True,
 )
-SUBDEVICE_AC_PROFILE = ProductProfile(
-    product_ids=SUBDEVICE_AC_PRODUCT_IDS,
+SUBDEVICE_AC_PROFILE = _ac_profile(
+    SUBDEVICE_AC_PRODUCT_IDS,
     model_name="AUX Air Conditioner Sub-device",
     params=SUBDEVICE_PARAMS,
-    special_params=AC_SPECIAL_PARAMS,
-    device_type="ac",
-    writable_params=tuple(
-        param for param in AC_WRITABLE_PARAMS if param in SUBDEVICE_PARAMS
-    ),
     hvac_modes=NO_AUTO_AC_MODES,
     fan_speeds=EXTENDED_FAN_SPEEDS,
-    horizontal_swing=True,
-    vertical_swing=True,
     half_degree_via_flag=True,
 )
 HEAT_PUMP_PROFILE = HeatPumpProfile(
@@ -446,100 +403,126 @@ PRODUCT_PROFILES = (
     SUBDEVICE_AC_PROFILE,
     HEAT_PUMP_PROFILE,
 )
+PROFILE_BY_PRODUCT_ID = {
+    product_id: profile
+    for profile in PRODUCT_PROFILES
+    for product_id in profile.product_ids
+}
 
 
 def get_product_profile(product_id: str | None) -> ProductProfile:
     """Return the product profile for a product ID."""
-    for profile in PRODUCT_PROFILES:
-        if profile.matches(product_id):
-            return profile
-    return DEFAULT_PROFILE
-
-
-def get_device_name(product_id: str | None) -> str:
-    """Return a display model name for a product ID."""
-    return get_product_profile(product_id).model_name
-
-
-def get_params_list(product_id: str | None) -> list[str] | None:
-    """Return supported standard params for a product ID."""
-    profile = get_product_profile(product_id)
-    return list(profile.params) if profile.params else None
-
-
-def get_special_params_list(product_id: str | None) -> list[str] | None:
-    """Return supported special params for a product ID."""
-    profile = get_product_profile(product_id)
-    return list(profile.special_params) if profile.special_params else None
-
-
-def initial_param_queries(device: dict) -> list[list[str]]:
-    """Return bootstrap query batches for a device."""
-    return get_product_profile(device.get("productId")).initial_param_queries(device)
-
-
-def prepare_command(
-    device: dict, act: str, params: list[str], vals: list
-) -> tuple[list[str], list]:
-    """Apply product-profile command adjustments."""
-    return get_product_profile(device.get("productId")).prepare_command(
-        device, act, params, vals
-    )
-
-
-def fallback_param_queries(device: dict) -> list[list[str]]:
-    """Return the versioned heat-pump fallback after an unsupported legacy GET."""
-    if device.get("productId") not in HEAT_PUMP_PRODUCT_IDS:
-        return []
-    return [list(query) for query in V3_HEAT_PUMP_QUERIES]
+    if product_id is None:
+        return DEFAULT_PROFILE
+    return PROFILE_BY_PRODUCT_ID.get(product_id, DEFAULT_PROFILE)
 
 
 def get_protocol_version(device: Mapping[str, Any]) -> int | None:
-    """Return the resolved device protocol version without guessing."""
-    candidates = [
-        device.get(AUX_PROTOCOL_VERSION),
-        device.get("params", {}).get("ver"),
-    ]
+    """Return the effective device protocol version without guessing."""
+    return get_protocol_version_details(device)[0]
+
+
+def get_protocol_version_details(
+    device: Mapping[str, Any],
+) -> tuple[int | None, str | None]:
+    """Resolve protocol metadata and identify its non-sensitive source."""
+    # A session value is populated only after a device response confirms that
+    # extern/cookie metadata is stale. That direct observation must win thereafter.
+    if version := _positive_version(device.get(AUX_PROTOCOL_VERSION)):
+        return version, "session"
+
+    external = _json_mapping(device.get("extern"))
+    if external is not None and (version := _positive_version(external.get("ver"))):
+        return version, "extern"
+
+    cookie = decode_device_cookie(device.get("cookie"))
+    extend = _json_mapping(cookie.get("extend")) if cookie is not None else None
+    if extend is not None and (version := _positive_version(extend.get("ver"))):
+        return version, "cookie_extend"
+
+    params = device.get("params")
+    if isinstance(params, Mapping) and (
+        version := _positive_version(params.get("ver"))
+    ):
+        return version, "response"
+    return None, None
+
+
+def get_cookie_profile_params(device: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return bounded product-interface names embedded in a device cookie."""
+    cookie = decode_device_cookie(device.get("cookie"))
+    profile = _json_mapping(cookie.get("profile")) if cookie is not None else None
+    if profile is None:
+        return ()
+    suids = profile.get("suids")
+    if not isinstance(suids, list):
+        return ()
+
+    params: set[str] = set()
+    for suid in suids:
+        if not isinstance(suid, Mapping):
+            continue
+        interfaces = suid.get("intfs")
+        if not isinstance(interfaces, Mapping):
+            continue
+        for param in interfaces:
+            if isinstance(param, str) and 0 < len(param) <= _MAX_COOKIE_PARAM_LENGTH:
+                params.add(param)
+                if len(params) > _MAX_COOKIE_PROFILE_PARAMS:
+                    return ()
+    return tuple(sorted(params))
+
+
+def _json_mapping(value: Any) -> Mapping[str, Any] | None:
+    """Return a JSON object supplied either directly or as encoded text."""
+    if isinstance(value, Mapping):
+        return value
+    if not isinstance(value, str) or not value:
+        return None
     try:
-        external: dict[str, Any] = json.loads(device.get("extern", "{}") or "{}")
-        candidates.append(external.get("ver"))
+        parsed = json.loads(value)
     except (json.JSONDecodeError, TypeError):
-        pass
+        return None
+    return parsed if isinstance(parsed, Mapping) else None
 
-    for candidate in candidates:
-        if isinstance(candidate, (int, float)) and int(candidate) > 0:
-            return int(candidate)
+
+def _positive_version(value: Any) -> int | None:
+    """Return a positive integral numeric protocol version."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float) and value.is_integer() and value > 0:
+        return int(value)
     return None
 
 
-def set_protocol_version(device: dict, version: Any) -> None:
+def set_protocol_version(device: AuxDevice, version: Any) -> None:
     """Store a successfully resolved protocol version on the runtime snapshot."""
-    if isinstance(version, (int, float)) and int(version) > 0:
-        device[AUX_PROTOCOL_VERSION] = int(version)
+    if resolved := _positive_version(version):
+        device[AUX_PROTOCOL_VERSION] = resolved
 
 
-def invalid_command_parameter(device: dict, values: dict[str, Any]) -> str | None:
-    """Return the first unsupported command parameter or value."""
-    profile = get_product_profile(device.get("productId"))
-    for param in values:
-        if param not in profile.writable_params:
-            return param
-
-    if profile.device_type == "ac":
-        mode = values.get(AUX_MODE)
-        if mode is not None and mode not in profile.hvac_modes:
-            return AUX_MODE
-        fan_speed = values.get(AC_FAN_SPEED)
-        if fan_speed is not None and fan_speed not in profile.fan_speeds:
-            return AC_FAN_SPEED
-        if AC_SWING_HORIZONTAL in values and not profile.horizontal_swing:
-            return AC_SWING_HORIZONTAL
-        if AC_SWING_VERTICAL in values and not profile.vertical_swing:
-            return AC_SWING_VERTICAL
+def _invalid_ac_command_parameter(
+    profile: ProductProfile, values: Mapping[str, Any]
+) -> str | None:
+    """Return the first invalid AC-specific command value."""
+    mode = values.get(AUX_MODE)
+    if mode is not None and mode not in profile.hvac_modes:
+        return AUX_MODE
+    fan_speed = values.get(AC_FAN_SPEED)
+    if fan_speed is not None and fan_speed not in profile.fan_speeds:
+        return AC_FAN_SPEED
+    if AC_SWING_HORIZONTAL in values and not profile.horizontal_swing:
+        return AC_SWING_HORIZONTAL
+    if AC_SWING_VERTICAL in values and not profile.vertical_swing:
+        return AC_SWING_VERTICAL
     return None
 
 
-def encode_ac_temperature_command(device: dict, temperature_c: float) -> dict[str, int]:
+def encode_ac_temperature_command(
+    device: AuxDevice, temperature_c: float
+) -> dict[str, int]:
     """Encode a logical Celsius target using the AC Freedom wire format."""
     profile = get_product_profile(device.get("productId"))
     target_x10 = round(temperature_c * 10)
@@ -571,23 +554,3 @@ def is_v3_heat_pump(device: Mapping[str, Any]) -> bool:
         and version >= 3
         and device.get("productId") in HEAT_PUMP_PRODUCT_IDS
     )
-
-
-class AuxProducts:
-    """Backward-compatible product helper namespace."""
-
-    class DeviceType:
-        """Backward-compatible product ID groups."""
-
-        AC_GENERIC = list(AC_PRODUCT_IDS)
-        HEAT_PUMP = list(HEAT_PUMP_PRODUCT_IDS)
-
-    AC_PARAMS = list(AC_PARAMS)
-    AC_SPECIAL_PARAMS = list(AC_SPECIAL_PARAMS)
-    HP_PARAMS = list(HP_PARAMS)
-    HP_SPECIAL_PARAMS = list(HP_SPECIAL_PARAMS)
-
-    get_device_name = staticmethod(get_device_name)
-    get_params_list = staticmethod(get_params_list)
-    get_special_params_list = staticmethod(get_special_params_list)
-    is_v3_heat_pump = staticmethod(is_v3_heat_pump)

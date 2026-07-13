@@ -16,11 +16,11 @@ The implementation is based on BroadLink public SDK documentation and reverse en
 - Support for personal and shared AUX Cloud devices.
 - Dynamic device discovery: devices added in AUX Cloud appear without reloading Home Assistant.
 - Product profiles for AUX air conditioners and heat pumps, including v3 heat-pump quirks.
-- Localized config, entity, exception, and Repairs text in English, Polish, and Greek.
+- Localized config, entity, and exception text in English, Polish, and Greek.
 
 ## Supported Entities
 
-Entity availability depends on the device product profile and the capabilities reported by AUX Cloud.
+Audited product profiles define which entities exist and which parameters are safe to control. Cloud response keys are live state only: a partial response cannot remove entities or grant additional controls.
 
 - `climate`
   - AUX air conditioner
@@ -105,13 +105,13 @@ For phone-number login, enter the phone number as you use it with AUX Cloud.
 All cloud devices are added automatically. Devices added to the account later are discovered during the next inventory scan. Disable individual entities in Home Assistant's entity registry when they are not useful.
 
 > [!TIP]
-> Make sure that your devices are online when setting up the integration. If you add a device that is offline, it may not add all the entities. Reload the integration after the device is online.
+> Known devices retain their profile-defined entities while offline. Their entities report unavailable until the cloud provides a usable live snapshot; no reload is needed.
 
 Credentials are stored in Home Assistant config entry storage. Existing email entries keep using the original email login path; phone-number login is used only for entries configured with a phone number. Existing config-entry, device, and entity unique IDs are preserved during migration. If silent session recovery fails, Home Assistant starts its native reauthentication flow.
 
 ## Usage
 
-After setting up the integration, your AUX devices will be available in Home Assistant. Depending on the device type and supported capabilities, entities may include climate, water heater, sensor, switch, select, and number entities.
+After setting up the integration, audited AUX device profiles expose climate, water heater, sensor, switch, select, and number entities as applicable. Unknown product IDs remain visible in diagnostics but do not receive controls until their protocol has been reviewed.
 
 You can control them through:
 
@@ -176,10 +176,10 @@ If you log in through the mobile app and the cloud invalidates the previous sess
 
 ## Known Issues
 
-- **Logging in the App**: The login process in the app may invalidate existing sessions (at least on Android). The integration now attempts automatic re-login when the cloud reports an expired session. If recovery fails, check Home Assistant Repairs and reload or reconfigure the integration.
-- **AUX Cloud API unavailable**: If the API is down or returns errors such as HTTP `503`, Home Assistant will create a Repairs issue and retry automatically.
+- **Logging in the App**: The login process in the app may invalidate existing sessions (at least on Android). The integration attempts automatic re-login when the cloud reports an expired session. If recovery fails, reload or reconfigure the integration.
+- **AUX Cloud API unavailable**: If the API is down or returns errors such as HTTP `503`, the integration reports entities unavailable and retries automatically. It does not currently create a Repairs issue for transient cloud outages.
 - **Shared device identity**: AUX endpoint IDs are used unchanged for device identifiers. A cloud account exposing the same endpoint more than once is deduplicated.
-- **Offline devices**: Offline devices remain visible but may not expose every capability until a later successful inventory scan.
+- **Offline devices**: Audited product profiles keep entity membership stable while a device is offline; its entities report unavailable until live state returns.
 - This is cloud control only. Local LAN control is not implemented.
 - Device support is profile-based. Unknown product IDs may appear without entities until a profile is added.
 
@@ -208,23 +208,27 @@ cloud command is sent. Existing unique IDs and device identifiers are unchanged.
 
 Minimum Home Assistant version is `2026.4.0`.
 
-This is a HACS custom integration and therefore cannot claim an official Home Assistant quality tier. [`quality_scale.yaml`](custom_components/aux_cloud/quality_scale.yaml) tracks technical alignment with the cumulative rules. Coverage above 95% and fully strict typing remain explicitly open before the file can represent complete Platinum alignment.
+This is a HACS custom integration and therefore cannot claim an official Home Assistant quality tier. [`quality_scale.yaml`](custom_components/aux_cloud/quality_scale.yaml) tracks technical alignment with the cumulative rules. CI enforces strict typing, complete config-flow coverage, and more than 95% total integration coverage against both the minimum and latest supported Home Assistant releases.
 
 Current architecture:
 
 - `custom_components/aux_cloud/api`
-  - Public HA-facing API surface in `api/__init__.py`.
-  - `client.py` facade for auth/session/device cache and public API methods.
-  - `session.py` HTTP session, encrypted login payloads, error decoding, and session recovery.
-  - `repository.py` family/device discovery and bootstrap.
-  - `control.py` websocket-first, HTTP-fallback command orchestration.
-  - `transports/http.py` and `transports/websocket.py` transport-specific behavior.
+  - `client.py` is the integration-internal facade used by the coordinator.
+  - `models.py` contains cloud DTOs shared by protocol, transport, and runtime code.
+  - `session.py` wraps Home Assistant's injected HTTP session and owns encrypted login payloads, error decoding, and single-flight session recovery.
+  - `repository.py` executes product-owned device bootstrap query plans and merges partial results.
+  - `control.py` HTTP control boundary with an optional websocket fast path.
+  - `transports/websocket.py` single-reader relay transport.
   - `protocol/common.py` and `protocol/websocket.py` pure wire-format helpers.
 - `custom_components/aux_cloud/devices`
   - `profiles.py` product capabilities and product-specific command/bootstrap rules.
   - `normalizers.py` product-specific parameter normalization.
 - `custom_components/aux_cloud/coordinator.py`
-  - Typed config-entry runtime data, websocket runner ownership, dynamic inventory, stale-device reconciliation, degraded polling, and serialized command transactions.
+  - Home Assistant update cadence, inventory scans, command transactions, and websocket supervision.
+- `custom_components/aux_cloud/state.py`
+  - Session-only account snapshots and race-safe scan, push, and optimistic command transitions. No capability or protocol state is persisted to a Home Assistant store.
+- `custom_components/aux_cloud/entity.py` and `identifiers.py`
+  - Shared typed entity lifecycle and compatibility-stable account/device/entity identities.
 
 ## Testing
 
@@ -248,7 +252,7 @@ Run all tests:
 pytest
 ```
 
-The current verification command used by maintainers is:
+The current verification command used by maintainers enforces more than 95% overall coverage:
 
 ```bash
 pytest -q
@@ -272,12 +276,6 @@ Run pylint on the entire component:
 pylint custom_components/aux_cloud
 ```
 
-For the current websocket/API refactor, the focused pylint command is:
-
-```bash
-pylint custom_components/aux_cloud/__init__.py custom_components/aux_cloud/coordinator.py custom_components/aux_cloud/api custom_components/aux_cloud/devices custom_components/aux_cloud/util.py
-```
-
 ### Diff whitespace check
 
 ```bash
@@ -286,11 +284,10 @@ git diff --check
 
 ### Code formatting
 
-The project uses [Black](https://pypi.org/project/black/) for code formatting. To format the code, run:
+The project uses Ruff for formatting and linting. To format and validate the code, run:
 
 ```bash
-black custom_components/aux_cloud
-
+ruff format custom_components/aux_cloud tests
 ruff check custom_components/aux_cloud tests
 mypy custom_components/aux_cloud
 ```

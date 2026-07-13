@@ -1,6 +1,7 @@
 """Aux Cloud integration for Home Assistant."""
 
 import asyncio
+import logging
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -14,23 +15,22 @@ from homeassistant.helpers.typing import ConfigType
 
 from .api import AuxCloudAPI
 from .const import (
-    _LOGGER,
     CONF_ACCOUNT_ID,
     CONF_FAMILIES,
     CONF_PHONE_NUMBER,
     CONF_SELECTED_DEVICES,
-    DATA_AUX_CLOUD_CONFIG,
     DOMAIN,
     PLATFORMS,
 )
 from .coordinator import (
     FALLBACK_SCAN_INTERVAL,
-    WEBSOCKET_SETUP_RETRY_INITIAL_DELAY,
-    WEBSOCKET_SETUP_RETRY_MAX_DELAY,
     AuxCloudCoordinator,
 )
-from .models import AuxCloudConfigEntry, AuxCloudRuntimeData
-from .util import account_unique_id_from_user_id
+from .identifiers import account_unique_id_from_user_id
+
+_LOGGER = logging.getLogger(__name__)
+
+type AuxCloudConfigEntry = ConfigEntry[AuxCloudCoordinator]
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -50,12 +50,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if DOMAIN not in config:
         return True
 
-    hass.data[DATA_AUX_CLOUD_CONFIG] = config.get(DOMAIN, {})
-
-    if (
-        not hass.config_entries.async_entries(DOMAIN)
-        and hass.data[DATA_AUX_CLOUD_CONFIG]
-    ):
+    if not hass.config_entries.async_entries(DOMAIN) and config.get(DOMAIN):
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN, context={"source": SOURCE_IMPORT}, data=config[DOMAIN]
@@ -82,21 +77,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuxCloudConfigEntry) -> 
     coordinator = AuxCloudCoordinator(
         hass,
         api,
-        email,
-        password,
         config_entry=entry,
-        phone_number=phone_number,
     )
 
     await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = AuxCloudRuntimeData(coordinator=coordinator, api=api)
+    entry.runtime_data = coordinator
 
-    if not entry.data.get(CONF_ACCOUNT_ID) and api.userid:
+    if not entry.data.get(CONF_ACCOUNT_ID) and api.user_id:
         hass.config_entries.async_update_entry(
             entry,
             data={
                 **entry.data,
-                CONF_ACCOUNT_ID: account_unique_id_from_user_id(region, api.userid),
+                CONF_ACCOUNT_ID: account_unique_id_from_user_id(region, api.user_id),
             },
         )
 
@@ -106,7 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AuxCloudConfigEntry) -> 
         await coordinator.async_close()
         raise
 
-    await coordinator.async_start_websocket()
+    coordinator.start_realtime()
     return True
 
 
@@ -114,22 +106,24 @@ async def async_unload_entry(hass: HomeAssistant, entry: AuxCloudConfigEntry) ->
     """Unload the config entry and platforms."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        await entry.runtime_data.coordinator.async_close()
+        await entry.runtime_data.async_close()
     return unload_ok
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate legacy entries without changing any registry identifiers."""
-    if entry.version > 2:
+    if entry.version > 2 or (entry.version == 2 and entry.minor_version > 1):
         return False
-    if entry.version == 2:
+    if entry.version == 2 and entry.minor_version == 1:
         return True
 
-    migrated_data = {
-        key: value
-        for key, value in entry.data.items()
-        if key not in {CONF_FAMILIES, CONF_SELECTED_DEVICES}
-    }
+    migrated_data = dict(entry.data)
+    if entry.version < 2:
+        migrated_data = {
+            key: value
+            for key, value in entry.data.items()
+            if key not in {CONF_FAMILIES, CONF_SELECTED_DEVICES}
+        }
     hass.config_entries.async_update_entry(
         entry,
         data=migrated_data,
@@ -141,14 +135,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_config_entry_device(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     entry: AuxCloudConfigEntry,
     device_entry: dr.DeviceEntry,
 ) -> bool:
     """Allow manual removal only when a device is absent from cloud inventory."""
     active_endpoint_ids = {
         device["endpointId"]
-        for device in entry.runtime_data.coordinator.devices
+        for device in (entry.runtime_data.data or {}).values()
         if device.get("endpointId")
     }
     return not any(
@@ -159,7 +153,5 @@ async def async_remove_config_entry_device(
 
 __all__ = [
     "FALLBACK_SCAN_INTERVAL",
-    "WEBSOCKET_SETUP_RETRY_INITIAL_DELAY",
-    "WEBSOCKET_SETUP_RETRY_MAX_DELAY",
     "AuxCloudCoordinator",
 ]

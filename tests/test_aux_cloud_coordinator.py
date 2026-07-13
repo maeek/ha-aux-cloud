@@ -10,22 +10,22 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-import custom_components.aux_cloud as integration
 import custom_components.aux_cloud.coordinator as coordinator_module
 from custom_components.aux_cloud import FALLBACK_SCAN_INTERVAL, AuxCloudCoordinator
-from custom_components.aux_cloud.api import AuxWebSocketState
 from custom_components.aux_cloud.api.errors import (
     AuxAuthError,
     AuxRateLimitError,
     AuxServerError,
 )
+from custom_components.aux_cloud.api.models import AuxCredentials, DeviceUpdate
+from custom_components.aux_cloud.api.protocol.websocket import extract_websocket_updates
 from custom_components.aux_cloud.const import (
-    CONF_SELECTED_DEVICES,
+    CONF_PHONE_NUMBER,
     DOMAIN,
 )
 from custom_components.aux_cloud.coordinator import TOPOLOGY_SCAN_INTERVAL
 from custom_components.aux_cloud.devices.profiles import AC_TEMPERATURE_AMBIENT
-from custom_components.aux_cloud.util import BaseEntity
+from custom_components.aux_cloud.entity import BaseEntity
 
 # This enables all the Home Assistant pytest fixtures
 pytest_plugins = "pytest_homeassistant_custom_component"
@@ -40,7 +40,6 @@ def mock_aux_cloud_api():
     api.get_families = AsyncMock(
         return_value=[{"familyid": "family1", "name": "Family 1"}]
     )
-    api.families = {"family1": {"id": "family1", "name": "Family 1", "devices": []}}
 
     # Make get_devices return different results based on the 'shared' parameter
     async def mock_get_devices(familyid, shared=False):
@@ -60,22 +59,46 @@ def mock_aux_cloud_api():
     api.get_devices = AsyncMock(side_effect=mock_get_devices)
     api.async_run_websocket = AsyncMock()
     api.close_websocket = AsyncMock()
+    api.async_update_websocket_subscriptions = AsyncMock()
     api.normalize_device_params = MagicMock()
     api.set_device_params = AsyncMock(return_value={"pwr": 1})
-    api.ws_api = None
-    api.userid = None
+    api.user_id = None
     return api
 
 
 @pytest.fixture
-def coordinator(hass, mock_aux_cloud_api):
+def config_entry(hass):
+    """Create a config entry containing canonical account credentials."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "test@example.com",
+            CONF_PASSWORD: "password123",
+            CONF_REGION: "eu",
+        },
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+@pytest.fixture
+def coordinator(hass, mock_aux_cloud_api, config_entry):
     """Create an AuxCloudCoordinator instance."""
     return AuxCloudCoordinator(
         hass=hass,
         api=mock_aux_cloud_api,
-        email="test@example.com",
-        password="password123",
+        config_entry=config_entry,
     )
+
+
+def _seed_coordinator(coordinator, devices) -> None:
+    """Seed coordinator state through the production reconciliation boundary."""
+    coordinator._state.reconcile(
+        devices,
+        complete=True,
+        scan_revision=coordinator._state.revision,
+    )
+    coordinator._publish_devices()
 
 
 async def test_coordinator_update_deduplicates_shared_devices(
@@ -105,33 +128,39 @@ async def test_coordinator_update_deduplicates_shared_devices(
 
     data = await coordinator._async_update_data()
 
-    assert data["devices"] == [
-        {
+    assert data == {
+        "device1": {
             "endpointId": "device1",
             "friendlyName": "AC Unit 1",
             "productId": "000000000000000000000000c0620000",
             "state": 1,
             "params": {"pwr": 1},
         }
-    ]
+    }
 
 
 async def test_coordinator_update_phone_login(hass, mock_aux_cloud_api):
     """Test coordinator re-login uses phone credentials for phone entries."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_PHONE_NUMBER: "13800138000",
+            CONF_PASSWORD: "password123",
+            CONF_REGION: "eu",
+        },
+    )
+    entry.add_to_hass(hass)
     coordinator = AuxCloudCoordinator(
         hass=hass,
         api=mock_aux_cloud_api,
-        email=None,
-        password="password123",
-        phone_number="13800138000",
+        config_entry=entry,
     )
     mock_aux_cloud_api.is_logged_in.return_value = False
 
     await coordinator._async_update_data()
 
     mock_aux_cloud_api.login.assert_awaited_once_with(
-        password="password123",
-        phone_number="13800138000",
+        AuxCredentials.phone("13800138000", "password123")
     )
 
 
@@ -139,7 +168,7 @@ async def test_coordinator_update_login_failure(coordinator, mock_aux_cloud_api)
     """Test coordinator update when login fails."""
     # Simulate not logged in and login failure
     mock_aux_cloud_api.is_logged_in.return_value = False
-    mock_aux_cloud_api.login.return_value = False
+    mock_aux_cloud_api.login.side_effect = AuxAuthError(code=-1006)
 
     # Update should fail with Home Assistant's auth-specific setup/update error
     with pytest.raises(ConfigEntryAuthFailed):
@@ -194,7 +223,7 @@ async def test_coordinator_partial_typed_query_error_keeps_devices(
 
     data = await coordinator._async_update_data()
 
-    assert data["devices"][0]["endpointId"] == "device1"
+    assert data["device1"]["endpointId"] == "device1"
 
 
 async def test_coordinator_auth_error_starts_reauth(coordinator, mock_aux_cloud_api):
@@ -213,87 +242,112 @@ def test_coordinator_query_collection_reraises_cancellation(coordinator):
         )
 
 
-def test_state_helper_deduplicates_same_update_id(coordinator):
-    """Test helper processes a single coordinator update only once."""
-    helper = coordinator.get_state_helper("device1", {"pwr": 1})
+def test_coordinator_retires_params_after_six_empty_complete_scans(coordinator):
+    """Test transient empty snapshots retain state through the configured grace."""
+    _seed_coordinator(
+        coordinator, [{"endpointId": "device1", "state": 1, "params": {"pwr": 1}}]
+    )
+    empty_snapshot = {"endpointId": "device1", "state": 1, "params": {}}
 
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
+    for _ in range(5):
+        coordinator._state.reconcile(
+            [empty_snapshot],
+            complete=True,
+            scan_revision=coordinator._state.revision,
+        )
+        assert coordinator._state.get("device1")["params"] == {"pwr": 1}
 
-    assert helper.is_available() is True
-
-    for update_id in range(2, 7):
-        helper.process_new_payload({}, "AC Unit 1", update_id=update_id)
-
-    assert helper.is_available() is False
-
-
-def test_state_helper_keeps_cache_on_empty_and_zero_ambient_payload(coordinator):
-    """Test cached state survives empty payloads and transient zero ambient temp."""
-    helper = coordinator.get_state_helper(
-        "device1",
-        {AC_TEMPERATURE_AMBIENT: 215, "pwr": 1},
+    coordinator._state.reconcile(
+        [empty_snapshot],
+        complete=True,
+        scan_revision=coordinator._state.revision,
     )
 
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
-    helper.process_new_payload(
-        {AC_TEMPERATURE_AMBIENT: 0, "pwr": 0},
-        "AC Unit 1",
-        update_id=2,
+    assert coordinator._state.get("device1")["params"] == {}
+
+
+def test_coordinator_merges_partial_params_and_ignores_zero_ambient(coordinator):
+    """Test valid partial snapshots reset failures without replacing good ambient data."""
+    _seed_coordinator(
+        coordinator,
+        [
+            {
+                "endpointId": "device1",
+                "state": 1,
+                "params": {AC_TEMPERATURE_AMBIENT: 215, "pwr": 1},
+            }
+        ],
     )
 
-    assert helper.current_params[AC_TEMPERATURE_AMBIENT] == 215
-    assert helper.current_params["pwr"] == 0
+    coordinator._state.reconcile(
+        [
+            {
+                "endpointId": "device1",
+                "state": 1,
+                "params": {AC_TEMPERATURE_AMBIENT: 0, "pwr": 0},
+            }
+        ],
+        complete=True,
+        scan_revision=coordinator._state.revision,
+    )
+    device = coordinator._state.get("device1")
+
+    assert device["params"][AC_TEMPERATURE_AMBIENT] == 215
+    assert device["params"]["pwr"] == 0
 
 
 async def test_coordinator_merges_websocket_updates(coordinator, mock_aux_cloud_api):
     """Test websocket updates merge into coordinator state."""
-    coordinator.devices = [
-        {
-            "endpointId": "device1",
-            "friendlyName": "AC Unit 1",
-            "params": {"pwr": 0},
-        }
-    ]
-    coordinator.async_set_updated_data({"devices": coordinator.devices})
-    original_publish = coordinator.async_set_updated_data
-    coordinator.async_set_updated_data = MagicMock(side_effect=original_publish)
-    await coordinator._async_handle_websocket_message(
-        {
-            "msgtype": "subresetk",
-            "data": {
-                "devList": [
-                    {
-                        "endpointId": "device1",
-                        "data": {"did": "device1", "pid": "pid1", "pwr": 1},
-                    }
-                ]
-            },
-        }
+    _seed_coordinator(
+        coordinator,
+        [
+            {
+                "endpointId": "device1",
+                "friendlyName": "AC Unit 1",
+                "params": {"pwr": 0},
+            }
+        ],
+    )
+    original_publish = coordinator._publish_devices
+    coordinator._publish_devices = MagicMock(side_effect=original_publish)
+    coordinator._handle_websocket_updates(
+        extract_websocket_updates(
+            {
+                "msgtype": "subresetk",
+                "data": {
+                    "devList": [
+                        {
+                            "endpointId": "device1",
+                            "data": {"did": "device1", "pid": "pid1", "pwr": 1},
+                        }
+                    ]
+                },
+            }
+        )
     )
 
     device = coordinator.get_device_by_endpoint_id("device1")
     assert device["params"] == {"pwr": 1}
-    mock_aux_cloud_api.normalize_device_params.assert_called_once_with(device)
-    coordinator.async_set_updated_data.assert_called_once()
+    coordinator._publish_devices.assert_called_once()
 
 
 def test_inventory_removes_only_after_two_complete_scans(coordinator):
     """Test partial or one-off empty scans cannot delete a cloud device."""
     device = {"endpointId": "device1", "params": {"pwr": 1}}
-    coordinator.devices = [device]
+    _seed_coordinator(coordinator, [device])
 
-    assert coordinator._reconcile_inventory([], complete=False) == [device]
-    assert coordinator._reconcile_inventory([], complete=True) == [device]
-    assert coordinator._reconcile_inventory([], complete=True) == []
+    for complete, expected in ((False, True), (True, True), (True, False)):
+        coordinator._state.reconcile(
+            [], complete=complete, scan_revision=coordinator._state.revision
+        )
+        assert (coordinator._state.get("device1") is not None) is expected
 
 
 def test_confirmed_stale_device_is_removed_from_registry(coordinator):
     """Test confirmed cloud removal also cleans the HA device registry."""
     entry = MockConfigEntry(domain=DOMAIN, data={}, entry_id="entry1")
     entry.add_to_hass(coordinator.hass)
-    coordinator._aux_config_entry = entry
+    coordinator.config_entry = entry
     registry = dr.async_get(coordinator.hass)
     registry.async_get_or_create(
         config_entry_id="entry1",
@@ -310,38 +364,42 @@ async def test_coordinator_marks_websocket_offline_update_unavailable(
     coordinator, mock_aux_cloud_api
 ):
     """Test websocket stale params are ignored when payload says device is offline."""
-    coordinator.devices = [
-        {
-            "endpointId": "device1",
-            "friendlyName": "AC Unit 1",
-            "productId": "000000000000000000000000c0620000",
-            "state": 1,
-            "params": {"pwr": 1, "temp": 245},
-        }
-    ]
-    coordinator.async_set_updated_data({"devices": coordinator.devices})
+    _seed_coordinator(
+        coordinator,
+        [
+            {
+                "endpointId": "device1",
+                "friendlyName": "AC Unit 1",
+                "productId": "000000000000000000000000c0620000",
+                "state": 1,
+                "params": {"pwr": 1, "temp": 245},
+            }
+        ],
+    )
     entity = BaseEntity(coordinator, "device1", SimpleNamespace(key="pwr"))
     entity.async_write_ha_state = MagicMock()
     assert entity.available is True
 
-    await coordinator._async_handle_websocket_message(
-        {
-            "msgtype": "subresetk",
-            "data": {
-                "devList": [
-                    {
-                        "endpointId": "device1",
-                        "status": 0,
-                        "data": {
-                            "online": False,
-                            "state": 0,
-                            "pwr": 1,
-                            "temp": 245,
-                        },
-                    }
-                ]
-            },
-        }
+    coordinator._handle_websocket_updates(
+        extract_websocket_updates(
+            {
+                "msgtype": "subresetk",
+                "data": {
+                    "devList": [
+                        {
+                            "endpointId": "device1",
+                            "status": 0,
+                            "data": {
+                                "online": False,
+                                "state": 0,
+                                "pwr": 1,
+                                "temp": 245,
+                            },
+                        }
+                    ]
+                },
+            }
+        )
     )
     entity._handle_coordinator_update()
 
@@ -351,113 +409,6 @@ async def test_coordinator_marks_websocket_offline_update_unavailable(
     assert entity.available is False
     assert entity._get_device_params() == {}
     mock_aux_cloud_api.normalize_device_params.assert_not_called()
-
-
-async def test_setup_entry_starts_websocket_after_platforms(hass, monkeypatch):
-    """Test setup starts websocket updates only after platform setup succeeds."""
-    events = []
-    entry = SimpleNamespace(
-        entry_id="entry1",
-        unique_id=None,
-        data={
-            CONF_EMAIL: "user@example.com",
-            CONF_PASSWORD: "secret",
-            CONF_REGION: "eu",
-        },
-    )
-    coordinator_mock = MagicMock()
-    coordinator_mock.async_config_entry_first_refresh = AsyncMock()
-
-    async def start_websocket():
-        events.append("websocket")
-
-    coordinator_mock.async_start_websocket = AsyncMock(side_effect=start_websocket)
-    coordinator_mock.async_close = AsyncMock()
-    api = MagicMock(userid=None)
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
-    monkeypatch.setattr(
-        integration,
-        "AuxCloudCoordinator",
-        MagicMock(return_value=coordinator_mock),
-    )
-
-    async def forward_platforms(*args):
-        events.append("platforms")
-
-    monkeypatch.setattr(
-        hass.config_entries,
-        "async_forward_entry_setups",
-        AsyncMock(side_effect=forward_platforms),
-    )
-
-    assert await integration.async_setup_entry(hass, entry) is True
-
-    assert events == ["platforms", "websocket"]
-    assert entry.runtime_data.coordinator is coordinator_mock
-    coordinator_mock.async_close.assert_not_awaited()
-
-
-async def test_migration_removes_device_selection_and_preserves_unique_id(hass):
-    """Test migration exposes every device without changing entry identity."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            CONF_EMAIL: "user@example.com",
-            CONF_PASSWORD: "secret",
-            CONF_REGION: "eu",
-            CONF_SELECTED_DEVICES: ["device1"],
-            "families": {"family1": {}},
-        },
-        entry_id="entry1",
-        unique_id="legacy-entry-id",
-        version=1,
-    )
-    entry.add_to_hass(hass)
-
-    assert await integration.async_migrate_entry(hass, entry) is True
-
-    assert entry.unique_id == "legacy-entry-id"
-    assert CONF_SELECTED_DEVICES not in entry.data
-    assert "families" not in entry.data
-
-
-async def test_setup_entry_cleans_up_when_platform_setup_fails(hass, monkeypatch):
-    """Test failed platform setup closes resources and removes stored entry data."""
-    entry = SimpleNamespace(
-        entry_id="entry1",
-        unique_id=None,
-        data={
-            CONF_EMAIL: "user@example.com",
-            CONF_PASSWORD: "secret",
-            CONF_REGION: "eu",
-        },
-    )
-    coordinator_mock = MagicMock()
-    coordinator_mock.async_config_entry_first_refresh = AsyncMock()
-    coordinator_mock.async_start_websocket = AsyncMock()
-    coordinator_mock.async_close = AsyncMock()
-    api = MagicMock(userid=None)
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
-    monkeypatch.setattr(
-        integration,
-        "AuxCloudCoordinator",
-        MagicMock(return_value=coordinator_mock),
-    )
-    monkeypatch.setattr(
-        hass.config_entries,
-        "async_forward_entry_setups",
-        AsyncMock(side_effect=RuntimeError("platform failed")),
-    )
-
-    with pytest.raises(RuntimeError, match="platform failed"):
-        await integration.async_setup_entry(hass, entry)
-
-    coordinator_mock.async_start_websocket.assert_not_awaited()
-    coordinator_mock.async_close.assert_awaited_once()
-    assert (
-        not hasattr(entry, "runtime_data")
-        or entry.runtime_data.coordinator is coordinator_mock
-    )
 
 
 async def test_coordinator_starts_single_websocket_runner(
@@ -471,11 +422,12 @@ async def test_coordinator_starts_single_websocket_runner(
         await asyncio.Event().wait()
 
     mock_aux_cloud_api.async_run_websocket.side_effect = run_websocket
+    coordinator.async_request_refresh = AsyncMock()
 
-    await coordinator.async_start_websocket()
+    coordinator.start_realtime()
     first_task = coordinator._websocket_task
     await asyncio.wait_for(started.wait(), timeout=1)
-    await coordinator.async_start_websocket()
+    coordinator.start_realtime()
 
     assert first_task is coordinator._websocket_task
     mock_aux_cloud_api.async_run_websocket.assert_awaited_once()
@@ -488,7 +440,8 @@ async def test_coordinator_retries_websocket_setup_failure(
 ):
     """Test setup failure enables fallback polling and retries in one runner task."""
     monkeypatch.setattr(
-        "custom_components.aux_cloud.coordinator.WEBSOCKET_SETUP_RETRY_INITIAL_DELAY",
+        coordinator_module,
+        "WEBSOCKET_SETUP_RETRY_INITIAL_DELAY",
         0,
     )
     started = asyncio.Event()
@@ -505,7 +458,7 @@ async def test_coordinator_retries_websocket_setup_failure(
     mock_aux_cloud_api.async_run_websocket.side_effect = run_after_failure
     coordinator.async_request_refresh = AsyncMock()
 
-    await coordinator.async_start_websocket()
+    coordinator.start_realtime()
     await asyncio.wait_for(started.wait(), timeout=1)
     await asyncio.sleep(0)
 
@@ -515,37 +468,93 @@ async def test_coordinator_retries_websocket_setup_failure(
     await coordinator.async_close()
 
 
+async def test_websocket_backoff_resets_immediately_after_ready(
+    coordinator, mock_aux_cloud_api, monkeypatch
+):
+    """Test an established connection never inherits an old maximum backoff."""
+    attempts = 0
+    sleeps = []
+
+    async def run_websocket(*_args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            kwargs["on_ready"]()
+        raise AuxServerError()
+
+    async def capture_sleep(delay):
+        sleeps.append(delay)
+        if len(sleeps) == 2:
+            raise asyncio.CancelledError
+
+    mock_aux_cloud_api.async_run_websocket.side_effect = run_websocket
+    coordinator.async_request_refresh = AsyncMock()
+    monkeypatch.setattr(coordinator_module.random, "uniform", lambda *_args: 1)
+    monkeypatch.setattr(coordinator_module.asyncio, "sleep", capture_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._run_websocket()
+
+    assert sleeps == [5, 5]
+
+
+async def test_websocket_rate_limit_is_a_retry_floor(
+    coordinator, mock_aux_cloud_api, monkeypatch
+):
+    """Test relay rate limits are never retried earlier than requested."""
+    mock_aux_cloud_api.async_run_websocket.side_effect = AuxRateLimitError(
+        retry_after=30
+    )
+    coordinator.async_request_refresh = AsyncMock()
+    monkeypatch.setattr(coordinator_module.random, "uniform", lambda *_args: 1)
+    original_sleep = asyncio.sleep
+
+    async def cancel_after_delay(delay):
+        if delay == 0:
+            await original_sleep(0)
+            return
+        assert delay == 30
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(coordinator_module.asyncio, "sleep", cancel_after_delay)
+
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._run_websocket()
+
+
 async def test_coordinator_switches_polling_with_websocket_health(coordinator):
     """Test degraded sockets enable fallback polling until they recover."""
     coordinator.async_request_refresh = AsyncMock()
 
-    await coordinator._async_handle_websocket_state(AuxWebSocketState.DEGRADED)
+    coordinator._set_websocket_connected(False)
     await asyncio.sleep(0)
-    await coordinator._async_handle_websocket_state(AuxWebSocketState.DEGRADED)
+    coordinator._set_websocket_connected(False)
     await asyncio.sleep(0)
 
     assert coordinator.update_interval == FALLBACK_SCAN_INTERVAL
     coordinator.async_request_refresh.assert_awaited_once()
 
-    await coordinator._async_handle_websocket_state(AuxWebSocketState.READY)
+    coordinator._set_websocket_connected(True)
 
     assert coordinator.update_interval == TOPOLOGY_SCAN_INTERVAL
-    assert coordinator._websocket_degraded is False
+    assert coordinator.websocket_degraded is False
 
 
 async def test_base_entity_rolls_back_optimistic_update_on_command_failure(
     coordinator, mock_aux_cloud_api
 ):
     """Test optimistic entity state rolls back when the command fails."""
-    coordinator.devices = [
-        {
-            "endpointId": "device1",
-            "friendlyName": "AC Unit 1",
-            "productId": "000000000000000000000000c0620000",
-            "params": {"pwr": 0},
-        }
-    ]
-    coordinator.async_set_updated_data({"devices": coordinator.devices})
+    _seed_coordinator(
+        coordinator,
+        [
+            {
+                "endpointId": "device1",
+                "friendlyName": "AC Unit 1",
+                "productId": "000000000000000000000000c0620000",
+                "params": {"pwr": 0},
+            }
+        ],
+    )
     entity = BaseEntity(coordinator, "device1", SimpleNamespace(key="pwr"))
     entity.async_write_ha_state = MagicMock()
     mock_aux_cloud_api.set_device_params.side_effect = Exception("command failed")
@@ -555,3 +564,39 @@ async def test_base_entity_rolls_back_optimistic_update_on_command_failure(
 
     assert entity._get_device_params()["pwr"] == 0
     assert "new_key" not in entity._get_device_params()
+
+
+def test_push_publication_does_not_reset_topology_poll(coordinator):
+    """Test continuous relay traffic cannot starve inventory discovery."""
+    _seed_coordinator(coordinator, [{"endpointId": "device1", "params": {"pwr": 0}}])
+    coordinator._async_unsub_refresh = MagicMock()
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {"pwr": 1}),))
+
+    coordinator._async_unsub_refresh.assert_not_called()
+
+
+async def test_cancelled_command_rolls_back_only_unsuperseded_keys(
+    coordinator, mock_aux_cloud_api
+):
+    """Test cancellation keeps a pushed key while removing optimistic-only state."""
+    _seed_coordinator(
+        coordinator, [{"endpointId": "device1", "state": 1, "params": {"pwr": 0}}]
+    )
+    started = asyncio.Event()
+
+    async def wait_for_cancel(_device, _params):
+        started.set()
+        await asyncio.Event().wait()
+
+    mock_aux_cloud_api.set_device_params.side_effect = wait_for_cancel
+    command = asyncio.create_task(
+        coordinator.async_set_device_params("device1", {"pwr": 1, "new": 1})
+    )
+    await started.wait()
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {"pwr": 2}),))
+    command.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await command
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {"pwr": 2}

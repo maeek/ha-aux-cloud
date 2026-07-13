@@ -1,5 +1,7 @@
 """Config flow for AUX Cloud."""
 
+# pylint: disable=abstract-method
+
 from __future__ import annotations
 
 import logging
@@ -15,8 +17,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import (
     AuxApiError,
     AuxCloudAPI,
-    config_flow_error_key,
 )
+from .api.models import AuxCredentials
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_FAMILIES,
@@ -24,10 +26,7 @@ from .const import (
     CONF_SELECTED_DEVICES,
     DOMAIN,
 )
-from .util import (
-    account_unique_id_from_credentials,
-    account_unique_id_from_user_id,
-)
+from .identifiers import account_unique_id_from_user_id
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigFlowResult
@@ -68,7 +67,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         self._mode = "create"
 
     async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
+        self, _user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Offer email first while retaining phone login."""
         return self.async_show_menu(step_id="user", menu_options=["email", "phone"])
@@ -98,9 +97,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
+    async def async_step_reauth(self, _entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Start credential renewal for an existing entry."""
-        self._target_entry = self._entry_for_flow("reauth")
+        self._target_entry = self._get_reauth_entry()
         self._mode = "reauth"
         return await self.async_step_reauth_confirm()
 
@@ -117,8 +116,9 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Update region or credentials while retaining the same account."""
         if self._target_entry is None:
-            self._target_entry = self._entry_for_flow("reconfigure")
+            self._target_entry = self._get_reconfigure_entry()
             self._mode = "reconfigure"
+            user_input = None
         return await self._async_account_step(
             self._target_credential_type(), user_input, step_id="reconfigure"
         )
@@ -158,7 +158,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             return self.async_show_form(
                 step_id=step_id,
                 data_schema=self._account_schema(credential_type, normalized),
-                errors={"base": config_flow_error_key(err)},
+                errors={"base": err.config_flow_key},
             )
         except AbortFlow:
             raise
@@ -180,24 +180,18 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             session=async_get_clientsession(self.hass),
         )
         if credential_type == "phone":
-            await api.login(
-                password=user_input[CONF_PASSWORD],
-                phone_number=user_input[CONF_PHONE_NUMBER],
+            credentials = AuxCredentials.phone(
+                user_input[CONF_PHONE_NUMBER], user_input[CONF_PASSWORD]
             )
         else:
-            await api.login(user_input[CONF_EMAIL], user_input[CONF_PASSWORD])
-
-        account_id = (
-            account_unique_id_from_user_id(region, api.userid)
-            if api.userid
-            else account_unique_id_from_credentials(
-                region,
-                email=user_input.get(CONF_EMAIL),
-                phone_number=user_input.get(CONF_PHONE_NUMBER),
+            credentials = AuxCredentials.email(
+                user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
             )
-        )
-        if account_id is None:
+        await api.login(credentials)
+
+        if api.user_id is None:  # Defensive: login validates this invariant.
             return self.async_abort(reason="unknown")
+        account_id = account_unique_id_from_user_id(region, api.user_id)
 
         data = _clean_entry_data(user_input)
         data[CONF_ACCOUNT_ID] = account_id
@@ -232,13 +226,15 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             return True
         stored_account_id = self._target_entry.data.get(CONF_ACCOUNT_ID)
         if stored_account_id:
-            return stored_account_id == account_id
+            return bool(stored_account_id == account_id)
 
         old_data = self._target_entry.data
         if old_data.get(CONF_REGION, "eu") != new_data.get(CONF_REGION, "eu"):
             return False
         if old_data.get(CONF_EMAIL):
-            return old_data[CONF_EMAIL].strip().lower() == new_data.get(CONF_EMAIL)
+            return bool(
+                old_data[CONF_EMAIL].strip().lower() == new_data.get(CONF_EMAIL)
+            )
         return _normalize_phone_number(
             old_data.get(CONF_PHONE_NUMBER, "")
         ) == new_data.get(CONF_PHONE_NUMBER)
@@ -248,16 +244,6 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
         if self._target_entry and self._target_entry.data.get(CONF_PHONE_NUMBER):
             return "phone"
         return "email"
-
-    def _entry_for_flow(self, flow_type: str) -> ConfigEntry:
-        """Return the target entry using current or legacy HA flow helpers."""
-        helper = getattr(self, f"_get_{flow_type}_entry", None)
-        if helper is not None:
-            return helper()
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        if entry is None:
-            raise ValueError("AUX Cloud config entry no longer exists")
-        return entry
 
     def _account_schema(
         self,

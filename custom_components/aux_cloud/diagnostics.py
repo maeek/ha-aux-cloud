@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
+from . import AuxCloudConfigEntry
+from .api.models import AuxDevice
 from .const import CONF_PHONE_NUMBER
 from .devices.profiles import (
     AUX_QUERY_FAILURES,
+    get_cookie_profile_params,
     get_product_profile,
-    get_protocol_version,
+    get_protocol_version_details,
 )
-from .models import AuxCloudConfigEntry
 
 TO_REDACT = {
     "account_id",
@@ -29,29 +32,40 @@ TO_REDACT = {
 }
 
 
-def _device_diagnostics(device: dict[str, Any]) -> dict[str, Any]:
+def _device_diagnostics(device: Mapping[str, Any]) -> dict[str, Any]:
     """Return useful device metadata without cloud identity or parameter values."""
     profile = get_product_profile(device.get("productId"))
+    device_snapshot = cast(AuxDevice, dict(device))
+    cookie_params = set(get_cookie_profile_params(device))
+    profile_params = set(profile.params)
+    protocol_version, protocol_version_source = get_protocol_version_details(device)
     return {
         "product_id": device.get("productId"),
         "state": device.get("state"),
         "profile": profile.model_name,
         "device_type": profile.device_type,
-        "protocol_version": get_protocol_version(device),
-        "supported_params": sorted(profile.params),
+        "protocol_version": protocol_version,
+        "protocol_version_source": protocol_version_source,
+        "supported_params": sorted(profile_params),
         "writable_params": sorted(profile.writable_params),
+        "initial_param_queries": profile.initial_param_queries(device_snapshot),
+        "fallback_param_queries": profile.fallback_param_queries(device_snapshot),
+        "cookie_profile_params": sorted(cookie_params),
+        "cookie_only_params": sorted(cookie_params - profile_params),
+        "profile_only_params": (
+            sorted(profile_params - cookie_params) if cookie_params else []
+        ),
         "reported_param_names": sorted(device.get("params", {})),
         "query_failures": device.get(AUX_QUERY_FAILURES, []),
-        "last_updated": device.get("last_updated"),
     }
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: AuxCloudConfigEntry
+    _hass: HomeAssistant, entry: AuxCloudConfigEntry
 ) -> dict[str, Any]:
     """Return redacted config and coordinator diagnostics."""
-    coordinator = entry.runtime_data.coordinator
-    devices = coordinator.data["devices"] if coordinator.data else []
+    coordinator = entry.runtime_data
+    devices = list(coordinator.data.values()) if coordinator.data else []
     return {
         "entry": async_redact_data(dict(entry.data), TO_REDACT),
         "runtime": {

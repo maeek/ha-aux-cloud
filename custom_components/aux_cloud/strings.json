@@ -126,6 +126,9 @@
       },
       "ac_temperature": {
         "name": "AC Temperature"
+      },
+      "err_flag": {
+        "name": "Error Flag"
       }
     },
     "water_heater": {
