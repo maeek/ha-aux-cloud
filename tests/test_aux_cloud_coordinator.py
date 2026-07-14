@@ -15,6 +15,9 @@ from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
 from custom_components.aux_cloud.api.models import DeviceUpdate
 from custom_components.aux_cloud.const import DOMAIN
 from custom_components.aux_cloud.coordinator import TOPOLOGY_SCAN_INTERVAL
+from custom_components.aux_cloud.devices.profiles import (
+    HP_HOT_WATER_TEMPERATURE_TARGET,
+)
 from custom_components.aux_cloud.entity import BaseEntity
 
 pytest_plugins = "pytest_homeassistant_custom_component"
@@ -160,14 +163,21 @@ async def test_realtime_supervisor_retries_once_and_restores_normal_polling(
 async def test_command_transactions_rollback_without_overwriting_newer_push(
     coordinator, mock_aux_cloud_api
 ):
-    """Failed commands roll back, but a newer push remains authoritative."""
-    _seed(coordinator, [_device(params={"pwr": 0})])
-    entity = BaseEntity(coordinator, "device1", SimpleNamespace(key="pwr"))
+    """Stale ACKs do not flicker; failures roll back and pushes remain authoritative."""
+    target = HP_HOT_WATER_TEMPERATURE_TARGET
+    _seed(coordinator, [_device(params={target: 410})])
+    entity = BaseEntity(coordinator, "device1", SimpleNamespace(key=target))
     entity.async_write_ha_state = MagicMock()
+
+    mock_aux_cloud_api.set_device_params.side_effect = None
+    mock_aux_cloud_api.set_device_params.return_value = {target: 410}
+    await entity._set_device_params({target: 420})
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
+
     mock_aux_cloud_api.set_device_params.side_effect = AuxServerError("failed")
     with pytest.raises(HomeAssistantError):
-        await entity._set_device_params({"pwr": 1, "new": 1})
-    assert entity._get_device_params() == {"pwr": 0}
+        await entity._set_device_params({target: 430, "new": 1})
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
 
     started = asyncio.Event()
 
@@ -177,11 +187,11 @@ async def test_command_transactions_rollback_without_overwriting_newer_push(
 
     mock_aux_cloud_api.set_device_params.side_effect = wait_for_cancel
     command = asyncio.create_task(
-        coordinator.async_set_device_params("device1", {"pwr": 1, "new": 1})
+        coordinator.async_set_device_params("device1", {target: 430, "new": 1})
     )
     await started.wait()
-    coordinator._handle_websocket_updates((DeviceUpdate("device1", {"pwr": 2}),))
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
     command.cancel()
     with pytest.raises(asyncio.CancelledError):
         await command
-    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {"pwr": 2}
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 440}

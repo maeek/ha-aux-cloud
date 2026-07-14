@@ -139,12 +139,15 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             if token.changed:
                 self._publish_devices()
             try:
-                confirmed = await self.api.set_device_params(current, params)
+                await self.api.set_device_params(current, params)
             except (asyncio.CancelledError, Exception):
                 if self._state.rollback_command(token):
                     self._publish_devices()
                 raise
-            if self._state.confirm_command(token, confirmed or params):
+            # AUX command acknowledgements can contain the snapshot from before
+            # the command was applied. Treat success as an acknowledgement of
+            # the requested values; later device pushes remain authoritative.
+            if self._state.confirm_command(token, params):
                 self._publish_devices()
 
     @callback
