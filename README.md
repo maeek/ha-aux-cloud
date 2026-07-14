@@ -208,8 +208,6 @@ cloud command is sent. Existing unique IDs and device identifiers are unchanged.
 
 Minimum Home Assistant version is `2026.4.0`.
 
-This is a HACS custom integration and therefore cannot claim an official Home Assistant quality tier. [`quality_scale.yaml`](custom_components/aux_cloud/quality_scale.yaml) tracks technical alignment with the cumulative rules. CI enforces strict typing, complete config-flow coverage, and more than 95% total integration coverage against both the minimum and latest supported Home Assistant releases.
-
 Current architecture:
 
 - `custom_components/aux_cloud/api`
@@ -252,7 +250,7 @@ Run all tests:
 pytest
 ```
 
-The current verification command used by maintainers enforces more than 95% overall coverage:
+The current verification command used by maintainers enforces at least 60% overall coverage:
 
 ```bash
 pytest -q

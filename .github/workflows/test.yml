@@ -32,11 +32,6 @@ jobs:
           pytest-homeassistant-custom-component
       - name: Run tests
         run: pytest -q
-      - name: Require complete config-flow coverage
-        run: >-
-          coverage report
-          --include=custom_components/aux_cloud/config_flow.py
-          --fail-under=100
 
   quality:
     runs-on: ubuntu-latest

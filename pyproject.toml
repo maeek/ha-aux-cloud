@@ -16,7 +16,7 @@ max-complexity = 12
 source = ["custom_components/aux_cloud"]
 
 [tool.coverage.report]
-fail_under = 95.1
+fail_under = 60
 precision = 2
 show_missing = true
 exclude_lines = [

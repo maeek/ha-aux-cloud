@@ -14,15 +14,11 @@ from custom_components.aux_cloud.identifiers import (
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
-def test_legacy_registry_identifiers_are_frozen():
-    """Test released entity and device identifiers remain byte-for-byte stable."""
+def test_registry_identifiers_remain_stable():
+    """Released IDs stay frozen while account IDs remain normalized."""
     assert legacy_entity_unique_id("00001234", "ac") == "aux_cloud_1234_ac"
     assert legacy_entity_unique_id("device-1", "pwr") == "aux_cloud_device-1_pwr"
     assert device_identifier("00001234") == ("aux_cloud", "00001234")
-
-
-def test_account_identifiers_are_normalized_and_stable():
-    """Test authenticated account IDs use a stable normalized format."""
     assert account_unique_id_from_user_id("CN", "user-1") == "cn:user:user-1"
 
 

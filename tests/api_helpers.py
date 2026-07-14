@@ -38,8 +38,9 @@ class FakeRepositorySession:
 
     userid = "user"
 
-    def __init__(self, device: dict) -> None:
+    def __init__(self, device: dict, *, online: bool = True) -> None:
         self._device = device
+        self._online = online
 
     def get_headers(self, **kwargs: str) -> dict[str, str]:
         """Return passed headers."""
@@ -55,7 +56,7 @@ class FakeRepositorySession:
                 "event": {
                     "payload": {
                         "status": 0,
-                        "data": [{"did": "device1", "state": 1}],
+                        "data": [{"did": "device1", "state": int(self._online)}],
                     }
                 }
             }

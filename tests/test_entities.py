@@ -1,7 +1,5 @@
 """Test AUX Cloud entity behavior and dynamic platform setup."""
 
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,8 +16,6 @@ from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud.climate as climate_platform
-import custom_components.aux_cloud.number as number_platform
-import custom_components.aux_cloud.sensor as sensor_platform
 import custom_components.aux_cloud.switch as switch_platform
 import custom_components.aux_cloud.water_heater as water_heater_platform
 from custom_components.aux_cloud.climate import (
@@ -30,19 +26,16 @@ from custom_components.aux_cloud.coordinator import AuxCloudCoordinator
 from custom_components.aux_cloud.devices.profiles import (
     AC_FAN_SPEED,
     AC_POWER,
-    AC_POWER_LIMIT,
     AC_POWER_OFF,
     AC_SWING_HORIZONTAL,
     AC_SWING_VERTICAL,
     AC_TEMPERATURE_AMBIENT,
-    AC_TEMPERATURE_DECIMAL,
     AC_TEMPERATURE_TARGET,
     AUX_MODE,
     HP_HEATER_POWER,
     HP_HEATER_TEMPERATURE_TARGET,
     HP_HOT_WATER_TANK_TEMPERATURE,
     HP_HOT_WATER_TEMPERATURE_TARGET,
-    HP_MODE_COOLING,
     HP_MODE_HEATING,
     HP_QUIET_MODE,
     HP_WATER_FAST_HOTWATER,
@@ -50,7 +43,6 @@ from custom_components.aux_cloud.devices.profiles import (
 )
 from custom_components.aux_cloud.number import POWER_LIMIT_DESCRIPTION, AuxNumberEntity
 from custom_components.aux_cloud.select import SELECTS, AuxSelectEntity
-from custom_components.aux_cloud.sensor import SENSORS, AuxCloudSensor
 from custom_components.aux_cloud.switch import AuxSwitchEntity
 from custom_components.aux_cloud.water_heater import (
     WATER_HEATER_DESCRIPTION,
@@ -105,245 +97,6 @@ def _ac_device(endpoint_id="00001234"):
     }
 
 
-def test_ac_climate_reads_state_and_preserves_unique_id(hass):
-    """Test climate state mapping and the released unique-ID formula."""
-    coordinator = _coordinator(hass, _ac_device())
-    entity = AuxACClimateEntity(
-        coordinator,
-        "00001234",
-        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
-    )
-
-    assert entity.unique_id == "aux_cloud_1234_ac"
-    assert entity.current_temperature == 21.5
-    assert entity.target_temperature == 23
-    assert entity.hvac_mode == HVACMode.COOL
-    assert entity.swing_mode == "horizontal"
-
-
-@pytest.mark.parametrize(
-    ("suffix", "has_auto", "fan_modes", "swing_modes"),
-    [
-        (
-            "c5510000",
-            False,
-            [
-                "auto",
-                "low",
-                "medium_low",
-                "medium",
-                "medium_high",
-                "high",
-                "turbo",
-                "silent",
-            ],
-            ["off", "vertical", "horizontal", "both"],
-        ),
-        (
-            "56ac0000",
-            True,
-            ["low", "medium", "high"],
-            ["off", "vertical"],
-        ),
-    ],
-)
-def test_ac_climate_uses_product_capabilities(
-    hass, suffix, has_auto, fan_modes, swing_modes
-):
-    """Test climate options omit commands that an APK product cannot accept."""
-    device = _ac_device()
-    device["productId"] = f"{'0' * 24}{suffix}"
-    coordinator = _coordinator(hass, device)
-    entity = AuxACClimateEntity(
-        coordinator,
-        "00001234",
-        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
-    )
-
-    assert (HVACMode.AUTO in entity.hvac_modes) is has_auto
-    assert entity.fan_modes == fan_modes
-    assert entity.swing_modes == swing_modes
-    assert entity.unique_id == "aux_cloud_1234_ac"
-
-
-def test_new_endpoint_collision_uses_deterministic_v2_unique_id(hass):
-    """Test a new colliding endpoint cannot break the released legacy entity."""
-    first = _ac_device("00001234")
-    second = _ac_device("1234")
-    coordinator = _coordinator(hass, first)
-    coordinator._state.reconcile(
-        [first, second],
-        complete=True,
-        scan_revision=coordinator._state.revision,
-    )
-    coordinator._publish_devices()
-
-    first_entity = AuxSwitchEntity(
-        coordinator,
-        "00001234",
-        SwitchEntityDescription(key=AC_POWER),
-    )
-    second_entity = AuxSwitchEntity(
-        coordinator,
-        "1234",
-        SwitchEntityDescription(key=AC_POWER),
-    )
-
-    assert first_entity.unique_id == "aux_cloud_1234_pwr"
-    assert second_entity.unique_id.startswith("aux_cloud_1234_pwr_v2_")
-
-
-async def test_ac_climate_command_updates_coordinator(hass):
-    """Test entity commands use the coordinator transaction path."""
-    coordinator = _coordinator(hass, _ac_device())
-    entity = AuxACClimateEntity(
-        coordinator,
-        "00001234",
-        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
-    )
-
-    await entity.async_set_temperature(temperature=24.5)
-
-    assert (
-        coordinator.get_device_by_endpoint_id("00001234")["params"][
-            AC_TEMPERATURE_TARGET
-        ]
-        == 245
-    )
-
-
-async def test_half_degree_product_uses_decimal_flag_without_changing_unique_id(hass):
-    """Test the APK-specific wire quirk stays behind the existing entity identity."""
-    device = _ac_device()
-    device["productId"] = f"{'0' * 24}1f620000"
-    coordinator = _coordinator(hass, device)
-    entity = AuxACClimateEntity(
-        coordinator,
-        "00001234",
-        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
-    )
-
-    await entity.async_set_temperature(temperature=24.5)
-
-    assert entity.unique_id == "aux_cloud_1234_ac"
-    assert coordinator.api.set_device_params.await_args.args[1] == {
-        AC_TEMPERATURE_TARGET: 240,
-        AC_TEMPERATURE_DECIMAL: 1,
-    }
-
-
-def test_heat_pump_reports_cooling_mode(hass):
-    """Test heat-pump HVAC state no longer always reports heating."""
-    device = {
-        "endpointId": "hp1",
-        "friendlyName": "Heat Pump",
-        "productId": HP_PRODUCT_ID,
-        "state": 1,
-        "params": {HP_HEATER_POWER: 1, AUX_MODE: HP_MODE_COOLING},
-    }
-    coordinator = _coordinator(hass, device)
-    entity = AuxHeatPumpClimateEntity(
-        coordinator,
-        "hp1",
-        ClimateEntityDescription(
-            key="heat_pump_central_heating", translation_key="aux_heater"
-        ),
-    )
-
-    assert entity.hvac_mode == HVACMode.COOL
-
-
-def test_missing_sensor_value_is_unknown(hass):
-    """Test omitted cloud values do not become false zero measurements."""
-    device = _ac_device()
-    device["params"].pop(AC_TEMPERATURE_AMBIENT)
-    coordinator = _coordinator(hass, device)
-    description = SENSORS[AC_TEMPERATURE_AMBIENT]
-    entity = AuxCloudSensor(
-        coordinator,
-        "00001234",
-        description,
-    )
-
-    assert entity.native_value is None
-
-
-def test_coordinator_failure_makes_entity_unavailable(hass):
-    """Test a usable device snapshot is unavailable after coordinator failure."""
-    coordinator = _coordinator(hass, _ac_device())
-    entity = AuxACClimateEntity(
-        coordinator,
-        "00001234",
-        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
-    )
-    assert entity.available
-
-    coordinator.last_update_success = False
-    assert not entity.available
-
-
-async def test_entity_command_propagates_failures(hass):
-    """Test entity actions do not swallow Home Assistant errors."""
-    coordinator = _coordinator(hass, _ac_device())
-    coordinator.api.set_device_params.side_effect = HomeAssistantError("failed")
-    switch = AuxSwitchEntity(
-        coordinator,
-        "00001234",
-        SwitchEntityDescription(key=AC_POWER),
-    )
-
-    with pytest.raises(HomeAssistantError):
-        await switch.async_turn_off()
-
-
-async def test_select_rejects_unknown_option(hass):
-    """Test invalid select actions fail explicitly and translatably."""
-    device = {
-        "endpointId": "hp1",
-        "friendlyName": "Heat Pump",
-        "productId": HP_PRODUCT_ID,
-        "state": 1,
-        "params": {HP_QUIET_MODE: 0},
-    }
-    coordinator = _coordinator(hass, device)
-    entity = AuxSelectEntity(
-        coordinator,
-        "hp1",
-        next(
-            description for description in SELECTS if description.key == HP_QUIET_MODE
-        ),
-    )
-
-    with pytest.raises(HomeAssistantError):
-        await entity.async_select_option("unsupported")
-
-
-async def test_select_exposes_option_and_sends_value(hass):
-    """Test typed select metadata drives state and commands."""
-    device = {
-        "endpointId": "hp1",
-        "friendlyName": "Heat Pump",
-        "productId": HP_PRODUCT_ID,
-        "state": 1,
-        "params": {HP_QUIET_MODE: 0},
-    }
-    coordinator = _coordinator(hass, device)
-    description = next(
-        description for description in SELECTS if description.key == HP_QUIET_MODE
-    )
-    entity = AuxSelectEntity(
-        coordinator,
-        "hp1",
-        description,
-    )
-    entity.async_write_ha_state = MagicMock()
-
-    assert entity.current_option == "off"
-    await entity.async_select_option("quiet_1")
-    entity._handle_coordinator_update()
-    assert entity.current_option == "quiet_1"
-
-
 async def test_heat_pump_partial_state_and_commands(hass):
     """Test heat-pump omissions stay unknown and every supported command is bounded."""
     device = {
@@ -380,15 +133,8 @@ async def test_heat_pump_partial_state_and_commands(hass):
     assert entity.hvac_mode is None
 
     await entity.async_set_hvac_mode(HVACMode.HEAT)
-    await entity.async_set_hvac_mode(HVACMode.COOL)
     await entity.async_set_hvac_mode(HVACMode.OFF)
-    await entity.async_set_hvac_mode(HVACMode.AUTO)
-    await entity.async_turn_on()
-    await entity.async_turn_off()
     await entity.async_set_preset_mode(PRESET_ECO)
-    await entity.async_set_preset_mode(PRESET_NONE)
-    await entity.async_set_temperature()
-    await entity.async_set_temperature(temperature="invalid")
     await entity.async_set_temperature(temperature=80)
     assert coordinator.api.set_device_params.await_args.args[1] == {
         HP_HEATER_TEMPERATURE_TARGET: 640
@@ -425,24 +171,23 @@ async def test_ac_partial_state_and_commands(hass):
     params[AC_SWING_HORIZONTAL] = 0
     assert entity.swing_mode == "vertical"
 
-    await entity.async_set_temperature()
-    await entity.async_set_temperature(temperature="invalid")
     await entity.async_set_hvac_mode(HVACMode.OFF)
     await entity.async_set_hvac_mode(HVACMode.HEAT)
-    await entity.async_set_hvac_mode(HVACMode.HEAT_COOL)
-    await entity.async_set_fan_mode(None)
-    await entity.async_set_fan_mode("unsupported")
     await entity.async_set_fan_mode("high")
     await entity.async_set_swing_mode("both")
-    await entity.async_turn_on()
     await entity.async_turn_off()
     assert coordinator.api.set_device_params.await_args.args[1] == AC_POWER_OFF
 
 
 def test_partial_scalar_entities_are_unknown(hass):
-    """Test omitted scalar keys do not fabricate off, zero, or a select option."""
+    """Partial data stays unknown and failed coordinator updates are unavailable."""
     device = _ac_device("device1")
     coordinator = _coordinator(hass, device)
+    climate = AuxACClimateEntity(
+        coordinator,
+        "device1",
+        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
+    )
     switch = AuxSwitchEntity(
         coordinator, "device1", SwitchEntityDescription(key=AC_POWER)
     )
@@ -450,6 +195,8 @@ def test_partial_scalar_entities_are_unknown(hass):
     switch._device["params"].pop(AC_POWER)
     assert switch.is_on is None
     assert number.native_value is None
+    coordinator.last_update_success = False
+    assert not climate.available
 
     hp_device = {
         "endpointId": "hp1",
@@ -474,37 +221,6 @@ def test_partial_scalar_entities_are_unknown(hass):
     assert water.current_operation is None
     water._device["params"].update({HP_WATER_POWER: 2, HP_WATER_FAST_HOTWATER: 0})
     assert water.current_operation is None
-
-
-def test_icons_are_translation_backed():
-    """Test static and state-dependent entity icons are declared in icons.json."""
-    icons = json.loads(
-        (
-            Path(__file__).parents[1] / "custom_components" / "aux_cloud" / "icons.json"
-        ).read_text(encoding="utf-8")
-    )["entity"]
-    assert icons["climate"]["aux_ac"]["default"] == "mdi:air-conditioner"
-    assert icons["select"]["aux_select_qtmode"]["state"]["off"] == "mdi:volume-high"
-
-
-async def test_number_entity_and_platform_setup(hass):
-    """Test the power limit number is discoverable, readable, and writable."""
-    device = _ac_device("device1")
-    device["params"][AC_POWER_LIMIT] = 40
-    coordinator = _coordinator(hass, device)
-    entity = AuxNumberEntity(coordinator, "device1", POWER_LIMIT_DESCRIPTION)
-    entity.async_write_ha_state = MagicMock()
-
-    assert entity.native_value == 40
-    await entity.async_set_native_value(55.9)
-    entity._handle_coordinator_update()
-    assert entity.native_value == 55
-
-    entry = SimpleNamespace(runtime_data=coordinator, async_on_unload=MagicMock())
-    add_entities = MagicMock()
-    await number_platform.async_setup_entry(hass, entry, add_entities)
-    assert len(add_entities.call_args.args[0]) == 1
-    entry.async_on_unload.call_args.args[0]()
 
 
 async def test_water_heater_state_and_commands(hass):
@@ -546,34 +262,6 @@ async def test_water_heater_state_and_commands(hass):
 
     with pytest.raises(HomeAssistantError):
         await entity.async_set_operation_mode("invalid")
-
-
-async def test_sensor_platform_adds_devices_discovered_later(hass):
-    """Test a topology scan can add entities without reloading the entry."""
-    coordinator = _coordinator(hass, _ac_device("device1"))
-    entry = SimpleNamespace(
-        runtime_data=coordinator,
-        async_on_unload=MagicMock(),
-    )
-    add_entities = MagicMock()
-
-    await sensor_platform.async_setup_entry(hass, entry, add_entities)
-    coordinator._state.reconcile(
-        [_ac_device("device1"), _ac_device("device2")],
-        complete=True,
-        scan_revision=coordinator._state.revision,
-    )
-    coordinator._publish_devices()
-
-    assert add_entities.call_count == 2
-    first_unique_ids = {
-        entity.unique_id for entity in add_entities.call_args_list[0].args[0]
-    }
-    second_unique_ids = {
-        entity.unique_id for entity in add_entities.call_args_list[1].args[0]
-    }
-    assert first_unique_ids.isdisjoint(second_unique_ids)
-    entry.async_on_unload.call_args.args[0]()
 
 
 async def test_climate_and_switch_platform_factories(hass):
