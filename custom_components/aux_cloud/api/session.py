@@ -215,9 +215,8 @@ class AuxCloudSession:
         ).hexdigest()
         if credentials.kind == "phone":
             payload = {
-                "username": credentials.username,
+                "phone": credentials.username,
                 "password": sha_password,
-                "countrycode": "",
                 "companyid": COMPANY_ID,
                 "lid": LICENSE_ID,
             }

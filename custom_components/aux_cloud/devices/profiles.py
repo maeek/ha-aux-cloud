@@ -525,9 +525,10 @@ def encode_ac_temperature_command(
 ) -> dict[str, int]:
     """Encode a logical Celsius target using the AC Freedom wire format."""
     profile = get_product_profile(device.get("productId"))
-    target_x10 = round(temperature_c * 10)
     current_params = device.get("params", {})
     if current_params.get(AC_TEMPERATURE_UNIT) == 2:
+        # AC Freedom truncates the Celsius conversion of Fahrenheit targets.
+        target_x10 = int(temperature_c * 10)
         base = (target_x10 // 10) * 10
         return {
             AC_TEMPERATURE_TARGET: base,
@@ -536,6 +537,7 @@ def encode_ac_temperature_command(
             AC_TEMPERATURE_CONVERSION: target_x10 - base,
         }
 
+    target_x10 = round(temperature_c * 10)
     if profile.half_degree_via_flag:
         base = (target_x10 // 10) * 10
         return {

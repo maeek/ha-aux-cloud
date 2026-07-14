@@ -51,6 +51,8 @@ def extract_websocket_updates(
     """Extract endpoint param updates from websocket messages."""
     msgtype = message.get("msgtype")
     data = message.get("data") or {}
+    if not isinstance(data, dict):
+        return ()
     updates: list[DeviceUpdate] = []
 
     if msgtype in {"subk", "subresetk"} and message.get("status") in SUCCESS_STATUSES:
@@ -70,27 +72,41 @@ def extract_websocket_updates(
 
 def _extract_devlist_updates(data: dict[str, Any]) -> list[DeviceUpdate]:
     """Extract updates from websocket data.devList."""
-    updates = []
-    for item in data.get("devList", []) or []:
+    updates: list[DeviceUpdate] = []
+    device_list = data.get("devList")
+    if not isinstance(device_list, list):
+        return updates
+    for item in device_list:
+        if not isinstance(item, dict):
+            continue
         params = decode_json_payload(item.get("data"))
         endpoint_id = item.get("endpointId") or params.get("did")
-        if endpoint_id and params and item.get("status") in SUCCESS_STATUSES:
+        if (
+            isinstance(endpoint_id, str)
+            and endpoint_id
+            and params
+            and item.get("status") in SUCCESS_STATUSES
+        ):
             updates.append(_build_update(endpoint_id, params))
     return updates
 
 
 def _extract_push_payload_update(data: dict[str, Any]) -> list[DeviceUpdate]:
     """Extract updates from push/devpush payload variants."""
-    updates = []
+    updates: list[DeviceUpdate] = []
     endpoint_id = data.get("endpointId")
+    nested_payload = data.get("payload")
+    nested_data = (
+        nested_payload.get("data") if isinstance(nested_payload, dict) else None
+    )
 
     for payload in (
         data.get("data"),
-        (data.get("payload") or {}).get("data"),
+        nested_data,
     ):
         params = decode_json_payload(payload)
         update_endpoint_id = endpoint_id or params.get("did")
-        if update_endpoint_id and params:
+        if isinstance(update_endpoint_id, str) and update_endpoint_id and params:
             updates.append(_build_update(update_endpoint_id, params))
     return updates
 
@@ -121,13 +137,31 @@ def _extract_availability(params: dict[str, Any]) -> bool | None:
 
 def _extract_opencontrol_updates(data: dict[str, Any]) -> list[DeviceUpdate]:
     """Extract updates from transit.opencontrolk responseList."""
-    updates = []
-    for item in data.get("responseList", []) or []:
+    updates: list[DeviceUpdate] = []
+    response_list = data.get("responseList")
+    if not isinstance(response_list, list):
+        return updates
+    for item in response_list:
+        if not isinstance(item, dict):
+            continue
         event = item.get("event") or {}
-        endpoint_id = (event.get("endpoint") or {}).get("endpointId")
+        if not isinstance(event, dict):
+            continue
+        endpoint = event.get("endpoint")
+        endpoint_id = endpoint.get("endpointId") if isinstance(endpoint, dict) else None
         payload = event.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
         status = payload.get("status", 0)
-        params = parse_std_data(payload.get("data"))
-        if endpoint_id and params and status in SUCCESS_STATUSES:
+        try:
+            params = parse_std_data(payload.get("data"))
+        except (TypeError, ValueError):
+            continue
+        if (
+            isinstance(endpoint_id, str)
+            and endpoint_id
+            and params
+            and status in SUCCESS_STATUSES
+        ):
             updates.append(DeviceUpdate(endpoint_id, params))
     return updates

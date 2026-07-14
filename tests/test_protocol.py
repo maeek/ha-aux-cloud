@@ -110,6 +110,17 @@ class TestAuxCloudAPI:
         assert parse_retry_after(None) is None
         assert parse_retry_after("Wed, 21 Oct 2015 07:28:00") == 1
 
+    @pytest.mark.parametrize("code", [-30129, 10011])
+    def test_apk_session_expiry_codes_trigger_reauthentication(self, code):
+        """Test every APK-defined expired-session code is classified for recovery."""
+        with pytest.raises(AuxSessionExpired):
+            raise_for_cloud_response({"error": code}, endpoint="device/query")
+
+    def test_account_rate_limit_error_is_classified(self):
+        """Test the app's too-frequent-request response uses rate-limit handling."""
+        with pytest.raises(AuxRateLimitError):
+            raise_for_cloud_response({"error": -1036}, endpoint="account/login")
+
     def test_malformed_cookie_and_control_payloads_fail_closed(self):
         """Test bounded cookie parsing never guesses missing control metadata."""
         assert decode_device_cookie(None) is None

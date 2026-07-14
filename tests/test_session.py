@@ -57,10 +57,8 @@ class TestAuxCloudAPI:
             "user@example.com", "secret"
         )
 
-    async def test_phone_login_payload_uses_username_and_country_code(
-        self, monkeypatch
-    ):
-        """Test phone login sends the phone-specific username payload."""
+    async def test_phone_login_payload_matches_app_wire_format(self, monkeypatch):
+        """Test phone login sends the APK's phone-specific payload."""
         session = _session(region="cn")
         session.make_request = AsyncMock(
             return_value={"status": 0, "loginsession": "session", "userid": "user"}
@@ -76,9 +74,11 @@ class TestAuxCloudAPI:
         )
 
         payload = _decrypt_test_login_payload(session.make_request.call_args)
-        assert payload["username"] == "13800138000"
-        assert payload["countrycode"] == ""
+        assert list(payload) == ["phone", "password", "companyid", "lid"]
+        assert payload["phone"] == "13800138000"
         assert "email" not in payload
+        assert "username" not in payload
+        assert "countrycode" not in payload
         assert session._credentials == AuxCredentials.phone("13800138000", "secret")
 
     async def test_session_recovery_relogs_in_and_retries_request(self):

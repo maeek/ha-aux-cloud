@@ -196,6 +196,14 @@ class TestAuxCloudAPI:
         normalize_device_params(fahrenheit)
         assert fahrenheit["params"][AC_TEMPERATURE_TARGET] == 172
 
+        # AC Freedom truncates, rather than rounds, converted Fahrenheit targets.
+        assert encode_ac_temperature_command(fahrenheit, (66 - 32) / 1.8) == {
+            AC_TEMPERATURE_TARGET: 180,
+            AC_TEMPERATURE_UNIT: 2,
+            AC_TEMPERATURE_DECIMAL: 0,
+            AC_TEMPERATURE_CONVERSION: 8,
+        }
+
         half_degree = _mock_device()
         half_degree["productId"] = f"{'0' * 24}1f620000"
         encoded = encode_ac_temperature_command(half_degree, 16.5)

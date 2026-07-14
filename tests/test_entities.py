@@ -31,6 +31,7 @@ from custom_components.aux_cloud.devices.profiles import (
     AC_FAN_SPEED,
     AC_POWER,
     AC_POWER_LIMIT,
+    AC_POWER_OFF,
     AC_SWING_HORIZONTAL,
     AC_SWING_VERTICAL,
     AC_TEMPERATURE_AMBIENT,
@@ -435,6 +436,7 @@ async def test_ac_partial_state_and_commands(hass):
     await entity.async_set_swing_mode("both")
     await entity.async_turn_on()
     await entity.async_turn_off()
+    assert coordinator.api.set_device_params.await_args.args[1] == AC_POWER_OFF
 
 
 def test_partial_scalar_entities_are_unknown(hass):

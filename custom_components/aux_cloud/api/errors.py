@@ -10,7 +10,7 @@ from typing import Any
 SUCCESS_STATUSES = {None, 0, "0"}
 
 BAD_CREDENTIAL_CODES = {-1006, -1008, -1020, -1033, -1035, -1037}
-SESSION_EXPIRED_CODES = {-1000, -1009, -1012, -3003, -49009}
+SESSION_EXPIRED_CODES = {-30129, -1000, -1009, -1012, -3003, -49009, 10011}
 NETWORK_ERROR_CODES = {
     -3004,
     -3006,
@@ -23,7 +23,7 @@ NETWORK_ERROR_CODES = {
     -49001,
 }
 SERVER_ERROR_CODES = {-1099, -3005, -49002}
-RATE_LIMIT_ERROR_CODES = {-2001}
+RATE_LIMIT_ERROR_CODES = {-2001, -1036}
 DEVICE_ERROR_CODES = {
     -49025,
     -3,
@@ -45,6 +45,7 @@ ERROR_CODE_MESSAGES = {
     -1006: "AUX Cloud account or password is incorrect",
     -1009: "AUX Cloud login is required",
     -1012: "AUX Cloud login is required again",
+    -1036: "AUX Cloud requests are too frequent",
     -3003: "AUX Cloud account is not logged in",
     -3004: "AUX Cloud HTTP request failed",
     -3006: "AUX Cloud server did not return a response",
@@ -57,6 +58,8 @@ ERROR_CODE_MESSAGES = {
     -49001: "AUX Cloud network error",
     -49002: "AUX Cloud server error",
     -49009: "AUX Cloud authentication failed",
+    -30129: "AUX Cloud login session expired",
+    10011: "AUX Cloud login session expired",
 }
 
 
@@ -227,12 +230,15 @@ def extract_error_code(payload: Any) -> int | None:
     for path in (
         ("status",),
         ("code",),
+        ("error",),
         ("errorCode",),
         ("errcode",),
         ("payload", "status"),
         ("payload", "code"),
+        ("payload", "error"),
         ("event", "payload", "status"),
         ("event", "payload", "code"),
+        ("event", "payload", "error"),
     ):
         code = _code_at_path(payload, path)
         if code is not None:
