@@ -87,6 +87,8 @@ class ACFanSpeed(auto):
     HIGH = 3
     TURBO = 4
     MUTE = 5
+    MEDIUM_LOW = 6
+    MEDIUM_HIGH = 7
 
 
 # Heat Pump constants

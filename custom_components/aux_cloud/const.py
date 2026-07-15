@@ -41,15 +41,29 @@ MODE_MAP_AUX_AC_TO_HA = {
 MODE_MAP_HA_TO_AUX = {v: k for k, v in MODE_MAP_AUX_AC_TO_HA.items()}
 
 # Fan mode constants
+FAN_MODE_SILENT = "silent"
+FAN_MODE_MEDIUM_LOW = "medium-low"
+FAN_MODE_MEDIUM_HIGH = "medium-high"
+FAN_MODE_TURBO = "turbo"
 FAN_MODE_HA_TO_AUX = {
     FAN_AUTO: ACFanSpeed.AUTO,
+    FAN_MODE_SILENT: ACFanSpeed.MUTE,
     FAN_LOW: ACFanSpeed.LOW,
+    FAN_MODE_MEDIUM_LOW: ACFanSpeed.MEDIUM_LOW,
     FAN_MEDIUM: ACFanSpeed.MEDIUM,
+    FAN_MODE_MEDIUM_HIGH: ACFanSpeed.MEDIUM_HIGH,
     FAN_HIGH: ACFanSpeed.HIGH,
-    "turbo": ACFanSpeed.TURBO,
-    "silent": ACFanSpeed.MUTE,
+    FAN_MODE_TURBO: ACFanSpeed.TURBO,
 }
 FAN_MODE_AUX_TO_HA = {v: k for k, v in FAN_MODE_HA_TO_AUX.items()}
+DEFAULT_AC_FAN_MODES = [
+    FAN_AUTO,
+    FAN_MODE_SILENT,
+    FAN_LOW,
+    FAN_MEDIUM,
+    FAN_HIGH,
+    FAN_MODE_TURBO,
+]
 
 # Brand information
 MANUFACTURER = "AUX"
@@ -57,6 +71,7 @@ MANUFACTURER = "AUX"
 # Platforms to set up
 PLATFORMS = [
     Platform.CLIMATE,
+    Platform.FAN,
     Platform.SENSOR,
     Platform.WATER_HEATER,
     Platform.SELECT,

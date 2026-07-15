@@ -55,7 +55,7 @@ from .const import (
     MODE_MAP_HA_TO_AUX,
     _LOGGER,
 )
-from .util import BaseEntity
+from .util import BaseEntity, get_ac_fan_modes
 
 
 async def async_setup_entry(
@@ -232,7 +232,7 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             | ClimateEntityFeature.TURN_OFF
         )
         self._attr_hvac_modes = [HVACMode.OFF, *MODE_MAP_AUX_AC_TO_HA.values()]
-        self._attr_fan_modes = list(FAN_MODE_HA_TO_AUX.keys())
+        self._attr_fan_modes = get_ac_fan_modes(self._device)
         self._attr_swing_modes = [
             SWING_OFF,
             SWING_VERTICAL,
@@ -314,9 +314,10 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     @property
     def fan_mode(self):
         """Return the fan mode."""
-        return FAN_MODE_AUX_TO_HA.get(
-            self._get_device_params().get(ACFanSpeed.PARAM_NAME), FAN_AUTO
+        fan_mode = FAN_MODE_AUX_TO_HA.get(
+            self._get_device_params().get(ACFanSpeed.PARAM_NAME)
         )
+        return fan_mode if fan_mode in self._attr_fan_modes else FAN_AUTO
 
     async def async_set_fan_mode(self, fan_mode):
         """Async set new fan mode."""

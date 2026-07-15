@@ -1,11 +1,65 @@
+import base64
+import binascii
+import json
 from typing import Any
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api.const import AuxProducts
-from .const import _LOGGER, DOMAIN, MANUFACTURER
+from .api.const import AC_FAN_SPEED, AuxProducts
+from .const import (
+    _LOGGER,
+    DEFAULT_AC_FAN_MODES,
+    DOMAIN,
+    FAN_MODE_HA_TO_AUX,
+    MANUFACTURER,
+)
+
+
+def get_ac_fan_modes(device: dict[str, Any]) -> list[str]:
+    """Return fan modes advertised by the device profile."""
+    fallback = list(DEFAULT_AC_FAN_MODES)
+
+    try:
+        cookie = json.loads(base64.b64decode(device.get("cookie", ""), validate=True))
+        if not isinstance(cookie, dict):
+            return fallback
+        profile = cookie.get("profile")
+        if isinstance(profile, str):
+            profile = json.loads(profile)
+    except (binascii.Error, json.JSONDecodeError, TypeError, UnicodeDecodeError):
+        return fallback
+
+    if not isinstance(profile, dict):
+        return fallback
+
+    suids = profile.get("suids", [])
+    if not isinstance(suids, list):
+        return fallback
+
+    supported_values = set()
+    for suid in suids:
+        if not isinstance(suid, dict) or not isinstance(suid.get("intfs"), dict):
+            continue
+        entries = suid["intfs"].get(AC_FAN_SPEED, [])
+        if isinstance(entries, dict):
+            entries = [entries]
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("in"), list):
+                continue
+            supported_values.update(
+                value
+                for value in entry["in"]
+                if isinstance(value, int) and not isinstance(value, bool)
+            )
+
+    modes = [
+        mode for mode, value in FAN_MODE_HA_TO_AUX.items() if value in supported_values
+    ]
+    return modes or fallback
 
 
 class DeviceStateHelper:

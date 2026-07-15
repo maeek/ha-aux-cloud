@@ -59,6 +59,11 @@ control them through:
 - Scripts
 - Voice assistants integrated with Home Assistant
 
+Air conditioners also expose a fan entity. Its speed slider includes every
+manual fan mode advertised by the device, while automatic speed is available as
+the `auto` preset. Include this fan entity in HomeKit bridges that use an
+explicit entity filter.
+
 ## Troubleshooting
 
 If you encounter issues:
