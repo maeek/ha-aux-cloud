@@ -159,7 +159,7 @@ The integration maps known AUX/BroadLink error codes into typed failures:
 - Rate limiting.
 - Device command failures.
 
-Transient API outages use Home Assistant's coordinator retry behavior and are logged once per outage. HTTP `Retry-After` is honored for rate limits. Authentication failures start Home Assistant's reauthentication flow because they require user action.
+Transient API outages use Home Assistant's coordinator retry behavior and are logged once per outage. When an account-wide refresh fails because AUX/BroadLink returns HTTP `5xx`, Home Assistant also shows a self-clearing notification explaining that the vendor service is down and will be retried automatically. HTTP `Retry-After` is honored for rate limits. Authentication failures start Home Assistant's reauthentication flow because they require user action.
 
 ## Troubleshooting
 
@@ -177,7 +177,7 @@ If you log in through the mobile app and the cloud invalidates the previous sess
 ## Known Issues
 
 - **Logging in the App**: The login process in the app may invalidate existing sessions (at least on Android). The integration attempts automatic re-login when the cloud reports an expired session. If recovery fails, reload or reconfigure the integration.
-- **AUX Cloud API unavailable**: If the API is down or returns errors such as HTTP `503`, the integration reports entities unavailable and retries automatically. It does not currently create a Repairs issue for transient cloud outages.
+- **AUX Cloud API unavailable**: If an account-wide refresh fails with an HTTP `5xx` response, the integration reports entities unavailable, retries automatically, and shows a notification that clears after recovery. It intentionally does not create a Repairs issue because a vendor outage requires no user action.
 - **Shared device identity**: AUX endpoint IDs are used unchanged for device identifiers. A cloud account exposing the same endpoint more than once is deduplicated.
 - **Offline devices**: Audited product profiles keep entity membership stable while a device is offline; its entities report unavailable until live state returns.
 - This is cloud control only. Local LAN control is not implemented.

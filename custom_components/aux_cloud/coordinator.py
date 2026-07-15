@@ -8,6 +8,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
@@ -20,6 +21,7 @@ from .api import (
     AuxAuthError,
     AuxCloudClient,
     AuxRateLimitError,
+    AuxServerError,
     AuxSessionExpired,
 )
 from .api.models import AuxCredentials, AuxDevice, DeviceUpdate
@@ -40,6 +42,8 @@ _LOGGER = logging.getLogger(__name__)
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=TOPOLOGY_SCAN_INTERVAL_MINUTES)
+_API_OUTAGE_NOTIFICATION_ID = f"{DOMAIN}_api_outage"
+_API_OUTAGE_NOTIFICATION_TITLE = "AUX/BroadLink Cloud outage"
 
 
 class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
@@ -68,6 +72,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._reserved_entity_unique_ids: dict[tuple[str, str], str] = {}
         self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
+        self._api_outage_reported = False
 
     @callback
     def start_realtime(self) -> None:
@@ -161,15 +166,45 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     async def _async_update_data(self) -> CoordinatorData:
         """Run an authoritative account topology and state scan."""
         try:
-            return await self._async_scan_devices()
+            data = await self._async_scan_devices()
         except (AuxAuthError, AuxSessionExpired) as exc:
             raise ConfigEntryAuthFailed(
                 "AUX Cloud credentials must be updated"
             ) from exc
         except AuxRateLimitError as exc:
             raise UpdateFailed(str(exc), retry_after=exc.retry_after) from exc
+        except AuxServerError as exc:
+            if exc.http_status is not None and exc.http_status >= 500:
+                self._report_api_outage(exc.http_status)
+            raise UpdateFailed(str(exc)) from exc
         except AuxApiError as exc:
             raise UpdateFailed(str(exc)) from exc
+        persistent_notification.async_dismiss(
+            self.hass,
+            _API_OUTAGE_NOTIFICATION_ID,
+        )
+        self._api_outage_reported = False
+        return data
+
+    @callback
+    def _report_api_outage(self, http_status: int) -> None:
+        """Tell the user that a failed refresh is a vendor-cloud outage."""
+        if self._api_outage_reported:
+            return
+        self._api_outage_reported = True
+        persistent_notification.async_create(
+            self.hass,
+            (
+                f"The AUX/BroadLink cloud service is returning HTTP {http_status}. "
+                "This is an external service outage, not a Home Assistant "
+                "configuration problem. The integration will retry automatically and "
+                "this notification will disappear when the service recovers. There is "
+                "normally no need to remove or reconfigure the integration, or to "
+                "report this outage on GitHub."
+            ),
+            title=_API_OUTAGE_NOTIFICATION_TITLE,
+            notification_id=_API_OUTAGE_NOTIFICATION_ID,
+        )
 
     async def _async_scan_devices(self) -> CoordinatorData:
         """Fetch, reconcile, and publish an account inventory snapshot."""
