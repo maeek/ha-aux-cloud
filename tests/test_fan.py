@@ -13,7 +13,7 @@ from custom_components.aux_cloud.util import DeviceStateHelper, get_ac_fan_modes
 
 
 def _device_cookie(fan_speeds: list[int]) -> str:
-    profile = {"suids": [{"intfs": {"ac_mark": [{"idx": 1, "in": fan_speeds}]}}]}
+    profile = {"suids": [{"intfs": {"ac_mark": [{"idx": 1, "in": [1, *fan_speeds]}]}}]}
     cookie = {"profile": json.dumps(profile)}
     return base64.b64encode(json.dumps(cookie).encode()).decode()
 
@@ -23,6 +23,11 @@ def test_get_ac_fan_modes_uses_profile_and_safe_fallback():
     assert get_ac_fan_modes({"cookie": _device_cookie([0, 1, 2, 3])}) == [
         "auto",
         "low",
+        "medium",
+        "high",
+    ]
+    assert get_ac_fan_modes({"cookie": _device_cookie([0, 2, 3])}) == [
+        "auto",
         "medium",
         "high",
     ]

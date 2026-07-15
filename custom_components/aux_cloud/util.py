@@ -50,9 +50,13 @@ def get_ac_fan_modes(device: dict[str, Any]) -> list[str]:
         for entry in entries:
             if not isinstance(entry, dict) or not isinstance(entry.get("in"), list):
                 continue
+            encoded_values = entry["in"]
+            # Broadlink prefixes enumerated values with the type marker 1.
+            if not encoded_values or encoded_values[0] != 1:
+                continue
             supported_values.update(
                 value
-                for value in entry["in"]
+                for value in encoded_values[1:]
                 if isinstance(value, int) and not isinstance(value, bool)
             )
 
