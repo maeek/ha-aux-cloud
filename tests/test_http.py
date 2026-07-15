@@ -1,18 +1,18 @@
-"""Authenticated AUX Cloud HTTP session tests."""
+"""Authenticated DNA HTTP tests."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import custom_components.aux_cloud.api.session as session_module
+import custom_components.aux_cloud.dna.http as session_module
 from custom_components.aux_cloud.api import AuxAuthError, AuxSessionExpired
 from custom_components.aux_cloud.api.models import AuxCredentials
-from custom_components.aux_cloud.api.session import AuxCloudSession
+from custom_components.aux_cloud.dna.http import DnaHttp
 
 
 def _session(region="eu"):
-    return AuxCloudSession(region=region, session=MagicMock(closed=False))
+    return DnaHttp(region=region, session=MagicMock(closed=False))
 
 
 def _login_payload(session):

@@ -1,37 +1,48 @@
-"""AUX Cloud family, room, and device repository."""
+"""AUX account inventory discovery and device bootstrap."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
-from ..const import DEVICE_QUERY_CONCURRENCY
-from ..devices.normalizers import normalize_device_params
-from ..devices.profiles import (
+from ..api.errors import AuxApiError, AuxDeviceError, AuxServerError
+from ..api.models import AuxDevice
+from ..device_metadata import (
     AUX_PROTOCOL_VERSION,
     AUX_QUERY_FAILURES,
-    get_product_profile,
     set_protocol_version,
 )
-from .control import AuxCloudControl
-from .errors import AuxApiError, AuxDeviceError, AuxServerError
-from .models import AuxDevice
-from .protocol.common import build_directive_header
-from .session import AuxCloudSession
+from ..devices import (
+    get_device_profile,
+    get_product_profile,
+    normalize_device_params,
+)
+from .codec import build_directive_header
+from .http import DnaHttp
 
 _LOGGER = logging.getLogger(__name__)
 _VERSIONED_QUERY_REQUIRED = -49025
+_DEVICE_QUERY_CONCURRENCY = 4
 
 
-class AuxCloudRepository:
-    """Repository for cloud account topology and device bootstrap data."""
+class DeviceParameterReader(Protocol):
+    """Minimal device-query contract used during inventory bootstrap."""
 
-    def __init__(self, session: AuxCloudSession, control: AuxCloudControl) -> None:
-        """Initialize the repository."""
+    async def get_device_params(
+        self, device: AuxDevice, params: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Return requested parameters for one device."""
+
+
+class DeviceInventory:
+    """Discover account topology and bootstrap device state."""
+
+    def __init__(self, session: DnaHttp, control: DeviceParameterReader) -> None:
+        """Initialize account inventory discovery."""
         self._session = session
         self._control = control
-        self._query_semaphore = asyncio.Semaphore(DEVICE_QUERY_CONCURRENCY)
+        self._query_semaphore = asyncio.Semaphore(_DEVICE_QUERY_CONCURRENCY)
         self._protocol_versions: dict[tuple[str, str], int] = {}
 
     async def get_families(self) -> list[dict[str, Any]]:
@@ -90,7 +101,7 @@ class AuxCloudRepository:
 
     async def _bootstrap_device(self, device: AuxDevice) -> None:
         """Fetch, merge, and normalize one online device snapshot."""
-        profile = get_product_profile(device.get("productId"))
+        profile = get_device_profile(device)
         queries = profile.initial_param_queries(device)
         results = await asyncio.gather(
             *(self._bounded_get_device_params(device, query) for query in queries),
@@ -233,6 +244,7 @@ def _initialize_device_snapshots(
     online_devices: list[AuxDevice] = []
     for device in devices:
         device.setdefault("familyId", familyid)
+        device["profile"] = get_product_profile(device.get("productId"))
         endpoint_id = device.get("endpointId")
         cache_key = _protocol_cache_key(device)
         if cache_key and cache_key in protocol_versions:

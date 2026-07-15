@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import random
 from datetime import timedelta
 from typing import Any
 
@@ -19,10 +18,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import (
     AuxApiError,
     AuxAuthError,
-    AuxCloudAPI,
-    AuxNetworkError,
+    AuxCloudClient,
     AuxRateLimitError,
-    AuxServerError,
     AuxSessionExpired,
 )
 from .api.models import AuxCredentials, AuxDevice, DeviceUpdate
@@ -31,21 +28,18 @@ from .const import (
     DOMAIN,
     TOPOLOGY_SCAN_INTERVAL_MINUTES,
 )
-from .devices.normalizers import normalize_device_params
+from .devices import normalize_device_params
 from .identifiers import device_identifier
 from .state import (
     AccountState,
     CoordinatorData,
     InventoryDelta,
-    deduplicate_devices,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=TOPOLOGY_SCAN_INTERVAL_MINUTES)
-WEBSOCKET_SETUP_RETRY_INITIAL_DELAY = 5
-WEBSOCKET_SETUP_RETRY_MAX_DELAY = 60
 
 
 class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
@@ -54,7 +48,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def __init__(
         self,
         hass: HomeAssistant,
-        api: AuxCloudAPI,
+        api: AuxCloudClient,
         *,
         config_entry: ConfigEntry,
     ) -> None:
@@ -114,7 +108,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._websocket_task
         self._websocket_task = None
-        await self.api.close_websocket()
+        await self.api.close()
 
     def get_device_by_endpoint_id(self, endpoint_id: str) -> AuxDevice | None:
         """Return a device by its raw cloud endpoint ID."""
@@ -181,20 +175,10 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         """Fetch, reconcile, and publish an account inventory snapshot."""
         scan_revision = self._state.revision
         await self._async_ensure_login()
-        families = await self.api.get_families()
-        family_ids = [family["familyid"] for family in families]
-        results = await asyncio.gather(
-            *(
-                self.api.get_devices(family_id, shared=shared)
-                for family_id in family_ids
-                for shared in (False, True)
-            ),
-            return_exceptions=True,
-        )
-        discovered, complete = self._collect_device_results(results)
+        inventory = await self.api.scan_devices()
         delta = self._state.reconcile(
-            discovered,
-            complete=complete,
+            inventory.devices,
+            complete=inventory.complete,
             scan_revision=scan_revision,
             registry_ids=self._registered_endpoint_ids(),
         )
@@ -222,47 +206,18 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     async def _async_refresh_websocket_subscriptions(self) -> None:
         """Reset relay membership after account inventory changes."""
         try:
-            await self.api.async_update_websocket_subscriptions(self._state.devices)
+            await self.api.update_realtime_devices(self._state.devices)
         except AuxApiError:
-            await self.api.close_websocket()
+            await self.api.close()
 
     async def _run_websocket(self) -> None:
         """Reconnect the account relay until the config entry unloads."""
-        retry_delay = WEBSOCKET_SETUP_RETRY_INITIAL_DELAY
         try:
-            while True:
-                reached_ready = False
-                retry_after: int | None = None
-
-                @callback
-                def on_ready() -> None:
-                    nonlocal reached_ready, retry_delay
-                    reached_ready = True
-                    retry_delay = WEBSOCKET_SETUP_RETRY_INITIAL_DELAY
-                    self._set_websocket_connected(True)
-
-                try:
-                    await self.api.async_run_websocket(
-                        devices=self._state.devices,
-                        listener=self._handle_websocket_updates,
-                        on_ready=on_ready,
-                    )
-                except AuxRateLimitError as exc:
-                    retry_after = exc.retry_after
-                    _LOGGER.debug("AUX websocket runner was rate limited")
-                except AuxApiError as exc:
-                    _LOGGER.debug(
-                        "AUX websocket runner restarting (%s)", type(exc).__name__
-                    )
-                except Exception:
-                    _LOGGER.exception("Unexpected AUX websocket runner failure")
-                self._set_websocket_connected(False)
-                retry_floor = max(retry_delay, retry_after or 0)
-                await asyncio.sleep(
-                    retry_floor * random.uniform(1, 1.2)  # noqa: S311
-                )
-                if not reached_ready:
-                    retry_delay = min(retry_delay * 2, WEBSOCKET_SETUP_RETRY_MAX_DELAY)
+            await self.api.run_realtime(
+                devices=self._state.devices,
+                listener=self._handle_websocket_updates,
+                connection_listener=self._set_websocket_connected,
+            )
         finally:
             if self._websocket_task is asyncio.current_task():
                 self._websocket_task = None
@@ -281,27 +236,6 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 raise AuxAuthError("Missing AUX Cloud account credentials")
             credentials = AuxCredentials.email(email, password)
         await self.api.login(credentials)
-
-    def _collect_device_results(
-        self, results: list[Any]
-    ) -> tuple[list[AuxDevice], bool]:
-        """Collect query results and report whether every query completed."""
-        devices: list[AuxDevice] = []
-        errors: list[BaseException] = []
-        for result in results:
-            if isinstance(result, BaseException):
-                if isinstance(result, asyncio.CancelledError):
-                    raise result
-                errors.append(result)
-                continue
-            for device in result:
-                if isinstance(device, BaseException):
-                    errors.append(device)
-                else:
-                    devices.append(device)
-        if not devices and errors:
-            raise _preferred_query_error(errors)
-        return deduplicate_devices(devices), not errors
 
     def _registered_endpoint_ids(self) -> set[str]:
         """Return this entry's AUX endpoint IDs from the device registry."""
@@ -331,17 +265,4 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 )
 
 
-def _preferred_query_error(errors: list[BaseException]) -> BaseException:
-    """Return the most useful error from a fully failed inventory scan."""
-    for error_type in (
-        AuxAuthError,
-        AuxSessionExpired,
-        AuxRateLimitError,
-        AuxServerError,
-        AuxNetworkError,
-        AuxApiError,
-    ):
-        for error in errors:
-            if isinstance(error, error_type):
-                return error
-    return errors[0]
+type AuxCloudConfigEntry = ConfigEntry[AuxCloudCoordinator]

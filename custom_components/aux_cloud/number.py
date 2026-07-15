@@ -4,9 +4,9 @@ from homeassistant.components.number import NumberEntity, NumberEntityDescriptio
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
-from .devices.profiles import AC_POWER_LIMIT
+from .coordinator import AuxCloudConfigEntry
+from .devices import AC_POWER_LIMIT
 from .entity import BaseEntity, setup_dynamic_entities, supported_entity_descriptions
 
 PARALLEL_UPDATES = 0
@@ -44,7 +44,6 @@ async def async_setup_entry(
     setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-# pylint: disable=abstract-method
 class AuxNumberEntity(BaseEntity, NumberEntity):
     """AUX Cloud number entity."""
 

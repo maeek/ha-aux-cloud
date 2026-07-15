@@ -22,7 +22,7 @@ from .api import AuxApiError
 from .api.models import AuxDevice
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import AuxCloudCoordinator
-from .devices.profiles import get_product_profile
+from .devices import get_device_profile
 from .identifiers import collision_safe_entity_unique_id, device_identifier
 
 
@@ -30,10 +30,7 @@ def supported_entity_descriptions[DescriptionT: EntityDescription](
     device: AuxDevice, descriptions: Iterable[DescriptionT]
 ) -> list[DescriptionT]:
     """Return entity descriptions backed by the device product profile."""
-    product_id = device.get("productId")
-    if not product_id:
-        return []
-    profile = get_product_profile(product_id)
+    profile = get_device_profile(device)
     supported_params = {*profile.params, *profile.special_params}
     return [
         description
@@ -77,7 +74,7 @@ class BaseEntity(CoordinatorEntity["AuxCloudCoordinator"]):
             identifiers={device_identifier(self._device_id)},
             name=str(self._device.get("friendlyName", "AUX")),
             manufacturer=MANUFACTURER,
-            model=get_product_profile(self._device.get("productId")).model_name,
+            model=get_device_profile(self._device).model_name,
         )
         if self._device.get("mac"):
             with contextlib.suppress(ValueError):

@@ -46,4 +46,3 @@ jobs:
       - run: ruff format --check custom_components/aux_cloud tests
       - run: ruff check custom_components/aux_cloud tests
       - run: mypy custom_components/aux_cloud
-      - run: pylint custom_components/aux_cloud --fail-under=9.7

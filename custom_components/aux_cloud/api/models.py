@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
+
+if TYPE_CHECKING:
+    from ..devices import ProductProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,8 +45,17 @@ class AuxDevice(TypedDict, total=False):
     mac: str
     state: int
     params: dict[str, Any]
+    profile: ProductProfile
     _aux_protocol_version: int
     _aux_query_failures: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class InventorySnapshot:
+    """One account inventory scan and whether every cloud query completed."""
+
+    devices: tuple[AuxDevice, ...]
+    complete: bool
 
 
 @dataclass(frozen=True, slots=True)

@@ -47,7 +47,7 @@ async def test_setup_entry_starts_websocket_after_platforms(hass, monkeypatch):
     coordinator_mock.start_realtime = MagicMock(side_effect=start_websocket)
     coordinator_mock.async_close = AsyncMock()
     api = MagicMock(user_id=None)
-    monkeypatch.setattr(integration, "AuxCloudAPI", MagicMock(return_value=api))
+    monkeypatch.setattr(integration, "DnaClient", MagicMock(return_value=api))
     monkeypatch.setattr(
         integration,
         "AuxCloudCoordinator",

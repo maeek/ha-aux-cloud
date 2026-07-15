@@ -1,4 +1,4 @@
-"""Shared API test builders and repository fakes."""
+"""Shared API test builders and inventory fakes."""
 
 import base64
 import json
@@ -33,8 +33,8 @@ def mock_heat_pump(ver: int = 3) -> dict:
     return device
 
 
-class FakeRepositorySession:
-    """Fake session for repository bootstrap tests."""
+class FakeInventorySession:
+    """Fake HTTP client for inventory bootstrap tests."""
 
     userid = "user"
 
@@ -47,7 +47,7 @@ class FakeRepositorySession:
         return kwargs
 
     async def make_request(self, **kwargs: object) -> dict:
-        """Return canned repository responses."""
+        """Return canned inventory responses."""
         endpoint = kwargs["endpoint"]
         if isinstance(endpoint, str) and "dev/query" in endpoint:
             return {"status": 0, "data": {"endpoints": [self._device]}}

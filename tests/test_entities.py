@@ -23,7 +23,7 @@ from custom_components.aux_cloud.climate import (
     AuxHeatPumpClimateEntity,
 )
 from custom_components.aux_cloud.coordinator import AuxCloudCoordinator
-from custom_components.aux_cloud.devices.profiles import (
+from custom_components.aux_cloud.devices import (
     AC_FAN_SPEED,
     AC_POWER,
     AC_POWER_OFF,

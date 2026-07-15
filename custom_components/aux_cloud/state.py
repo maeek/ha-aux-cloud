@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from time import monotonic
 from typing import Any, cast
 
 from .api.models import AuxDevice, DeviceUpdate
 from .const import MAX_FAILED_POLLS
-from .devices.profiles import AC_TEMPERATURE_AMBIENT
+from .devices import AC_TEMPERATURE_AMBIENT
 
 _AVAILABILITY = "__availability__"
 _MISSING = object()
+_STALE_PUSH_WINDOW_SECONDS = 10.0
 
 type CoordinatorData = dict[str, AuxDevice]
 
@@ -35,11 +37,22 @@ class CommandToken:
 
 
 @dataclass(slots=True)
+class _PendingWrite:
+    """Latest requested value and recent values it superseded."""
+
+    expected: object
+    superseded: tuple[tuple[object, float], ...]
+    revision: int
+    expires_at: float
+
+
+@dataclass(slots=True)
 class _DeviceTracking:
-    """Failure counters used to retain safe device snapshots."""
+    """Transient reconciliation state for one device."""
 
     missing_complete_scans: int = 0
     empty_param_scans: int = 0
+    pending_writes: dict[str, _PendingWrite] = field(default_factory=dict)
 
 
 class AccountState:
@@ -84,16 +97,16 @@ class AccountState:
         current = self._devices.get(update.endpoint_id)
         if current is None:
             return False
+        tracking = self._tracking.setdefault(update.endpoint_id, _DeviceTracking())
         if update.available is False:
+            tracking.pending_writes.clear()
             candidate, fields = self._offline_update(current)
         else:
-            candidate, fields = self._online_update(current, update)
+            candidate, fields = self._online_update(current, update, tracking)
         if not fields or current == candidate:
             return False
         self._commit(update.endpoint_id, candidate, fields)
-        self._tracking.setdefault(
-            update.endpoint_id, _DeviceTracking()
-        ).empty_param_scans = 0
+        tracking.empty_param_scans = 0
         return True
 
     @staticmethod
@@ -107,15 +120,21 @@ class AccountState:
         return candidate, {_AVAILABILITY, *current.get("params", {})}
 
     def _online_update(
-        self, current: AuxDevice, update: DeviceUpdate
+        self,
+        current: AuxDevice,
+        update: DeviceUpdate,
+        tracking: _DeviceTracking,
     ) -> tuple[AuxDevice, set[str]]:
         """Build a merged online snapshot and its changed fields."""
         candidate = _copy_device(current)
-        cleaned = {
-            key: value
-            for key, value in update.params.items()
-            if key not in {"did", "pid"}
-        }
+        cleaned = self._filter_stale_push_values(
+            {
+                key: value
+                for key, value in update.params.items()
+                if key not in {"did", "pid"}
+            },
+            tracking.pending_writes,
+        )
         previous = current.get("params", {})
         merged = _merge_params(previous, cleaned)
         fields = {
@@ -128,6 +147,34 @@ class AccountState:
             candidate["params"] = merged
             self._normalizer(candidate)
         return candidate, fields
+
+    @staticmethod
+    def _filter_stale_push_values(
+        values: Mapping[str, Any], pending_writes: dict[str, _PendingWrite]
+    ) -> dict[str, Any]:
+        """Drop only recent push values superseded by a newer command."""
+        now = monotonic()
+        accepted: dict[str, Any] = {}
+        for key, value in values.items():
+            pending = pending_writes.get(key)
+            if pending is None:
+                accepted[key] = value
+                continue
+            if now >= pending.expires_at:
+                pending_writes.pop(key)
+                accepted[key] = value
+                continue
+            if value == pending.expected:
+                pending_writes.pop(key)
+                accepted[key] = value
+                continue
+            if any(
+                now < expires_at and value == superseded
+                for superseded, expires_at in pending.superseded
+            ):
+                continue
+            accepted[key] = value
+        return accepted
 
     def begin_command(
         self, endpoint_id: str, values: Mapping[str, Any]
@@ -145,19 +192,61 @@ class AccountState:
         revision = self._next_revision()
         self._devices[endpoint_id] = candidate
         field_revisions = self._field_revisions.setdefault(endpoint_id, {})
-        for key in values:
+        pending_writes = self._tracking.setdefault(
+            endpoint_id, _DeviceTracking()
+        ).pending_writes
+        now = monotonic()
+        for key, value in values.items():
             field_revisions[key] = revision
+            previous_pending = pending_writes.get(key)
+            superseded = []
+            if previous_pending is not None and now < previous_pending.expires_at:
+                superseded = [
+                    item
+                    for item in previous_pending.superseded
+                    if now < item[1] and item[0] != value
+                ]
+                if previous_pending.expected != value:
+                    superseded = [
+                        item
+                        for item in superseded
+                        if item[0] != previous_pending.expected
+                    ]
+                    superseded.append(
+                        (previous_pending.expected, previous_pending.expires_at)
+                    )
+            pending_writes[key] = _PendingWrite(
+                expected=value,
+                superseded=tuple(superseded),
+                revision=revision,
+                expires_at=now + _STALE_PUSH_WINDOW_SECONDS,
+            )
         return CommandToken(endpoint_id, revision, previous, changed)
 
     def confirm_command(
         self, token: CommandToken, confirmed: Mapping[str, Any]
     ) -> bool:
         """Confirm keys that have not been superseded since the command began."""
-        return self._finish_command(token, confirmed, rollback=False)
+        changed = self._finish_command(token, confirmed, rollback=False)
+        tracking = self._tracking.get(token.endpoint_id)
+        if tracking is not None:
+            expires_at = monotonic() + _STALE_PUSH_WINDOW_SECONDS
+            for key in token.previous:
+                pending = tracking.pending_writes.get(key)
+                if pending is not None and pending.revision == token.revision:
+                    pending.expires_at = expires_at
+        return changed
 
     def rollback_command(self, token: CommandToken) -> bool:
         """Restore optimistic keys that have not been superseded by a push."""
-        return self._finish_command(token, token.previous, rollback=True)
+        changed = self._finish_command(token, token.previous, rollback=True)
+        tracking = self._tracking.get(token.endpoint_id)
+        if tracking is not None:
+            for key in token.previous:
+                pending = tracking.pending_writes.get(key)
+                if pending is not None and pending.revision == token.revision:
+                    tracking.pending_writes.pop(key)
+        return changed
 
     def reconcile(
         self,
@@ -229,6 +318,7 @@ class AccountState:
 
         if incoming.get("state") == 0 and not availability_changed:
             tracking.empty_param_scans = 0
+            tracking.pending_writes.clear()
             candidate = cast(AuxDevice, {**incoming, "params": {}})
         elif incoming_params:
             candidate = self._merge_scan_params(
@@ -335,26 +425,12 @@ class AccountState:
         revision = self._next_revision()
         self._devices[endpoint_id] = candidate
         field_revisions = self._field_revisions.setdefault(endpoint_id, {})
-        for field in fields:
-            field_revisions[field] = revision
+        for key in fields:
+            field_revisions[key] = revision
 
     def _next_revision(self) -> int:
         self._revision += 1
         return self._revision
-
-
-def deduplicate_devices(devices: Iterable[AuxDevice]) -> list[AuxDevice]:
-    """Keep the first device record for each endpoint ID."""
-    deduplicated: list[AuxDevice] = []
-    seen: set[str] = set()
-    for device in devices:
-        endpoint_id = device.get("endpointId")
-        if endpoint_id and endpoint_id in seen:
-            continue
-        if endpoint_id:
-            seen.add(endpoint_id)
-        deduplicated.append(device)
-    return deduplicated
 
 
 def _copy_device(device: AuxDevice) -> AuxDevice:

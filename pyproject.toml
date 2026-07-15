@@ -10,7 +10,7 @@ ignore = ["ASYNC109", "E501", "RUF012"]
 "tests/*" = ["ARG001", "ARG002", "S101", "S105", "S106", "SLF001"]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 12
+max-complexity = 10
 
 [tool.coverage.run]
 source = ["custom_components/aux_cloud"]

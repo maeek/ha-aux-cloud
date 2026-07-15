@@ -1,4 +1,4 @@
-"""AUX Cloud HTTP session and authentication helpers."""
+"""Authenticated HTTP primitives for the BroadLink DNA cloud."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any, cast
 import aiohttp
 from Crypto.Cipher import AES
 
-from .errors import (
+from ..api.errors import (
     AuxApiError,
     AuxAuthError,
     AuxNetworkError,
@@ -22,7 +22,7 @@ from .errors import (
     raise_for_http_status,
     should_recover_session,
 )
-from .models import AuxCredentials
+from ..api.models import AuxCredentials
 
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"  # noqa: S105
 PASSWORD_ENCRYPT_KEY = "4969fj#k23#"  # noqa: S105
@@ -52,9 +52,7 @@ AES_INITIAL_VECTOR = bytes(
     ]
 )
 
-# pylint: disable=line-too-long
 LICENSE = "PAFbJJ3WbvDxH5vvWezXN5BujETtH/iuTtIIW5CE/SeHN7oNKqnEajgljTcL0fBQQWM0XAAAAAAnBhJyhMi7zIQMsUcwR/PEwGA3uB5HLOnr+xRrci+FwHMkUtK7v4yo0ZHa+jPvb6djelPP893k7SagmffZmOkLSOsbNs8CAqsu8HuIDs2mDQAAAAA="
-# pylint: enable=line-too-long
 LICENSE_ID = "3c015b249dd66ef0f11f9bef59ecd737"
 COMPANY_ID = "48eb1b36cf0202ab2ef07b880ecda60d"
 
@@ -78,7 +76,7 @@ def _encrypt_login_payload(iv: bytes, key: bytes, data: bytes) -> bytes:
     return AES.new(key, AES.MODE_CBC, iv).encrypt(data + padding)
 
 
-class AuxCloudSession:
+class DnaHttp:
     """AUX Cloud authenticated HTTP session wrapper."""
 
     def __init__(self, region: str, session: aiohttp.ClientSession) -> None:

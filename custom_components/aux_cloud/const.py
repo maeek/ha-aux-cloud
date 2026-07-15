@@ -9,7 +9,7 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import Platform
 
-from .devices.profiles import (
+from .devices import (
     AC_FAN_AUTO,
     AC_FAN_HIGH,
     AC_FAN_LOW,
@@ -77,4 +77,3 @@ MAX_FAILED_POLLS = 5
 # The cloud relay is the normal state source. A slow authoritative inventory scan
 # still runs so devices added or removed in the AUX app are reflected in HA.
 TOPOLOGY_SCAN_INTERVAL_MINUTES = 30
-DEVICE_QUERY_CONCURRENCY = 4

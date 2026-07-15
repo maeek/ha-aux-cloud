@@ -1,18 +1,21 @@
-"""Behavior-level repository tests."""
+"""Behavior-level DNA inventory tests."""
 
 from custom_components.aux_cloud.api import AuxDeviceError
-from custom_components.aux_cloud.api.repository import AuxCloudRepository
-from custom_components.aux_cloud.devices.profiles import (
-    AC_MODE_SPECIAL,
+from custom_components.aux_cloud.device_metadata import (
     AUX_PROTOCOL_VERSION,
     AUX_QUERY_FAILURES,
+)
+from custom_components.aux_cloud.devices import (
+    AC_MODE_SPECIAL,
     HP_HOT_WATER_TANK_TEMPERATURE,
     V3_HEAT_PUMP_QUERIES,
+    DeviceType,
 )
+from custom_components.aux_cloud.dna.inventory import DeviceInventory
 
 from .api_helpers import (
     FakeInitialParamsControl,
-    FakeRepositorySession,
+    FakeInventorySession,
     mock_device,
     mock_heat_pump,
 )
@@ -24,18 +27,19 @@ async def test_profiles_drive_bootstrap_while_offline_and_unknown_devices_are_sa
     control = FakeInitialParamsControl(
         {(): {"pwr": 1}, (AC_MODE_SPECIAL,): {"mode": 4}}
     )
-    devices = await AuxCloudRepository(
-        FakeRepositorySession(device), control
-    ).get_devices("family1")
+    devices = await DeviceInventory(FakeInventorySession(device), control).get_devices(
+        "family1"
+    )
     assert control.queries == [[], [AC_MODE_SPECIAL]]
     assert devices[0]["params"] == {"pwr": 1, "mode": 4}
+    assert devices[0]["profile"].device_type is DeviceType.AIR_CONDITIONER
 
     for safe_device, online in ((mock_device(), False), (mock_device(), True)):
         if online:
             safe_device["productId"] = "unknown-product"
         safe_control = FakeInitialParamsControl({})
-        devices = await AuxCloudRepository(
-            FakeRepositorySession(safe_device, online=online), safe_control
+        devices = await DeviceInventory(
+            FakeInventorySession(safe_device, online=online), safe_control
         ).get_devices("family1")
         assert safe_control.queries == []
         assert devices[0]["params"] == {}
@@ -54,8 +58,8 @@ async def test_successful_query_batches_are_merged_independently():
         ),
     ):
         device = mock_device()
-        devices = await AuxCloudRepository(
-            FakeRepositorySession(device), FakeInitialParamsControl(responses)
+        devices = await DeviceInventory(
+            FakeInventorySession(device), FakeInitialParamsControl(responses)
         ).get_devices("family1")
         assert devices[0]["params"] == expected
 
@@ -76,8 +80,8 @@ async def test_heat_pump_metadata_and_compatibility_fallback_select_v3_queries()
             ("ver", "mute"): {"mute": 0},
         }
     )
-    repository = AuxCloudRepository(FakeRepositorySession(stale), stale_control)
-    devices = await repository.get_devices("family1")
+    inventory = DeviceInventory(FakeInventorySession(stale), stale_control)
+    devices = await inventory.get_devices("family1")
     assert devices[0][AUX_PROTOCOL_VERSION] == 4
     assert devices[0]["params"][HP_HOT_WATER_TANK_TEMPERATURE] == 360
     assert devices[0][AUX_QUERY_FAILURES][0]["code"] == -49025
@@ -96,9 +100,9 @@ async def test_heat_pump_metadata_and_compatibility_fallback_select_v3_queries()
             ("ver", "mute"): {"mute": 0},
         }
     )
-    devices = await AuxCloudRepository(
-        FakeRepositorySession(v3), v3_control
-    ).get_devices("family1")
+    devices = await DeviceInventory(FakeInventorySession(v3), v3_control).get_devices(
+        "family1"
+    )
     assert v3_control.queries == [list(query) for query in V3_HEAT_PUMP_QUERIES]
     assert [] not in v3_control.queries
     assert devices[0][AUX_QUERY_FAILURES][0]["code"] == -49025

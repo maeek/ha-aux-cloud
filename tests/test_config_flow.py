@@ -14,7 +14,7 @@ from custom_components.aux_cloud.const import (
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
-class FakeAuxCloudAPI:
+class FakeDnaClient:
     """Small authenticated API boundary used by the flow tests."""
 
     instances = []
@@ -34,10 +34,10 @@ class FakeAuxCloudAPI:
 
 
 def _patch_cloud(monkeypatch) -> None:
-    FakeAuxCloudAPI.instances.clear()
-    FakeAuxCloudAPI.user_id = "cloud-user"
-    FakeAuxCloudAPI.login_error = None
-    monkeypatch.setattr(config_flow_module, "AuxCloudAPI", FakeAuxCloudAPI)
+    FakeDnaClient.instances.clear()
+    FakeDnaClient.user_id = "cloud-user"
+    FakeDnaClient.login_error = None
+    monkeypatch.setattr(config_flow_module, "DnaClient", FakeDnaClient)
 
 
 async def _login_form(hass, method: str):
@@ -68,7 +68,7 @@ async def test_user_flows_normalize_credentials_and_use_cloud_identity(
     assert email["result"].unique_id == "eu:user:cloud-user"
     assert email["data"][CONF_EMAIL] == "user@example.com"
 
-    FakeAuxCloudAPI.user_id = "phone-user"
+    FakeDnaClient.user_id = "phone-user"
     phone_form = await _login_form(hass, "phone")
     phone = await hass.config_entries.flow.async_configure(
         phone_form["flow_id"],
@@ -81,7 +81,7 @@ async def test_user_flows_normalize_credentials_and_use_cloud_identity(
     assert phone["type"] == "create_entry"
     assert phone["title"] == "AUX Cloud · ••••6789 · EU"
     assert phone["data"][CONF_PHONE_NUMBER] == "48123456789"
-    assert FakeAuxCloudAPI.instances[-1].login_calls == [
+    assert FakeDnaClient.instances[-1].login_calls == [
         AuxCredentials.phone("48123456789", "secret")
     ]
 
@@ -97,7 +97,7 @@ async def test_authenticated_account_identity_prevents_alias_duplicates(
     assert duplicate["type"] == "abort"
     assert duplicate["reason"] == "already_configured"
 
-    FakeAuxCloudAPI.user_id = "second-user"
+    FakeDnaClient.user_id = "second-user"
     distinct = await _submit_email(hass, "two@example.com")
     assert distinct["type"] == "create_entry"
     assert len(hass.config_entries.async_entries(DOMAIN)) == 2
@@ -135,7 +135,7 @@ async def test_reauth_and_reconfigure_preserve_entry_identity(hass, monkeypatch)
     assert entry.unique_id == "legacy-email-id"
     assert entry.data[CONF_PASSWORD] == "new"
 
-    FakeAuxCloudAPI.user_id = "different-user"
+    FakeDnaClient.user_id = "different-user"
     reconfigure = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": "reconfigure", "entry_id": entry.entry_id},

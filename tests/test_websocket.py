@@ -7,17 +7,17 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from aiohttp import WSMessage, WSMsgType
 
-import custom_components.aux_cloud.api.transports.websocket as websocket_module
+import custom_components.aux_cloud.dna.websocket as websocket_module
 from custom_components.aux_cloud.api import AuxNetworkError, AuxServerError
-from custom_components.aux_cloud.api.transports.websocket import (
-    AuxCloudWebSocket,
+from custom_components.aux_cloud.dna.websocket import (
+    DnaWebSocket,
     websocket_origin,
 )
 
 
-def _websocket(**kwargs) -> AuxCloudWebSocket:
+def _websocket(**kwargs) -> DnaWebSocket:
     kwargs.setdefault("session", MagicMock(closed=False))
-    return AuxCloudWebSocket(
+    return DnaWebSocket(
         websocket_url="wss://example.com",
         headers={},
         loginsession="session",

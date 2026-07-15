@@ -1,7 +1,5 @@
 """Select platform for AUX Cloud integration."""
 
-# pylint: disable=unexpected-keyword-arg
-
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -10,11 +8,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
 from .const import DOMAIN
-from .coordinator import AuxCloudCoordinator
-from .devices.profiles import (
+from .coordinator import AuxCloudConfigEntry, AuxCloudCoordinator
+from .devices import (
     HP_HEATER_AUTO_WATER_TEMP,
     HP_QUIET_MODE,
 )
@@ -87,7 +84,6 @@ async def async_setup_entry(
     setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-# pylint: disable=abstract-method
 class AuxSelectEntity(BaseEntity, SelectEntity):
     """AUX Cloud select entity."""
 

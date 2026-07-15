@@ -8,15 +8,15 @@ from typing import Any, cast
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
 from .const import CONF_PHONE_NUMBER
-from .devices.profiles import (
+from .coordinator import AuxCloudConfigEntry
+from .device_metadata import (
     AUX_QUERY_FAILURES,
     get_cookie_profile_params,
-    get_product_profile,
     get_protocol_version_details,
 )
+from .devices import get_device_profile
 
 TO_REDACT = {
     "account_id",
@@ -34,7 +34,7 @@ TO_REDACT = {
 
 def _device_diagnostics(device: Mapping[str, Any]) -> dict[str, Any]:
     """Return useful device metadata without cloud identity or parameter values."""
-    profile = get_product_profile(device.get("productId"))
+    profile = get_device_profile(device)
     device_snapshot = cast(AuxDevice, dict(device))
     cookie_params = set(get_cookie_profile_params(device))
     profile_params = set(profile.params)

@@ -21,7 +21,6 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
 from .const import (
     FAN_MODE_AUX_TO_HA,
@@ -29,8 +28,8 @@ from .const import (
     MODE_MAP_AUX_AC_TO_HA,
     MODE_MAP_HA_TO_AUX,
 )
-from .coordinator import AuxCloudCoordinator
-from .devices.profiles import (
+from .coordinator import AuxCloudConfigEntry, AuxCloudCoordinator
+from .devices import (
     AC_FAN_SPEED,
     AC_POWER,
     AC_POWER_OFF,
@@ -52,9 +51,10 @@ from .devices.profiles import (
     HP_HEATER_TEMPERATURE_TARGET,
     HP_MODE_COOLING,
     HP_MODE_HEATING,
+    DeviceType,
     ProductProfile,
     encode_ac_temperature_command,
-    get_product_profile,
+    get_device_profile,
 )
 from .entity import BaseEntity, setup_dynamic_entities
 
@@ -137,8 +137,8 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
 
     def entities_for_device(device: AuxDevice) -> list[ClimateEntity]:
-        device_type = get_product_profile(device.get("productId")).device_type
-        if device_type == "ac":
+        device_type = get_device_profile(device).device_type
+        if device_type is DeviceType.AIR_CONDITIONER:
             return [
                 AuxACClimateEntity(
                     coordinator,
@@ -146,7 +146,7 @@ async def async_setup_entry(
                     AC_DESCRIPTION,
                 )
             ]
-        if device_type == "heat_pump":
+        if device_type is DeviceType.HEAT_PUMP:
             return [
                 AuxHeatPumpClimateEntity(
                     coordinator,
@@ -159,7 +159,6 @@ async def async_setup_entry(
     setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-# pylint: disable=abstract-method
 class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
     """AUX Cloud heat pump climate entity."""
 
@@ -278,7 +277,7 @@ class AuxACClimateEntity(BaseEntity, ClimateEntity):
     ) -> None:
         """Initialize the climate entity."""
         super().__init__(coordinator, device_id, entity_description)
-        self._profile = get_product_profile(self._device.get("productId"))
+        self._profile = get_device_profile(self._device)
         self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_supported_features = _ac_supported_features(self._profile)
         self._attr_hvac_modes = _ac_hvac_modes(self._profile)

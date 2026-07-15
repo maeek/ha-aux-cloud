@@ -9,13 +9,13 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-import custom_components.aux_cloud.coordinator as coordinator_module
+import custom_components.aux_cloud.state as state_module
 from custom_components.aux_cloud import FALLBACK_SCAN_INTERVAL, AuxCloudCoordinator
 from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
-from custom_components.aux_cloud.api.models import DeviceUpdate
+from custom_components.aux_cloud.api.models import DeviceUpdate, InventorySnapshot
 from custom_components.aux_cloud.const import DOMAIN
 from custom_components.aux_cloud.coordinator import TOPOLOGY_SCAN_INTERVAL
-from custom_components.aux_cloud.devices.profiles import (
+from custom_components.aux_cloud.devices import (
     HP_HOT_WATER_TEMPERATURE_TARGET,
 )
 from custom_components.aux_cloud.entity import BaseEntity
@@ -29,18 +29,12 @@ def mock_aux_cloud_api():
     api = MagicMock()
     api.is_logged_in.return_value = True
     api.login = AsyncMock()
-    api.get_families = AsyncMock(
-        return_value=[{"familyid": "family1", "name": "Family 1"}]
+    api.scan_devices = AsyncMock(
+        return_value=InventorySnapshot((_device(),), complete=True)
     )
-
-    async def get_devices(_familyid, shared=False):
-        return [] if shared else [_device()]
-
-    api.get_devices = AsyncMock(side_effect=get_devices)
-    api.async_run_websocket = AsyncMock()
-    api.close_websocket = AsyncMock()
-    api.async_update_websocket_subscriptions = AsyncMock()
-    api.normalize_device_params = MagicMock()
+    api.run_realtime = AsyncMock()
+    api.close = AsyncMock()
+    api.update_realtime_devices = AsyncMock()
     api.set_device_params = AsyncMock(return_value={"pwr": 1})
     api.user_id = None
     return api
@@ -85,19 +79,17 @@ async def test_refresh_isolates_partial_failures_and_auth_errors(
     coordinator, mock_aux_cloud_api
 ):
     """A usable account result wins; authentication failures still trigger reauth."""
-    mock_aux_cloud_api.get_devices.side_effect = [
-        [_device()],
-        [_device(friendlyName="shared", params={"pwr": 0})],
-    ]
+    mock_aux_cloud_api.scan_devices.return_value = InventorySnapshot(
+        (_device(),), complete=True
+    )
     assert list(await coordinator._async_update_data()) == ["device1"]
 
-    mock_aux_cloud_api.get_devices.side_effect = [
-        [_device()],
-        AuxServerError(http_status=503),
-    ]
+    mock_aux_cloud_api.scan_devices.return_value = InventorySnapshot(
+        (_device(),), complete=False
+    )
     assert (await coordinator._async_update_data())["device1"]["params"] == {"pwr": 1}
 
-    mock_aux_cloud_api.get_devices.side_effect = AuxAuthError(code=-1006)
+    mock_aux_cloud_api.scan_devices.side_effect = AuxAuthError(code=-1006)
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
@@ -121,27 +113,20 @@ def test_push_updates_merge_and_explicit_offline_clears_state(
 
     assert coordinator.get_device_by_endpoint_id("device1")["params"] == {}
     assert entity.available is False
-    mock_aux_cloud_api.normalize_device_params.assert_not_called()
 
 
-async def test_realtime_supervisor_retries_once_and_restores_normal_polling(
-    coordinator, mock_aux_cloud_api, monkeypatch
+async def test_realtime_client_health_controls_fallback_polling(
+    coordinator, mock_aux_cloud_api
 ):
-    """One runner retries a failed relay and switches polling with its health."""
-    monkeypatch.setattr(coordinator_module, "WEBSOCKET_SETUP_RETRY_INITIAL_DELAY", 0)
+    """The coordinator maps client relay health onto its polling interval."""
     ready = asyncio.Event()
-    attempts = 0
 
-    async def run_websocket(*_args, **kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise AuxServerError("relay unavailable")
-        kwargs["on_ready"]()
+    async def run_realtime(*_args, **kwargs):
+        kwargs["connection_listener"](True)
         ready.set()
         await asyncio.Event().wait()
 
-    mock_aux_cloud_api.async_run_websocket.side_effect = run_websocket
+    mock_aux_cloud_api.run_realtime.side_effect = run_realtime
     coordinator.async_request_refresh = AsyncMock()
     coordinator.start_realtime()
     task = coordinator._websocket_task
@@ -149,7 +134,7 @@ async def test_realtime_supervisor_retries_once_and_restores_normal_polling(
     await asyncio.wait_for(ready.wait(), timeout=1)
 
     assert coordinator._websocket_task is task
-    assert attempts == 2
+    mock_aux_cloud_api.run_realtime.assert_awaited_once()
     assert coordinator.update_interval == TOPOLOGY_SCAN_INTERVAL
     assert coordinator.websocket_degraded is False
 
@@ -158,6 +143,7 @@ async def test_realtime_supervisor_retries_once_and_restores_normal_polling(
     assert coordinator.update_interval == FALLBACK_SCAN_INTERVAL
     await coordinator.async_close()
     assert coordinator._websocket_task is None
+    mock_aux_cloud_api.close.assert_awaited_once()
 
 
 async def test_command_transactions_rollback_without_overwriting_newer_push(
@@ -179,6 +165,10 @@ async def test_command_transactions_rollback_without_overwriting_newer_push(
         await entity._set_device_params({target: 430, "new": 1})
     assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
 
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
+
     started = asyncio.Event()
 
     async def wait_for_cancel(_device, _params):
@@ -195,3 +185,55 @@ async def test_command_transactions_rollback_without_overwriting_newer_push(
     with pytest.raises(asyncio.CancelledError):
         await command
     assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 440}
+
+
+async def test_rapid_commands_ignore_only_recent_superseded_pushes(
+    coordinator, mock_aux_cloud_api, monkeypatch
+):
+    """Delayed command pushes cannot replace the latest optimistic value."""
+    now = 0.0
+    monkeypatch.setattr(state_module, "monotonic", lambda: now)
+    target = HP_HOT_WATER_TEMPERATURE_TARGET
+    _seed(coordinator, [_device(params={target: 410})])
+
+    await coordinator.async_set_device_params("device1", {target: 420})
+    await coordinator.async_set_device_params("device1", {target: 430})
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 430
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 430}),))
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 420
+
+    await coordinator.async_set_device_params("device1", {target: 430})
+    await coordinator.async_set_device_params("device1", {target: 440})
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 430}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440
+
+    now = 11.0
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 430}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 430
+
+    async def delayed_success(_device, _params):
+        nonlocal now
+        now += 11
+        return {}
+
+    mock_aux_cloud_api.set_device_params.side_effect = delayed_success
+    await coordinator.async_set_device_params("device1", {target: 440})
+    mock_aux_cloud_api.set_device_params.side_effect = None
+    await coordinator.async_set_device_params("device1", {target: 450})
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 450
+
+    now = 31.0
+    await coordinator.async_set_device_params("device1", {target: 460})
+    now = 33.0
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440

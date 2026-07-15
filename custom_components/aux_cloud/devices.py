@@ -1,14 +1,14 @@
-"""AUX product profiles and parameter capability rules."""
+"""Public AUX device definitions, capabilities, and parameter rules."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from enum import StrEnum
+from typing import Any
 
-from ..api.models import AuxDevice
-from ..api.protocol.common import decode_device_cookie
+from .api.models import AuxDevice
+from .device_metadata import get_protocol_version
 
 # Common constants
 AUX_MODE = "ac_mode"
@@ -127,11 +127,6 @@ VRV_AC_PRODUCT_IDS = (
 MULTI_SPLIT_AC_PRODUCT_IDS = ("00000000000000000000000045620000",)
 SUBDEVICE_AC_PRODUCT_IDS = ("000000000000000000000000c9100100",)
 
-AUX_PROTOCOL_VERSION: Final = "_aux_protocol_version"
-AUX_QUERY_FAILURES: Final = "_aux_query_failures"
-_MAX_COOKIE_PROFILE_PARAMS: Final = 512
-_MAX_COOKIE_PARAM_LENGTH: Final = 128
-
 AC_PARAMS = (
     AC_AUXILIARY_HEAT,
     AC_CLEAN,
@@ -242,7 +237,14 @@ V3_HEAT_PUMP_QUERIES = (
 )
 
 
-# pylint: disable=too-many-instance-attributes
+class DeviceType(StrEnum):
+    """Device families exposed by the public AUX client contract."""
+
+    AIR_CONDITIONER = "ac"
+    HEAT_PUMP = "heat_pump"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True, slots=True)
 class ProductProfile:
     """Capabilities and quirks for an AUX product family."""
@@ -251,7 +253,7 @@ class ProductProfile:
     model_name: str
     params: tuple[str, ...]
     special_params: tuple[str, ...] = ()
-    device_type: Literal["ac", "heat_pump", "unknown"] = "unknown"
+    device_type: DeviceType = DeviceType.UNKNOWN
     writable_params: tuple[str, ...] = ()
     hvac_modes: tuple[int, ...] = ()
     fan_speeds: tuple[int, ...] = ()
@@ -261,8 +263,10 @@ class ProductProfile:
 
     def initial_param_queries(self, _device: AuxDevice) -> list[list[str]]:
         """Return HTTP parameter query batches used during device bootstrap."""
-        if self.device_type == "unknown":
+        if self.device_type is DeviceType.UNKNOWN:
             return []
+        if self.device_type is DeviceType.HEAT_PUMP and is_v3_heat_pump(_device):
+            return [list(query) for query in V3_HEAT_PUMP_QUERIES]
         if self.special_params:
             return [[], list(self.special_params)]
         return [[]]
@@ -274,10 +278,19 @@ class ProductProfile:
         vals: list[Any],
     ) -> tuple[list[str], list[Any]]:
         """Apply product-specific command adjustments before transport serialization."""
-        return list(params), list(vals)
+        prepared_params = list(params)
+        prepared_vals = list(vals)
+        if self.device_type is DeviceType.HEAT_PUMP:
+            version = get_protocol_version(_device)
+            if version is not None and version >= 3 and "ver" not in prepared_params:
+                prepared_params.append("ver")
+                prepared_vals.append([{"idx": 1, "val": version}])
+        return prepared_params, prepared_vals
 
     def fallback_param_queries(self, _device: AuxDevice) -> list[list[str]]:
         """Return alternate bootstrap queries after an unsupported primary GET."""
+        if self.device_type is DeviceType.HEAT_PUMP and not is_v3_heat_pump(_device):
+            return [list(query) for query in V3_HEAT_PUMP_QUERIES]
         return []
 
     def invalid_command_parameter(self, values: Mapping[str, Any]) -> str | None:
@@ -285,40 +298,9 @@ class ProductProfile:
         for param in values:
             if param not in self.writable_params:
                 return param
-        if self.device_type == "ac":
+        if self.device_type is DeviceType.AIR_CONDITIONER:
             return _invalid_ac_command_parameter(self, values)
         return None
-
-
-class HeatPumpProfile(ProductProfile):
-    """AUX heat-pump profile with v3-specific command and bootstrap rules."""
-
-    def initial_param_queries(self, device: AuxDevice) -> list[list[str]]:
-        """Return heat-pump bootstrap query batches."""
-        if is_v3_heat_pump(device):
-            return [list(query) for query in V3_HEAT_PUMP_QUERIES]
-        return [[], list(self.special_params)]
-
-    def prepare_command(
-        self,
-        device: AuxDevice,
-        params: list[str],
-        vals: list[Any],
-    ) -> tuple[list[str], list[Any]]:
-        """Append the v3 heat-pump version marker required by AUX set commands."""
-        prepared_params = list(params)
-        prepared_vals = list(vals)
-        version = get_protocol_version(device)
-        if version is not None and version >= 3 and "ver" not in prepared_params:
-            prepared_params.append("ver")
-            prepared_vals.append([{"idx": 1, "val": version}])
-        return prepared_params, prepared_vals
-
-    def fallback_param_queries(self, device: AuxDevice) -> list[list[str]]:
-        """Return the versioned bootstrap required by newer heat pumps."""
-        if is_v3_heat_pump(device):
-            return []
-        return [list(query) for query in V3_HEAT_PUMP_QUERIES]
 
 
 def _ac_profile(
@@ -338,7 +320,7 @@ def _ac_profile(
         model_name=model_name,
         params=params,
         special_params=AC_SPECIAL_PARAMS,
-        device_type="ac",
+        device_type=DeviceType.AIR_CONDITIONER,
         writable_params=tuple(param for param in AC_WRITABLE_PARAMS if param in params),
         hvac_modes=hvac_modes,
         fan_speeds=fan_speeds,
@@ -380,12 +362,12 @@ SUBDEVICE_AC_PROFILE = _ac_profile(
     fan_speeds=EXTENDED_FAN_SPEEDS,
     half_degree_via_flag=True,
 )
-HEAT_PUMP_PROFILE = HeatPumpProfile(
+HEAT_PUMP_PROFILE = ProductProfile(
     product_ids=HEAT_PUMP_PRODUCT_IDS,
     model_name="AUX Heat Pump",
     params=HP_PARAMS,
     special_params=HP_SPECIAL_PARAMS,
-    device_type="heat_pump",
+    device_type=DeviceType.HEAT_PUMP,
     writable_params=HP_WRITABLE_PARAMS,
 )
 DEFAULT_PROFILE = ProductProfile(
@@ -417,90 +399,13 @@ def get_product_profile(product_id: str | None) -> ProductProfile:
     return PROFILE_BY_PRODUCT_ID.get(product_id, DEFAULT_PROFILE)
 
 
-def get_protocol_version(device: Mapping[str, Any]) -> int | None:
-    """Return the effective device protocol version without guessing."""
-    return get_protocol_version_details(device)[0]
-
-
-def get_protocol_version_details(
-    device: Mapping[str, Any],
-) -> tuple[int | None, str | None]:
-    """Resolve protocol metadata and identify its non-sensitive source."""
-    # A session value is populated only after a device response confirms that
-    # extern/cookie metadata is stale. That direct observation must win thereafter.
-    if version := _positive_version(device.get(AUX_PROTOCOL_VERSION)):
-        return version, "session"
-
-    external = _json_mapping(device.get("extern"))
-    if external is not None and (version := _positive_version(external.get("ver"))):
-        return version, "extern"
-
-    cookie = decode_device_cookie(device.get("cookie"))
-    extend = _json_mapping(cookie.get("extend")) if cookie is not None else None
-    if extend is not None and (version := _positive_version(extend.get("ver"))):
-        return version, "cookie_extend"
-
-    params = device.get("params")
-    if isinstance(params, Mapping) and (
-        version := _positive_version(params.get("ver"))
-    ):
-        return version, "response"
-    return None, None
-
-
-def get_cookie_profile_params(device: Mapping[str, Any]) -> tuple[str, ...]:
-    """Return bounded product-interface names embedded in a device cookie."""
-    cookie = decode_device_cookie(device.get("cookie"))
-    profile = _json_mapping(cookie.get("profile")) if cookie is not None else None
-    if profile is None:
-        return ()
-    suids = profile.get("suids")
-    if not isinstance(suids, list):
-        return ()
-
-    params: set[str] = set()
-    for suid in suids:
-        if not isinstance(suid, Mapping):
-            continue
-        interfaces = suid.get("intfs")
-        if not isinstance(interfaces, Mapping):
-            continue
-        for param in interfaces:
-            if isinstance(param, str) and 0 < len(param) <= _MAX_COOKIE_PARAM_LENGTH:
-                params.add(param)
-                if len(params) > _MAX_COOKIE_PROFILE_PARAMS:
-                    return ()
-    return tuple(sorted(params))
-
-
-def _json_mapping(value: Any) -> Mapping[str, Any] | None:
-    """Return a JSON object supplied either directly or as encoded text."""
-    if isinstance(value, Mapping):
-        return value
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        parsed = json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    return parsed if isinstance(parsed, Mapping) else None
-
-
-def _positive_version(value: Any) -> int | None:
-    """Return a positive integral numeric protocol version."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if value > 0 else None
-    if isinstance(value, float) and value.is_integer() and value > 0:
-        return int(value)
-    return None
-
-
-def set_protocol_version(device: AuxDevice, version: Any) -> None:
-    """Store a successfully resolved protocol version on the runtime snapshot."""
-    if resolved := _positive_version(version):
-        device[AUX_PROTOCOL_VERSION] = resolved
+def get_device_profile(device: Mapping[str, Any]) -> ProductProfile:
+    """Return the profile attached by the client, with a safe lookup fallback."""
+    profile = device.get("profile")
+    if isinstance(profile, ProductProfile):
+        return profile
+    product_id = device.get("productId")
+    return get_product_profile(product_id if isinstance(product_id, str) else None)
 
 
 def _invalid_ac_command_parameter(
@@ -524,7 +429,7 @@ def encode_ac_temperature_command(
     device: AuxDevice, temperature_c: float
 ) -> dict[str, int]:
     """Encode a logical Celsius target using the AC Freedom wire format."""
-    profile = get_product_profile(device.get("productId"))
+    profile = get_device_profile(device)
     current_params = device.get("params", {})
     if current_params.get(AC_TEMPERATURE_UNIT) == 2:
         # AC Freedom truncates the Celsius conversion of Fahrenheit targets.
@@ -556,3 +461,64 @@ def is_v3_heat_pump(device: Mapping[str, Any]) -> bool:
         and version >= 3
         and device.get("productId") in HEAT_PUMP_PRODUCT_IDS
     )
+
+
+def decode_v3_hp_tank_temp_from_key_states(key_states_hex: str) -> int | None:
+    """Decode v3 heat-pump tank temperature from key_states into x10 Celsius."""
+    if not key_states_hex or not isinstance(key_states_hex, str):
+        return None
+
+    try:
+        raw = bytes.fromhex(key_states_hex)
+        if len(raw) < 3:
+            return None
+
+        temp_c = raw[2] - 32
+        if temp_c < -20 or temp_c > 120:
+            return None
+
+        return int(temp_c) * 10
+    except ValueError:
+        return None
+
+
+def normalize_device_params(device: AuxDevice) -> None:
+    """Normalize decoded parameters in-place."""
+    params = device.get("params", {})
+    profile = get_device_profile(device)
+    _normalize_ac_temperature(params, profile.half_degree_via_flag, profile.device_type)
+    _normalize_heat_pump_tank_temperature(device, params)
+
+
+def _normalize_ac_temperature(
+    params: dict[str, object], half_degree_via_flag: bool, device_type: DeviceType
+) -> None:
+    """Normalize product-specific AC target-temperature encodings."""
+    target = params.get(AC_TEMPERATURE_TARGET)
+    if device_type is DeviceType.AIR_CONDITIONER and isinstance(target, (int, float)):
+        base = (int(target) // 10) * 10
+        conversion = params.get(AC_TEMPERATURE_CONVERSION)
+        if (
+            params.get(AC_TEMPERATURE_UNIT) == 2
+            and isinstance(conversion, (int, float))
+            and 0 <= int(conversion) <= 9
+        ):
+            params[AC_TEMPERATURE_TARGET] = base + int(conversion)
+        elif half_degree_via_flag and params.get(AC_TEMPERATURE_DECIMAL) == 1:
+            params[AC_TEMPERATURE_TARGET] = base + 5
+
+
+def _normalize_heat_pump_tank_temperature(
+    device: AuxDevice, params: dict[str, object]
+) -> None:
+    """Decode the v3 heat-pump tank temperature when available."""
+    if not is_v3_heat_pump(device):
+        return
+    key_states = params.get("key_states")
+    decoded = (
+        decode_v3_hp_tank_temp_from_key_states(key_states)
+        if isinstance(key_states, str)
+        else None
+    )
+    if decoded is not None:
+        params[HP_HOT_WATER_TANK_TEMPERATURE] = decoded

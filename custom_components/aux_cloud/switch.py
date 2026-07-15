@@ -6,9 +6,9 @@ from homeassistant.components.switch import SwitchEntity, SwitchEntityDescriptio
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
-from .devices.profiles import (
+from .coordinator import AuxCloudConfigEntry
+from .devices import (
     AC_AUXILIARY_HEAT,
     AC_CHILD_LOCK,
     AC_CLEAN,
@@ -109,7 +109,6 @@ async def async_setup_entry(
     setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-# pylint: disable=abstract-method
 class AuxSwitchEntity(BaseEntity, SwitchEntity):
     """AUX Cloud switch entity."""
 

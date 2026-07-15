@@ -1,6 +1,4 @@
-"""WebSocket transport for AUX Cloud."""
-
-# pylint: disable=too-many-instance-attributes
+"""Single-connection websocket primitives for the BroadLink DNA cloud."""
 
 from __future__ import annotations
 
@@ -15,9 +13,9 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from ..errors import AuxNetworkError, AuxServerError
-from ..models import AuxDevice, DeviceUpdate
-from ..protocol.websocket import (
+from ..api.errors import AuxNetworkError, AuxServerError
+from ..api.models import AuxDevice, DeviceUpdate
+from .codec import (
     build_device_subscriptions,
     extract_websocket_updates,
     validate_websocket_response,
@@ -57,7 +55,7 @@ def _next_message_id(counter: int) -> tuple[int, str]:
     return next_counter, f"{int(time.time() * 1000)}{next_counter:03d}"
 
 
-class AuxCloudWebSocket:
+class DnaWebSocket:
     """Single-runner AUX Cloud websocket transport."""
 
     def __init__(
@@ -368,7 +366,7 @@ class AuxCloudWebSocket:
             return
         try:
             self._listener(updates)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             _LOGGER.exception("Error in AUX Cloud websocket listener")
 
     async def _send_raw(self, raw_data: str) -> None:

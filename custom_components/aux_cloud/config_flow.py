@@ -1,7 +1,5 @@
 """Config flow for AUX Cloud."""
 
-# pylint: disable=abstract-method
-
 from __future__ import annotations
 
 import logging
@@ -16,7 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
     AuxApiError,
-    AuxCloudAPI,
+    AuxCloudClient,
 )
 from .api.models import AuxCredentials
 from .const import (
@@ -26,6 +24,7 @@ from .const import (
     CONF_SELECTED_DEVICES,
     DOMAIN,
 )
+from .dna import DnaClient
 from .identifiers import account_unique_id_from_user_id
 
 if TYPE_CHECKING:
@@ -162,7 +161,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
             )
         except AbortFlow:
             raise
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             _LOGGER.exception("Unexpected AUX Cloud credential validation failure")
             return self.async_show_form(
                 step_id=step_id,
@@ -175,7 +174,7 @@ class AuxCloudFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Authenticate, enforce account identity, and create/update the entry."""
         region = user_input.get(CONF_REGION, "eu")
-        api = AuxCloudAPI(
+        api: AuxCloudClient = DnaClient(
             region=region,
             session=async_get_clientsession(self.hass),
         )

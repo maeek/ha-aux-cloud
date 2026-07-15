@@ -211,22 +211,32 @@ Minimum Home Assistant version is `2026.4.0`.
 Current architecture:
 
 - `custom_components/aux_cloud/api`
-  - `client.py` is the integration-internal facade used by the coordinator.
-  - `models.py` contains cloud DTOs shared by protocol, transport, and runtime code.
-  - `session.py` wraps Home Assistant's injected HTTP session and owns encrypted login payloads, error decoding, and single-flight session recovery.
-  - `repository.py` executes product-owned device bootstrap query plans and merges partial results.
-  - `control.py` HTTP control boundary with an optional websocket fast path.
-  - `transports/websocket.py` single-reader relay transport.
-  - `protocol/common.py` and `protocol/websocket.py` pure wire-format helpers.
-- `custom_components/aux_cloud/devices`
-  - `profiles.py` product capabilities and product-specific command/bootstrap rules.
-  - `normalizers.py` product-specific parameter normalization.
+  - The small, replaceable client contract, public DTOs, and public errors used by
+    the Home Assistant adapter. This package has no Home Assistant dependency.
+- `custom_components/aux_cloud/dna`
+  - The BroadLink DNA/AUX API implementation. `client.py` is the single facade
+    that bundles HTTP, websocket-first commands, HTTP fallback, relay retries,
+    and inventory discovery.
+  - `http.py` and `websocket.py` contain transport primitives. `codec.py` contains
+    only wire-format encoding and decoding. `inventory.py` preserves device
+    bootstrap and protocol-version quirks.
+- `custom_components/aux_cloud/devices.py`
+  - The public device types, product capabilities, command rules, parameter
+    normalization, and known AUX product quirks.
+- `custom_components/aux_cloud/device_metadata.py`
+  - Bounded cookie decoding and protocol-version metadata resolution. These
+    vendor payload details stay out of the device capability definitions.
 - `custom_components/aux_cloud/coordinator.py`
-  - Home Assistant update cadence, inventory scans, command transactions, and websocket supervision.
+  - The Home Assistant adapter: update cadence, command transactions, and state
+    publication through the public client contract.
 - `custom_components/aux_cloud/state.py`
   - Session-only account snapshots and race-safe scan, push, and optimistic command transitions. No capability or protocol state is persisted to a Home Assistant store.
 - `custom_components/aux_cloud/entity.py` and `identifiers.py`
   - Shared typed entity lifecycle and compatibility-stable account/device/entity identities.
+
+Only the integration setup and config flow construct `DnaClient`. All other Home
+Assistant code talks to `AuxCloudClient`, so the DNA implementation can be
+replaced without changing the coordinator or entity platforms.
 
 ## Testing
 
@@ -262,16 +272,6 @@ Run tests and show coverage information:
 
 ```bash
 pytest --cov=custom_components
-```
-
-## Code Quality Checks with pylint
-
-### Basic pylint Check
-
-Run pylint on the entire component:
-
-```bash
-pylint custom_components/aux_cloud
 ```
 
 ### Diff whitespace check

@@ -1,7 +1,5 @@
 """Water-heater platform for AUX Cloud."""
 
-# pylint: disable=abstract-method
-
 from typing import Any
 
 from homeassistant.components.water_heater import (
@@ -16,11 +14,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
 from .const import DOMAIN
-from .coordinator import AuxCloudCoordinator
-from .devices.profiles import (
+from .coordinator import AuxCloudConfigEntry, AuxCloudCoordinator
+from .devices import (
     HP_HOT_WATER_TANK_TEMPERATURE,
     HP_HOT_WATER_TEMPERATURE_TARGET,
     HP_WATER_FAST_HOTWATER,
@@ -29,7 +26,8 @@ from .devices.profiles import (
     HP_WATER_POWER,
     HP_WATER_POWER_OFF,
     HP_WATER_POWER_ON,
-    get_product_profile,
+    DeviceType,
+    get_device_profile,
     is_v3_heat_pump,
 )
 from .entity import BaseEntity, setup_dynamic_entities
@@ -52,7 +50,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
 
     def entities_for_device(device: AuxDevice) -> list[AuxWaterHeaterEntity]:
-        if get_product_profile(device.get("productId")).device_type == "heat_pump":
+        if get_device_profile(device).device_type is DeviceType.HEAT_PUMP:
             entity = AuxWaterHeaterEntity(
                 coordinator,
                 device["endpointId"],

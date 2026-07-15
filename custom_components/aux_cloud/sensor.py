@@ -1,7 +1,5 @@
 """Support for AUX Cloud sensors."""
 
-# pylint: disable=unexpected-keyword-arg
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -18,9 +16,9 @@ from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuxCloudConfigEntry
 from .api.models import AuxDevice
-from .devices.profiles import (
+from .coordinator import AuxCloudConfigEntry
+from .devices import (
     AC_TEMPERATURE_AMBIENT,
     AC_TEMPERATURE_TARGET,
     AUX_ERROR_FLAG,

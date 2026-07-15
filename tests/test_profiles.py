@@ -1,12 +1,6 @@
 """Device-profile and normalization regression tests."""
 
-import json
-
-from custom_components.aux_cloud.devices.normalizers import (
-    decode_v3_hp_tank_temp_from_key_states,
-    normalize_device_params,
-)
-from custom_components.aux_cloud.devices.profiles import (
+from custom_components.aux_cloud.devices import (
     AC_MODE_SPECIAL,
     AC_POWER,
     AC_POWER_LIMIT,
@@ -14,23 +8,23 @@ from custom_components.aux_cloud.devices.profiles import (
     AC_TEMPERATURE_DECIMAL,
     AC_TEMPERATURE_TARGET,
     AC_TEMPERATURE_UNIT,
-    AUX_PROTOCOL_VERSION,
     HP_HOT_WATER_TANK_TEMPERATURE,
     V3_HEAT_PUMP_QUERIES,
+    DeviceType,
+    decode_v3_hp_tank_temp_from_key_states,
     encode_ac_temperature_command,
-    get_cookie_profile_params,
     get_product_profile,
-    get_protocol_version,
-    get_protocol_version_details,
+    normalize_device_params,
 )
 
-from .api_helpers import mock_cookie, mock_device, mock_heat_pump
+from .api_helpers import mock_device, mock_heat_pump
 
 
 def test_profiles_own_safe_query_plans_and_protocol_resolution():
     """Profiles select audited AC/HP queries without response-derived discovery."""
     ac = mock_device()
     ac_profile = get_product_profile(ac["productId"])
+    assert ac_profile.device_type is DeviceType.AIR_CONDITIONER
     assert ac_profile.initial_param_queries(ac) == [[], [AC_MODE_SPECIAL]]
     assert AC_POWER in ac_profile.params
 
@@ -41,39 +35,12 @@ def test_profiles_own_safe_query_plans_and_protocol_resolution():
         [HP_HOT_WATER_TANK_TEMPERATURE],
     ]
     v3 = mock_heat_pump(ver=4)
-    v3["cookie"] = mock_cookie(extend=json.dumps({"ver": 2}))
-    assert get_protocol_version_details(v3) == (4, "extern")
     assert legacy_profile.initial_param_queries(v3) == [
         list(query) for query in V3_HEAT_PUMP_QUERIES
     ]
-
-    cookie_version = mock_heat_pump()
-    cookie_version.pop("extern")
-    cookie_version["cookie"] = mock_cookie(extend=json.dumps({"ver": 3}))
-    assert get_protocol_version_details(cookie_version) == (3, "cookie_extend")
-    cookie_version[AUX_PROTOCOL_VERSION] = 5
-    assert get_protocol_version_details(cookie_version) == (5, "session")
-
-    malformed_cases = [
-        ("not-json", "not-base64"),
-        (json.dumps({"ver": True}), mock_cookie(extend={"ver": 3.5})),
-        (json.dumps({"ver": "3"}), mock_cookie(extend={"ver": "3"})),
-    ]
-    for extern, cookie in malformed_cases:
-        device = mock_heat_pump()
-        device.update(extern=extern, cookie=cookie)
-        assert get_protocol_version(device) is None
-        assert legacy_profile.initial_param_queries(device) == [
-            [],
-            [HP_HOT_WATER_TANK_TEMPERATURE],
-        ]
-
-    diagnostic = mock_heat_pump(ver=2)
-    diagnostic["cookie"] = mock_cookie(
-        profile={"suids": [{"intfs": {"hp_pwr": [], "evidence": []}}]}
-    )
-    assert get_cookie_profile_params(diagnostic) == ("evidence", "hp_pwr")
-    assert get_product_profile("unknown").initial_param_queries(mock_device()) == []
+    unknown_profile = get_product_profile("unknown")
+    assert unknown_profile.device_type is DeviceType.UNKNOWN
+    assert unknown_profile.initial_param_queries(mock_device()) == []
 
 
 def test_profiles_enforce_product_specific_command_quirks():
