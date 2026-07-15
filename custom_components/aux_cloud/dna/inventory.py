@@ -87,6 +87,9 @@ class DeviceInventory:
             )
 
         devices = _extract_devices(json_data)
+        if not devices:
+            return []
+
         state_records = await self._query_device_states(devices)
         online_devices = _initialize_device_snapshots(
             devices,

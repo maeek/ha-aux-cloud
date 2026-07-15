@@ -1,5 +1,7 @@
 """Behavior-level DNA inventory tests."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 from custom_components.aux_cloud.api import AuxDeviceError
 from custom_components.aux_cloud.device_metadata import (
     AUX_PROTOCOL_VERSION,
@@ -19,6 +21,21 @@ from .api_helpers import (
     mock_device,
     mock_heat_pump,
 )
+
+
+async def test_empty_device_list_skips_state_and_bootstrap_queries() -> None:
+    """Do not send querystate requests for empty personal or shared lists."""
+    session = MagicMock(userid="user")
+    session.make_request = AsyncMock(
+        return_value={"status": 0, "data": {"endpoints": []}}
+    )
+    control = FakeInitialParamsControl({})
+
+    devices = await DeviceInventory(session, control).get_devices("family1")
+
+    assert devices == []
+    session.make_request.assert_awaited_once()
+    assert control.queries == []
 
 
 async def test_profiles_drive_bootstrap_while_offline_and_unknown_devices_are_safe():
