@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from homeassistant.core import callback
@@ -5,7 +6,7 @@ from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, Device
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api.const import AuxProducts
-from .const import _LOGGER, DOMAIN, MANUFACTURER
+from .const import _LOGGER, DOMAIN, MANUFACTURER, OPTIMISTIC_GRACE_PERIOD_SECONDS
 
 
 class DeviceStateHelper:
@@ -18,6 +19,10 @@ class DeviceStateHelper:
         self._backup_params: dict[str, Any] = {}
         self._last_logged_payload: str | None = None
         self._last_processed_update_id: int | None = None
+        # Params that were just set optimistically, keyed by param name, value is
+        # (expected_value, expiry_monotonic_time). Used to protect optimistic
+        # updates from being clobbered by stale polls right after a "set" call.
+        self._pending_optimistic: dict[str, tuple[Any, float]] = {}
 
     @property
     def current_params(self) -> dict[str, Any]:
@@ -83,16 +88,53 @@ class DeviceStateHelper:
             )
 
         self._failed_poll_count = 0
-        self._cached_params.update(current_params)
+
+        if not self._pending_optimistic:
+            self._cached_params.update(current_params)
+            return
+
+        now = time.monotonic()
+        for key, value in current_params.items():
+            pending = self._pending_optimistic.get(key)
+
+            if pending is None:
+                self._cached_params[key] = value
+                continue
+
+            expected_value, expiry = pending
+
+            if value == expected_value:
+                # Cloud confirmed our optimistic value.
+                self._cached_params[key] = value
+                self._pending_optimistic.pop(key, None)
+            elif now < expiry:
+                # Likely a stale echo from before the command was applied.
+                # Keep the optimistic value and wait for confirmation.
+                _LOGGER.debug(
+                    "Ignoring stale value for %s on device %s: got %s, expected %s",
+                    key, device_name, value, expected_value,
+                )
+            else:
+                # Grace period expired without confirmation, e.g. the command
+                # was rejected or overridden elsewhere. Trust the cloud value.
+                _LOGGER.debug(
+                    "Optimistic update for %s on device %s not confirmed in time, "
+                    "reverting to reported value %s",
+                    key, device_name, value,
+                )
+                self._cached_params[key] = value
+                self._pending_optimistic.pop(key, None)
 
     def apply_optimistic(self, new_params: dict[str, Any]):
         """Applies new params optimistically and saves a backup for rollback."""
         self._backup_params.clear()
+        expiry = time.monotonic() + OPTIMISTIC_GRACE_PERIOD_SECONDS
 
         for key, value in new_params.items():
             if key in self._cached_params:
                 self._backup_params[key] = self._cached_params[key]
             self._cached_params[key] = value
+            self._pending_optimistic[key] = (value, expiry)
 
         self._last_logged_payload = None
 
@@ -103,6 +145,7 @@ class DeviceStateHelper:
                 self._cached_params[key] = self._backup_params[key]
             else:
                 self._cached_params.pop(key, None)
+            self._pending_optimistic.pop(key, None)
         self._backup_params.clear()
         self._last_logged_payload = None
 

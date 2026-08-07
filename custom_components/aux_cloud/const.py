@@ -65,3 +65,12 @@ PLATFORMS = [
 ]
 
 MAX_FAILED_POLLS = 5
+
+# How long (in seconds) an optimistically-set parameter is protected from being
+# overwritten by a stale/echoed value coming back from a cloud poll. The AUX
+# cloud (and the physical device) can take a few seconds to actually apply a
+# command and report the new state, so a poll that happens right after a
+# "set" call can still return the old value. Without this grace period the
+# UI would flicker/revert to the previous value even though the command was
+# accepted (see https://github.com/maeek/ha-aux-cloud/issues/53).
+OPTIMISTIC_GRACE_PERIOD_SECONDS = 15
