@@ -74,6 +74,30 @@ class AuxApiError(Exception):
     """Exception raised when querying devices fails."""
 
 
+# The physical device's WiFi module occasionally drops off AUX's cloud
+# servers for a moment, which surfaces as a NETWORK_TIME_OUT/unreachable
+# ErrorResponse rather than an HTTP-level failure. These are almost always
+# transient, so a couple of quick retries avoids surfacing a hard failure
+# (and an optimistic-update rollback) to the user for a blip that would have
+# resolved itself a second later.
+RETRYABLE_ERROR_TYPES = {"NETWORK_TIME_OUT", "ENDPOINT_UNREACHABLE"}
+MAX_ACT_DEVICE_RETRIES = 2
+ACT_DEVICE_RETRY_DELAY_SECONDS = 2
+
+
+def _get_error_response_type(json_data: dict) -> str | None:
+    """Return the error type of an AUX ErrorResponse payload, if any."""
+    event = json_data.get("event") if isinstance(json_data, dict) else None
+    if not isinstance(event, dict):
+        return None
+
+    header = event.get("header", {})
+    if header.get("name") != "ErrorResponse":
+        return None
+
+    return event.get("payload", {}).get("type")
+
+
 def _decode_v3_hp_tank_temp_from_key_states(key_states_hex: str) -> int | None:
     """Decode heat pump tank temperature from key_states.
 
@@ -597,38 +621,58 @@ class AuxCloudAPI:
         # Keep original integration behavior for single-param GET
         if len(req_params) == 1 and act == "get":
             data["directive"]["payload"]["vals"] = [[{"val": 0, "idx": 1}]]
-        json_data = await self._make_request(
-            method="POST",
-            endpoint="device/control/v2/sdkcontrol",
-            data=data,
-            # Theoretically license in query param is not needed but
-            # I'm following the original request made from the app,
-            # just in case.
-            params={"license": LICENSE},
-            headers=self._get_headers(),
-            ssl=False,
-        )
 
-        _LOGGER.debug("Device params response: %s", json_data)
+        last_json_data = None
 
-        if (
-            "event" in json_data
-            and "payload" in json_data["event"]
-            and "data" in json_data["event"]["payload"]
-            and "header" in json_data["event"]
-            and "name" in json_data["event"]["header"]
-            # Ensure it's not an error response
-            and json_data["event"]["header"]["name"] == "Response"
-        ):
-            response = json.loads(json_data["event"]["payload"]["data"])
-            response_dict = {}
+        for attempt in range(1, MAX_ACT_DEVICE_RETRIES + 2):
+            json_data = await self._make_request(
+                method="POST",
+                endpoint="device/control/v2/sdkcontrol",
+                data=data,
+                # Theoretically license in query param is not needed but
+                # I'm following the original request made from the app,
+                # just in case.
+                params={"license": LICENSE},
+                headers=self._get_headers(),
+                ssl=False,
+            )
 
-            for i in range(0, len(response["params"])):
-                response_dict[response["params"][i]] = response["vals"][i][0]["val"]
+            _LOGGER.debug("Device params response: %s", json_data)
 
-            return response_dict
+            if (
+                "event" in json_data
+                and "payload" in json_data["event"]
+                and "data" in json_data["event"]["payload"]
+                and "header" in json_data["event"]
+                and "name" in json_data["event"]["header"]
+                # Ensure it's not an error response
+                and json_data["event"]["header"]["name"] == "Response"
+            ):
+                response = json.loads(json_data["event"]["payload"]["data"])
+                response_dict = {}
 
-        raise AuxApiError(f"Failed to query device state: {data}, {json_data}")
+                for i in range(0, len(response["params"])):
+                    response_dict[response["params"][i]] = response["vals"][i][0]["val"]
+
+                return response_dict
+
+            last_json_data = json_data
+            error_type = _get_error_response_type(json_data)
+
+            if error_type not in RETRYABLE_ERROR_TYPES or attempt > MAX_ACT_DEVICE_RETRIES:
+                break
+
+            _LOGGER.warning(
+                "Device %s returned retryable error %s (attempt %s/%s), retrying in %ss...",
+                device["endpointId"],
+                error_type,
+                attempt,
+                MAX_ACT_DEVICE_RETRIES + 1,
+                ACT_DEVICE_RETRY_DELAY_SECONDS,
+            )
+            await asyncio.sleep(ACT_DEVICE_RETRY_DELAY_SECONDS)
+
+        raise AuxApiError(f"Failed to query device state: {data}, {last_json_data}")
 
     async def get_device_params(self, device: dict, params: list[str] = None):
         """
