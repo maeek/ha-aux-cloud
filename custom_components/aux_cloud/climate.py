@@ -53,6 +53,7 @@ from .const import (
     FAN_MODE_AUX_TO_HA,
     MODE_MAP_AUX_AC_TO_HA,
     MODE_MAP_HA_TO_AUX,
+    SET_TEMPERATURE_DEBOUNCE_SECONDS,
     _LOGGER,
 )
 from .util import BaseEntity
@@ -206,7 +207,8 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             temperature = self._attr_max_temp
 
         await self._set_device_params(
-            {HP_HEATER_TEMPERATURE_TARGET: int(temperature * 10)}
+            {HP_HEATER_TEMPERATURE_TARGET: round(temperature * 10)},
+            debounce_seconds=SET_TEMPERATURE_DEBOUNCE_SECONDS,
         )
 
     async def async_set_fan_mode(self, fan_mode):
@@ -241,7 +243,13 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         ]
         self._attr_min_temp = 16
         self._attr_max_temp = 32
-        self._attr_target_temperature_step = 0.5
+        # The device's own capability profile declares its "temp" parameter
+        # as a whole-Celsius-degree range (min=16, max=32, step=1). Sending a
+        # fractional Celsius value (e.g. from a Fahrenheit-to-Celsius
+        # conversion that doesn't land on a whole degree) is silently
+        # ignored by the hardware - it beeps to acknowledge receipt but never
+        # applies it. So the step must match that whole-degree granularity.
+        self._attr_target_temperature_step = 1
         self.entity_id = f"climate.{self._attr_unique_id}"
 
     @property
@@ -273,7 +281,16 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         elif temperature > self._attr_max_temp:
             temperature = self._attr_max_temp
 
-        await self._set_device_params({AC_TEMPERATURE_TARGET: int(temperature * 10)})
+        # Snap to a whole Celsius degree - the device only supports whole
+        # degree setpoints (see _attr_target_temperature_step above), so a
+        # fractional value (e.g. converted from Fahrenheit) would otherwise
+        # be silently ignored by the hardware.
+        temperature = round(temperature)
+
+        await self._set_device_params(
+            {AC_TEMPERATURE_TARGET: round(temperature * 10)},
+            debounce_seconds=SET_TEMPERATURE_DEBOUNCE_SECONDS,
+        )
 
     @property
     def hvac_mode(self):

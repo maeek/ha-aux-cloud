@@ -74,3 +74,10 @@ MAX_FAILED_POLLS = 5
 # UI would flicker/revert to the previous value even though the command was
 # accepted (see https://github.com/maeek/ha-aux-cloud/issues/53).
 OPTIMISTIC_GRACE_PERIOD_SECONDS = 15
+
+# How long (in seconds) to wait after a temperature change before actually
+# sending it to AUX Cloud. Rapid successive changes (dragging a slider,
+# repeatedly tapping +/-) each cancel and replace the pending send, so only
+# the final value is sent - avoiding a burst of overlapping API calls that
+# can race with each other on the cloud/device side.
+SET_TEMPERATURE_DEBOUNCE_SECONDS = 0.6
