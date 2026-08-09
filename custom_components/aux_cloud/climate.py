@@ -32,6 +32,7 @@ from .api.const import (
     AC_SWING_VERTICAL_OFF,
     AC_SWING_VERTICAL_ON,
     AC_TEMPERATURE_AMBIENT,
+    AC_TEMPERATURE_UNIT,
     AC_TEMPERATURE_TARGET,
     HP_MODE_COOLING,
     HP_MODE_HEATING,
@@ -53,9 +54,15 @@ from .const import (
     FAN_MODE_AUX_TO_HA,
     MODE_MAP_AUX_AC_TO_HA,
     MODE_MAP_HA_TO_AUX,
+    SET_TEMPERATURE_DEBOUNCE_SECONDS,
     _LOGGER,
 )
 from .util import BaseEntity
+from .temperature import (
+    AUX_TEMPERATURE_UNIT_FAHRENHEIT,
+    decode_ac_target_temperature,
+    encode_ac_target_temperature,
+)
 
 
 async def async_setup_entry(
@@ -206,7 +213,8 @@ class AuxHeatPumpClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             temperature = self._attr_max_temp
 
         await self._set_device_params(
-            {HP_HEATER_TEMPERATURE_TARGET: int(temperature * 10)}
+            {HP_HEATER_TEMPERATURE_TARGET: round(temperature * 10)},
+            debounce_seconds=SET_TEMPERATURE_DEBOUNCE_SECONDS,
         )
 
     async def async_set_fan_mode(self, fan_mode):
@@ -223,7 +231,10 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
     ):
         """Initialize the climate entity."""
         super().__init__(coordinator, device_id, entity_description)
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        if self._uses_fahrenheit_encoding:
+            self._attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+        else:
+            self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.FAN_MODE
@@ -239,28 +250,39 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
             SWING_HORIZONTAL,
             SWING_BOTH,
         ]
-        self._attr_min_temp = 16
-        self._attr_max_temp = 32
-        self._attr_target_temperature_step = 0.5
+        if self._uses_fahrenheit_encoding:
+            self._attr_min_temp = 60
+            self._attr_max_temp = 90
+        else:
+            self._attr_min_temp = 16
+            self._attr_max_temp = 32
+        self._attr_target_temperature_step = 1
         self.entity_id = f"climate.{self._attr_unique_id}"
+
+    @property
+    def _uses_fahrenheit_encoding(self) -> bool:
+        """Return whether this device uses AUX's split Fahrenheit encoding."""
+        return (
+            self._get_device_params().get(AC_TEMPERATURE_UNIT)
+            == AUX_TEMPERATURE_UNIT_FAHRENHEIT
+        )
 
     @property
     def current_temperature(self):
         """Return the current temperature."""
-        return (
-            self._get_device_params().get(AC_TEMPERATURE_AMBIENT, None) / 10
-            if AC_TEMPERATURE_AMBIENT in self._get_device_params()
-            else None
-        )
+        raw_temp = self._get_device_params().get(AC_TEMPERATURE_AMBIENT)
+        if raw_temp is None:
+            return None
+
+        celsius = raw_temp / 10
+        if self._uses_fahrenheit_encoding:
+            return celsius * 9 / 5 + 32
+        return celsius
 
     @property
     def target_temperature(self):
         """Return the target temperature."""
-        return (
-            self._get_device_params().get(AC_TEMPERATURE_TARGET, None) / 10
-            if AC_TEMPERATURE_TARGET in self._get_device_params()
-            else None
-        )
+        return decode_ac_target_temperature(self._get_device_params())
 
     async def async_set_temperature(self, **kwargs):
         """Set new target temperature."""
@@ -273,7 +295,13 @@ class AuxACClimateEntity(BaseEntity, CoordinatorEntity, ClimateEntity):
         elif temperature > self._attr_max_temp:
             temperature = self._attr_max_temp
 
-        await self._set_device_params({AC_TEMPERATURE_TARGET: int(temperature * 10)})
+        await self._set_device_params(
+            encode_ac_target_temperature(
+                temperature,
+                self._get_device_params().get(AC_TEMPERATURE_UNIT),
+            ),
+            debounce_seconds=SET_TEMPERATURE_DEBOUNCE_SECONDS,
+        )
 
     @property
     def hvac_mode(self):

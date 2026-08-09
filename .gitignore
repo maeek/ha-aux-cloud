@@ -4,6 +4,7 @@ pipfile
 pipfile.lock
 .idea
 /config.yaml
+docs/dev/config.yaml
 .venv/
 *.log
 .DS_Store

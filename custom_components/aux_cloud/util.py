@@ -1,3 +1,5 @@
+import asyncio
+import time
 from typing import Any
 
 from homeassistant.core import callback
@@ -5,7 +7,7 @@ from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, Device
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api.const import AuxProducts
-from .const import _LOGGER, DOMAIN, MANUFACTURER
+from .const import _LOGGER, DOMAIN, MANUFACTURER, OPTIMISTIC_GRACE_PERIOD_SECONDS
 
 
 class DeviceStateHelper:
@@ -18,6 +20,10 @@ class DeviceStateHelper:
         self._backup_params: dict[str, Any] = {}
         self._last_logged_payload: str | None = None
         self._last_processed_update_id: int | None = None
+        # Params that were just set optimistically, keyed by param name, value is
+        # (expected_value, expiry_monotonic_time). Used to protect optimistic
+        # updates from being clobbered by stale polls right after a "set" call.
+        self._pending_optimistic: dict[str, tuple[Any, float]] = {}
 
     @property
     def current_params(self) -> dict[str, Any]:
@@ -83,16 +89,53 @@ class DeviceStateHelper:
             )
 
         self._failed_poll_count = 0
-        self._cached_params.update(current_params)
+
+        if not self._pending_optimistic:
+            self._cached_params.update(current_params)
+            return
+
+        now = time.monotonic()
+        for key, value in current_params.items():
+            pending = self._pending_optimistic.get(key)
+
+            if pending is None:
+                self._cached_params[key] = value
+                continue
+
+            expected_value, expiry = pending
+
+            if value == expected_value:
+                # Cloud confirmed our optimistic value.
+                self._cached_params[key] = value
+                self._pending_optimistic.pop(key, None)
+            elif now < expiry:
+                # Likely a stale echo from before the command was applied.
+                # Keep the optimistic value and wait for confirmation.
+                _LOGGER.debug(
+                    "Ignoring stale value for %s on device %s: got %s, expected %s",
+                    key, device_name, value, expected_value,
+                )
+            else:
+                # Grace period expired without confirmation, e.g. the command
+                # was rejected or overridden elsewhere. Trust the cloud value.
+                _LOGGER.debug(
+                    "Optimistic update for %s on device %s not confirmed in time, "
+                    "reverting to reported value %s",
+                    key, device_name, value,
+                )
+                self._cached_params[key] = value
+                self._pending_optimistic.pop(key, None)
 
     def apply_optimistic(self, new_params: dict[str, Any]):
         """Applies new params optimistically and saves a backup for rollback."""
         self._backup_params.clear()
+        expiry = time.monotonic() + OPTIMISTIC_GRACE_PERIOD_SECONDS
 
         for key, value in new_params.items():
             if key in self._cached_params:
                 self._backup_params[key] = self._cached_params[key]
             self._cached_params[key] = value
+            self._pending_optimistic[key] = (value, expiry)
 
         self._last_logged_payload = None
 
@@ -103,6 +146,7 @@ class DeviceStateHelper:
                 self._cached_params[key] = self._backup_params[key]
             else:
                 self._cached_params.pop(key, None)
+            self._pending_optimistic.pop(key, None)
         self._backup_params.clear()
         self._last_logged_payload = None
 
@@ -126,6 +170,10 @@ class BaseEntity(CoordinatorEntity):
             self._device_id,
             initial_params,
         )
+        # Tracks in-flight debounced sends, keyed by the sorted tuple of param
+        # names being set, so unrelated params (e.g. temp vs swing) debounce
+        # independently.
+        self._pending_debounce_tasks: dict[tuple, asyncio.Task] = {}
 
     @property
     def unique_id(self) -> str | None:
@@ -178,8 +226,19 @@ class BaseEntity(CoordinatorEntity):
         """Get device parameters securely from the state helper."""
         return self._state_helper.current_params
 
-    async def _set_device_params(self, params: dict[str, Any]):
-        """Set parameters on the device using Optimistic Updates via Helper."""
+    async def _set_device_params(
+        self, params: dict[str, Any], debounce_seconds: float = 0
+    ):
+        """Set parameters on the device using Optimistic Updates via Helper.
+
+        If debounce_seconds > 0, the optimistic update/UI write happens
+        immediately, but the actual network call is delayed by that many
+        seconds and cancelled/replaced if another call for the same set of
+        params comes in before it fires. This avoids sending one API call
+        per rapid successive change (e.g. dragging a slider or repeatedly
+        tapping +/-), which can otherwise race with itself against AUX
+        Cloud/the device.
+        """
         device_name = self._device.get("friendlyName", self._device_id)
         _LOGGER.debug("Optimistically setting %s for device %s", params, device_name)
 
@@ -187,6 +246,41 @@ class BaseEntity(CoordinatorEntity):
         self._state_helper.apply_optimistic(params)
         self.async_write_ha_state()
 
+        debounce_key = tuple(sorted(params.keys()))
+        pending_task = self._pending_debounce_tasks.get(debounce_key)
+        if pending_task and not pending_task.done():
+            pending_task.cancel()
+
+        if debounce_seconds <= 0:
+            await self._send_device_params(params, device_name)
+            return
+
+        self._pending_debounce_tasks[debounce_key] = self.hass.async_create_task(
+            self._debounced_send_device_params(
+                params, device_name, debounce_seconds, debounce_key
+            )
+        )
+
+    async def _debounced_send_device_params(
+        self,
+        params: dict[str, Any],
+        device_name: str,
+        debounce_seconds: float,
+        debounce_key: tuple,
+    ):
+        """Wait for the debounce window to elapse, then send the params."""
+        try:
+            await asyncio.sleep(debounce_seconds)
+        except asyncio.CancelledError:
+            return
+
+        try:
+            await self._send_device_params(params, device_name)
+        finally:
+            self._pending_debounce_tasks.pop(debounce_key, None)
+
+    async def _send_device_params(self, params: dict[str, Any], device_name: str):
+        """Send params to the device, rolling back the optimistic update on failure."""
         try:
             await self.coordinator.api.set_device_params(self._device, params)
             # Refresh coordinator to sync all dependent entities immediately after a successful write

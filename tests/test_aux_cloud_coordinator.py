@@ -1,5 +1,6 @@
 """Test AUX Cloud coordinator functionality."""
 
+import time
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
@@ -177,3 +178,52 @@ def test_state_helper_deduplicates_same_update_id(coordinator):
         helper.process_new_payload({}, "AC Unit 1", update_id=update_id)
 
     assert helper.is_available() is False
+
+
+def test_state_helper_optimistic_update_survives_stale_poll(coordinator):
+    """A poll returning the pre-set value right after a set should not revert it.
+
+    Regression test for https://github.com/maeek/ha-aux-cloud/issues/53 where
+    the reported temperature would jump back to the previous value shortly
+    after being changed, because a poll triggered right after the "set" call
+    raced with the device/cloud actually applying the change.
+    """
+    helper = coordinator.get_state_helper("device1", {"temp": 220})
+
+    helper.apply_optimistic({"temp": 240})
+    assert helper.current_params["temp"] == 240
+
+    # A poll that races the "set" call and returns the stale value.
+    helper.process_new_payload({"temp": 220}, "AC Unit 1", update_id=1)
+    assert helper.current_params["temp"] == 240
+
+    # A later poll confirms the device actually applied the change.
+    helper.process_new_payload({"temp": 240}, "AC Unit 1", update_id=2)
+    assert helper.current_params["temp"] == 240
+
+
+def test_state_helper_optimistic_update_expires_without_confirmation(coordinator):
+    """If the cloud never confirms the optimistic value, trust the poll."""
+    helper = coordinator.get_state_helper("device1", {"temp": 220})
+
+    helper.apply_optimistic({"temp": 240})
+    # Force the grace period to have already elapsed.
+    helper._pending_optimistic["temp"] = (240, time.monotonic() - 1)
+
+    helper.process_new_payload({"temp": 220}, "AC Unit 1", update_id=1)
+    assert helper.current_params["temp"] == 220
+
+
+def test_state_helper_rollback_clears_pending_optimistic(coordinator):
+    """Rolling back a failed set should also clear the pending protection."""
+    helper = coordinator.get_state_helper("device1", {"temp": 220})
+
+    helper.apply_optimistic({"temp": 240})
+    helper.rollback({"temp": 240})
+
+    assert helper.current_params["temp"] == 220
+    assert "temp" not in helper._pending_optimistic
+
+    # A subsequent poll should be applied normally now.
+    helper.process_new_payload({"temp": 220}, "AC Unit 1", update_id=1)
+    assert helper.current_params["temp"] == 220
