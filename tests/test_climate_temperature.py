@@ -1,4 +1,4 @@
-"""Tests for AC target temperature handling: whole-degree rounding and debounce.
+"""Tests for AUX AC target-temperature encoding and debounce behavior.
 
 These deliberately avoid the pytest_homeassistant_custom_component `hass`
 fixture (which needs a real event loop) so they stay fast and lightweight -
@@ -10,8 +10,14 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 from homeassistant.components.climate import ClimateEntityDescription
+from homeassistant.const import UnitOfTemperature
 
-from custom_components.aux_cloud.api.const import AC_TEMPERATURE_TARGET
+from custom_components.aux_cloud.api.const import (
+    AC_TEMPERATURE_AMBIENT,
+    AC_TEMPERATURE_CONVERT,
+    AC_TEMPERATURE_TARGET,
+    AC_TEMPERATURE_UNIT,
+)
 from custom_components.aux_cloud.climate import AuxACClimateEntity
 from custom_components.aux_cloud.const import SET_TEMPERATURE_DEBOUNCE_SECONDS
 from custom_components.aux_cloud.util import DeviceStateHelper
@@ -48,8 +54,21 @@ class FakeCoordinator:
         return self._helper
 
 
-def make_ac_entity(initial_temp_tenths=200):
-    coordinator = FakeCoordinator({AC_TEMPERATURE_TARGET: initial_temp_tenths})
+def make_ac_entity(
+    initial_temp_tenths=200,
+    tempunit=None,
+    temp_convert=None,
+    ambient_temp_tenths=None,
+):
+    initial_params = {AC_TEMPERATURE_TARGET: initial_temp_tenths}
+    if tempunit is not None:
+        initial_params[AC_TEMPERATURE_UNIT] = tempunit
+    if temp_convert is not None:
+        initial_params[AC_TEMPERATURE_CONVERT] = temp_convert
+    if ambient_temp_tenths is not None:
+        initial_params[AC_TEMPERATURE_AMBIENT] = ambient_temp_tenths
+
+    coordinator = FakeCoordinator(initial_params)
     entity = AuxACClimateEntity(
         coordinator, "device1", ClimateEntityDescription(key="ac", name="AC")
     )
@@ -58,17 +77,17 @@ def make_ac_entity(initial_temp_tenths=200):
     return entity, coordinator
 
 
-class TestWholeDegreeRounding:
-    """The device only accepts whole-Celsius-degree setpoints."""
+class TestCelsiusEncoding:
+    """Celsius-mode devices accept whole-Celsius-degree setpoints."""
 
     @pytest.mark.parametrize(
         "celsius_input,expected_tenths",
         [
-            (20.0, 200),  # 68F equivalent - already whole
-            (22.777777777777779, 230),  # ~73F - rounds down to 23C
-            (23.333333333333332, 230),  # ~74F - rounds down to 23C (same as 73F!)
-            (23.888888888888889, 240),  # ~75F - rounds up to 24C
-            (25.0, 250),  # 77F equivalent - already whole
+            (20.0, 200),
+            (22.777777777777779, 230),
+            (23.333333333333332, 230),
+            (23.888888888888889, 240),
+            (25.0, 250),
         ],
     )
     async def test_set_temperature_snaps_to_whole_degree(
@@ -84,6 +103,42 @@ class TestWholeDegreeRounding:
         sent_params = coordinator.api.set_device_params.call_args[0][1]
         assert sent_params == {AC_TEMPERATURE_TARGET: expected_tenths}
         assert sent_params[AC_TEMPERATURE_TARGET] % 10 == 0
+
+
+class TestFahrenheitEncoding:
+    """Fahrenheit-mode devices use temp and ac_tempconvert together."""
+
+    def test_target_temperature_decodes_to_exact_displayed_fahrenheit(self):
+        entity, _ = make_ac_entity(
+            initial_temp_tenths=240,
+            tempunit=2,
+            temp_convert=2,
+            ambient_temp_tenths=236,
+        )
+
+        assert entity.target_temperature == 76
+        assert entity.current_temperature == pytest.approx(74.48)
+        assert entity.temperature_unit == UnitOfTemperature.FAHRENHEIT
+        assert entity.min_temp == 60
+        assert entity.max_temp == 90
+        assert entity.target_temperature_step == 1
+
+    async def test_set_temperature_sends_ac_freedom_wire_format(self):
+        entity, coordinator = make_ac_entity(
+            initial_temp_tenths=240,
+            tempunit=2,
+            temp_convert=2,
+        )
+
+        await entity.async_set_temperature(temperature=76)
+        await asyncio.sleep(SET_TEMPERATURE_DEBOUNCE_SECONDS + 0.2)
+
+        sent_params = coordinator.api.set_device_params.call_args[0][1]
+        assert sent_params == {
+            AC_TEMPERATURE_UNIT: 2,
+            AC_TEMPERATURE_TARGET: 240,
+            AC_TEMPERATURE_CONVERT: 4,
+        }
 
 
 class TestSetTemperatureDebounce:

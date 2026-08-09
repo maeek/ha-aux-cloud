@@ -17,6 +17,8 @@ AC_POWER_ON = {AC_POWER: 1}
 
 AC_TEMPERATURE_TARGET = "temp"
 AC_TEMPERATURE_AMBIENT = "envtemp"
+AC_TEMPERATURE_CONVERT = "ac_tempconvert"
+AC_TEMPERATURE_UNIT = "tempunit"
 
 AC_MODE_COOLING = {AUX_MODE: 0}
 AC_MODE_HEATING = {AUX_MODE: 1}
@@ -161,10 +163,10 @@ class AuxProducts:
         AC_CHILD_LOCK,
         AC_COMFORTABLE_WIND,
         "new_type",
-        "ac_tempconvert",
+        AC_TEMPERATURE_CONVERT,
         "sleepdiy",
         "ac_errcode1",
-        "tempunit",
+        AC_TEMPERATURE_UNIT,
         "tenelec",  # Unknown, might be available when the device is in specific state
     ]
 
