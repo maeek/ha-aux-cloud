@@ -1,11 +1,10 @@
 {
   "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.detectIndentation": false,
+    "editor.formatOnSave": true,
     "editor.insertSpaces": true,
-    "editor.tabSize": 2,
-    "editor.detectIndentation" : false  
+    "editor.tabSize": 4
   },
-  "autopep8.args": [
-    "--ignore=E121",
-    "--indent-size=2"
-  ]
+  "ruff.nativeServer": "on"
 }

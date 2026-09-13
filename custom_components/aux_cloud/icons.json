@@ -2,6 +2,7 @@
   "entity": {
     "climate": {
       "aux_ac": {
+        "default": "mdi:air-conditioner",
         "state_attributes": {
           "fan_mode": {
             "state": {
@@ -10,6 +11,105 @@
             }
           }
         }
+      },
+      "aux_heater": {
+        "default": "mdi:hvac"
+      }
+    },
+    "number": {
+      "aux_power_limit_percentage": {
+        "default": "mdi:percent"
+      }
+    },
+    "select": {
+      "aux_select_auto_water_temp": {
+        "default": "mdi:water-thermometer",
+        "state": {
+          "off": "mdi:water-off",
+          "level_1": "mdi:numeric-1",
+          "level_2": "mdi:numeric-2",
+          "level_3": "mdi:numeric-3",
+          "level_4": "mdi:numeric-4",
+          "level_5": "mdi:numeric-5",
+          "level_6": "mdi:numeric-6",
+          "level_7": "mdi:numeric-7",
+          "level_8": "mdi:numeric-8",
+          "user_defined": "mdi:account-cog"
+        }
+      },
+      "aux_select_qtmode": {
+        "default": "mdi:volume-mute",
+        "state": {
+          "off": "mdi:volume-high",
+          "quiet_1": "mdi:volume-off",
+          "quiet_2": "mdi:volume-mute"
+        }
+      }
+    },
+    "sensor": {
+      "ac_temperature": {
+        "default": "mdi:home-thermometer"
+      },
+      "ambient_temperature": {
+        "default": "mdi:thermometer"
+      },
+      "err_flag": {
+        "default": "mdi:alert-circle"
+      },
+      "hot_water_temperature": {
+        "default": "mdi:thermometer-water"
+      },
+      "water_tank_temperature": {
+        "default": "mdi:thermometer-water"
+      }
+    },
+    "switch": {
+      "aux_ac_power": {
+        "default": "mdi:air-conditioner"
+      },
+      "aux_aux_heat": {
+        "default": "mdi:heat-wave"
+      },
+      "aux_child_lock": {
+        "default": "mdi:lock"
+      },
+      "aux_comfortable_wind": {
+        "default": "mdi:fan"
+      },
+      "aux_ecomode": {
+        "default": "mdi:leaf"
+      },
+      "aux_fast_hotwater": {
+        "default": "mdi:water-boiler"
+      },
+      "aux_health_mode": {
+        "default": "mdi:shield-check"
+      },
+      "aux_hp_power": {
+        "default": "mdi:water-thermometer"
+      },
+      "aux_mildew_proof": {
+        "default": "mdi:water-off"
+      },
+      "aux_power_limit": {
+        "default": "mdi:power-socket-eu"
+      },
+      "aux_screen_display": {
+        "default": "mdi:monitor-dashboard"
+      },
+      "aux_self_cleaning": {
+        "default": "mdi:water-pump"
+      },
+      "aux_sleep_mode": {
+        "default": "mdi:sleep"
+      },
+      "aux_water_power": {
+        "default": "mdi:water-boiler"
+      }
+    },
+    "water_heater": {
+      "aux_water": {
+        "default": "mdi:water-boiler"
       }
     }
   }

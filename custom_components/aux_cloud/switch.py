@@ -1,10 +1,14 @@
-from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+"""Switch platform for AUX Cloud."""
 
-from .api.const import (
+from typing import Any
+
+from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from .api.models import AuxDevice
+from .coordinator import AuxCloudConfigEntry
+from .devices import (
     AC_AUXILIARY_HEAT,
     AC_CHILD_LOCK,
     AC_CLEAN,
@@ -16,216 +20,112 @@ from .api.const import (
     AC_SCREEN_DISPLAY,
     AC_SLEEP,
     AUX_ECOMODE,
-    AuxProducts,
     HP_HEATER_POWER,
     HP_WATER_FAST_HOTWATER,
     HP_WATER_POWER,
 )
-from .const import DOMAIN, _LOGGER
-from .util import BaseEntity
+from .entity import BaseEntity, setup_dynamic_entities, supported_entity_descriptions
 
-SWITCHES = {
-    AUX_ECOMODE: {
-        "description": SwitchEntityDescription(
-            key=AUX_ECOMODE,
-            name="Ecomode",
-            icon="mdi:leaf",
-            translation_key="aux_ecomode",
-        ),
-    },
-    AC_POWER: {
-        "description": SwitchEntityDescription(
-            key=AC_POWER,
-            name="AC Power",
-            icon="mdi:air-conditioner",
-            translation_key="aux_ac_power",
-        ),
-    },
-    HP_HEATER_POWER: {
-        "description": SwitchEntityDescription(
-            key=HP_HEATER_POWER,
-            name="Heat Pump Heater Power",
-            icon="mdi:water-thermometer",
-            translation_key="aux_hp_power",
-        ),
-    },
-    HP_WATER_POWER: {
-        "description": SwitchEntityDescription(
-            key=HP_WATER_POWER,
-            name="Water Heater Power",
-            icon="mdi:water-boiler",
-            translation_key="aux_water_power",
-        ),
-    },
-    HP_WATER_FAST_HOTWATER: {
-        "description": SwitchEntityDescription(
-            key=HP_WATER_FAST_HOTWATER,
-            name="Fast Hot Water",
-            icon="mdi:water-boiler",
-            translation_key="aux_fast_hotwater",
-        ),
-    },
-    AC_AUXILIARY_HEAT: {
-        "description": SwitchEntityDescription(
-            key=AC_AUXILIARY_HEAT,
-            name="Auxiliary Heat",
-            icon="mdi:heat-wave",
-            translation_key="aux_aux_heat",
-        ),
-    },
-    AC_CLEAN: {
-        "description": SwitchEntityDescription(
-            key=AC_CLEAN,
-            name="Self Cleaning",
-            icon="mdi:water-pump",
-            translation_key="aux_self_cleaning",
-        ),
-    },
-    AC_CHILD_LOCK: {
-        "description": SwitchEntityDescription(
-            key=AC_CHILD_LOCK,
-            name="Child Lock",
-            icon="mdi:lock",
-            translation_key="aux_child_lock",
-        ),
-    },
-    AC_COMFORTABLE_WIND: {
-        "description": SwitchEntityDescription(
-            key=AC_COMFORTABLE_WIND,
-            name="Comfortable Wind",
-            icon="mdi:fan",
-            translation_key="aux_comfortable_wind",
-        ),
-    },
-    AC_HEALTH: {
-        "description": SwitchEntityDescription(
-            key=AC_HEALTH,
-            name="Health Mode",
-            icon="mdi:shield-check",
-            translation_key="aux_health_mode",
-        ),
-    },
-    AC_MILDEW_PROOF: {
-        "description": SwitchEntityDescription(
-            key=AC_MILDEW_PROOF,
-            name="Mildew Proof",
-            icon="mdi:water-off",
-            translation_key="aux_mildew_proof",
-        ),
-    },
-    AC_SLEEP: {
-        "description": SwitchEntityDescription(
-            key=AC_SLEEP,
-            name="Sleep Mode",
-            icon="mdi:sleep",
-            translation_key="aux_sleep_mode",
-        ),
-    },
-    AC_SCREEN_DISPLAY: {
-        "description": SwitchEntityDescription(
-            key=AC_SCREEN_DISPLAY,
-            name="Screen Display",
-            icon="mdi:monitor-dashboard",
-            translation_key="aux_screen_display",
-        ),
-    },
-    AC_POWER_LIMIT_SWITCH: {
-        "description": SwitchEntityDescription(
-            key=AC_POWER_LIMIT_SWITCH,
-            name="Power Limit",
-            icon="mdi:power-socket-eu",
-            translation_key="aux_power_limit",
-        ),
-    },
-}
+PARALLEL_UPDATES = 0
+
+SWITCHES = (
+    SwitchEntityDescription(
+        key=AUX_ECOMODE,
+        translation_key="aux_ecomode",
+    ),
+    SwitchEntityDescription(
+        key=AC_POWER,
+        translation_key="aux_ac_power",
+    ),
+    SwitchEntityDescription(
+        key=HP_HEATER_POWER,
+        translation_key="aux_hp_power",
+    ),
+    SwitchEntityDescription(
+        key=HP_WATER_POWER,
+        translation_key="aux_water_power",
+    ),
+    SwitchEntityDescription(
+        key=HP_WATER_FAST_HOTWATER,
+        translation_key="aux_fast_hotwater",
+    ),
+    SwitchEntityDescription(
+        key=AC_AUXILIARY_HEAT,
+        translation_key="aux_aux_heat",
+    ),
+    SwitchEntityDescription(
+        key=AC_CLEAN,
+        translation_key="aux_self_cleaning",
+    ),
+    SwitchEntityDescription(
+        key=AC_CHILD_LOCK,
+        translation_key="aux_child_lock",
+    ),
+    SwitchEntityDescription(
+        key=AC_COMFORTABLE_WIND,
+        translation_key="aux_comfortable_wind",
+    ),
+    SwitchEntityDescription(
+        key=AC_HEALTH,
+        translation_key="aux_health_mode",
+    ),
+    SwitchEntityDescription(
+        key=AC_MILDEW_PROOF,
+        translation_key="aux_mildew_proof",
+    ),
+    SwitchEntityDescription(
+        key=AC_SLEEP,
+        translation_key="aux_sleep_mode",
+    ),
+    SwitchEntityDescription(
+        key=AC_SCREEN_DISPLAY,
+        translation_key="aux_screen_display",
+    ),
+    SwitchEntityDescription(
+        key=AC_POWER_LIMIT_SWITCH,
+        translation_key="aux_power_limit",
+    ),
+)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    _hass: HomeAssistant,
+    entry: AuxCloudConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the AUX switch platform."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
+    coordinator = entry.runtime_data
 
-    entities = []
+    def entities_for_device(device: AuxDevice) -> list[AuxSwitchEntity]:
+        return [
+            AuxSwitchEntity(
+                coordinator,
+                device["endpointId"],
+                description,
+            )
+            for description in supported_entity_descriptions(device, SWITCHES)
+        ]
 
-    for device in coordinator.data["devices"]:
-        supported_params = AuxProducts.get_params_list(device["productId"])
-        supported_special_params = AuxProducts.get_special_params_list(
-            device["productId"]
-        )
-
-        for entity in SWITCHES.values():
-            if "productId" in device and (
-                (supported_params and entity["description"].key in supported_params)
-                or (
-                    supported_special_params
-                    and entity["description"].key in supported_special_params
-                )
-            ):
-                entities.append(
-                    AuxSwitchEntity(
-                        coordinator,
-                        device["endpointId"],
-                        entity["description"],
-                        (
-                            entity["custom_mapping"]
-                            if "custom_mapping" in entity
-                            else None
-                        ),
-                    )
-                )
-                _LOGGER.debug(
-                    "Adding switch entity for %s with option %s",
-                    device["friendlyName"],
-                    entity["description"].key,
-                )
-
-    if entities:
-        async_add_entities(entities, True)
-    else:
-        _LOGGER.info("No AUX switch devices added")
+    setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
 
 
-# pylint: disable=abstract-method
-class AuxSwitchEntity(BaseEntity, CoordinatorEntity, SwitchEntity):
+class AuxSwitchEntity(BaseEntity, SwitchEntity):
     """AUX Cloud switch entity."""
 
-    def __init__(self, coordinator, device_id, entity_description, custom_mapping=None):
-        """Initialize the switch entity."""
-        super().__init__(coordinator, device_id, entity_description)
-        self._device_id = device_id
-        self._option = self.entity_description.key
-        self._custom_mapping = custom_mapping
-        self.entity_id = f"switch.{self._attr_unique_id}"
-
     @property
-    def is_on(self):
+    def is_on(self) -> bool | None:
         """Return the state of the switch."""
-        if self._custom_mapping:
-            # If a custom mapping is provided, use it to determine the state
-            return self._custom_mapping.get(True) == self._get_device_params().get(
-                self._option
-            )
+        value = self._get_device_params().get(self.entity_description.key)
+        return value == 1 if value is not None else None
 
-        return self._get_device_params().get(self._option) == 1
-
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **_kwargs: Any) -> None:
         """Turn the switch on."""
         await self._send_command(True)
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **_kwargs: Any) -> None:
         """Turn the switch off."""
         await self._send_command(False)
 
-    async def _send_command(self, state: bool):
+    async def _send_command(self, state: bool) -> None:
         """Send the command to the device."""
-        try:
-            if self._custom_mapping:
-                state = self._custom_mapping.get(state)
-
-            await self._set_device_params({self._option: int(state)})
-        except Exception as ex:
-            _LOGGER.error("Failed to set switch state for %s: %s", self._device_id, ex)
+        await self._set_device_params({self.entity_description.key: int(state)})

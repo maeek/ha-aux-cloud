@@ -1,0 +1,524 @@
+"""Public AUX device definitions, capabilities, and parameter rules."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any
+
+from .api.models import AuxDevice
+from .device_metadata import get_protocol_version
+
+# Common constants
+AUX_MODE = "ac_mode"
+
+AUX_ECOMODE = "ecomode"
+AUX_ECOMODE_OFF = {AUX_ECOMODE: 0}
+AUX_ECOMODE_ON = {AUX_ECOMODE: 1}
+AUX_ERROR_FLAG = "err_flag"
+
+# AC constants
+AC_POWER = "pwr"
+AC_POWER_OFF = {AC_POWER: 0}
+AC_POWER_ON = {AC_POWER: 1}
+
+AC_TEMPERATURE_TARGET = "temp"
+AC_TEMPERATURE_AMBIENT = "envtemp"
+AC_TEMPERATURE_UNIT = "tempunit"
+AC_TEMPERATURE_DECIMAL = "ac_tempdec"
+AC_TEMPERATURE_CONVERSION = "ac_tempconvert"
+
+AC_MODE_COOLING = 0
+AC_MODE_HEATING = 1
+AC_MODE_DRY = 2
+AC_MODE_FAN = 3
+AC_MODE_AUTO = 4
+
+AC_SWING_VERTICAL = "ac_vdir"
+AC_SWING_VERTICAL_ON = {AC_SWING_VERTICAL: 1}
+AC_SWING_VERTICAL_OFF = {AC_SWING_VERTICAL: 0}
+
+AC_SWING_HORIZONTAL = "ac_hdir"
+AC_SWING_HORIZONTAL_ON = {AC_SWING_HORIZONTAL: 1}
+AC_SWING_HORIZONTAL_OFF = {AC_SWING_HORIZONTAL: 0}
+
+AC_AUXILIARY_HEAT = "ac_astheat"
+
+AC_CLEAN = "ac_clean"
+
+AC_HEALTH = "ac_health"
+
+AC_CHILD_LOCK = "childlock"
+
+AC_COMFORTABLE_WIND = "comfwind"
+
+AC_MILDEW_PROOF = "mldprf"
+
+AC_SLEEP = "ac_slp"
+
+AC_SCREEN_DISPLAY = "scrdisp"
+
+AC_POWER_LIMIT = "pwrlimit"
+AC_POWER_LIMIT_SWITCH = "pwrlimitswitch"
+
+# This is a special parameter that allows for fetching envtemp from the AC.
+AC_MODE_SPECIAL = "mode"
+
+AC_FAN_SPEED = "ac_mark"
+AC_FAN_AUTO = 0
+AC_FAN_LOW = 1
+AC_FAN_MEDIUM = 2
+AC_FAN_HIGH = 3
+AC_FAN_TURBO = 4
+AC_FAN_MUTE = 5
+AC_FAN_MEDIUM_LOW = 6
+AC_FAN_MEDIUM_HIGH = 7
+
+
+# Heat Pump constants
+HP_MODE_COOLING = 1
+HP_MODE_HEATING = 4
+
+HP_HEATER_POWER = "ac_pwr"
+HP_HEATER_POWER_OFF = {HP_HEATER_POWER: 0}
+HP_HEATER_POWER_ON = {HP_HEATER_POWER: 1}
+
+HP_HEATER_TEMPERATURE_TARGET = "ac_temp"
+
+HP_HEATER_AUTO_WATER_TEMP = "hp_auto_wtemp"
+"""
+Auto water temperature control for heat pump.
+    0 - Off
+    1...8 - Predefined controls
+    9 - User defined control - set manually on heat pump
+"""
+
+HP_WATER_POWER = "hp_pwr"
+HP_WATER_POWER_OFF = {HP_WATER_POWER: 0}
+HP_WATER_POWER_ON = {HP_WATER_POWER: 1}
+
+HP_QUIET_MODE = "qtmode"
+
+HP_HOT_WATER_TANK_TEMPERATURE = "hp_water_tank_temp"
+HP_HOT_WATER_TEMPERATURE_TARGET = "hp_hotwater_temp"
+
+HP_WATER_FAST_HOTWATER = "hp_fast_hotwater"
+HP_WATER_FAST_HOTWATER_ON = {HP_WATER_FAST_HOTWATER: 1}
+HP_WATER_FAST_HOTWATER_OFF = {HP_WATER_FAST_HOTWATER: 0}
+
+HEAT_PUMP_PRODUCT_IDS = ("000000000000000000000000c3aa0000",)
+
+STANDARD_AC_PRODUCT_IDS = (
+    "000000000000000000000000c0620000",
+    "0000000000000000000000002a4e0000",
+    "0000000000000000000000007faf0000",
+    "00000000000000000000000082af0000",
+)
+TEMPDEC_AC_PRODUCT_IDS = ("0000000000000000000000001f620000",)
+EXTENDED_FAN_AC_PRODUCT_IDS = (
+    "00000000000000000000000028620000",
+    "000000000000000000000000c5510000",
+)
+VRV_AC_PRODUCT_IDS = (
+    "00000000000000000000000056ac0000",
+    "000000000000000000000000a44e0000",
+)
+MULTI_SPLIT_AC_PRODUCT_IDS = ("00000000000000000000000045620000",)
+SUBDEVICE_AC_PRODUCT_IDS = ("000000000000000000000000c9100100",)
+
+AC_PARAMS = (
+    AC_AUXILIARY_HEAT,
+    AC_CLEAN,
+    AC_SWING_HORIZONTAL,
+    AC_HEALTH,
+    AC_FAN_SPEED,
+    AUX_MODE,
+    AC_SLEEP,
+    AC_SWING_VERTICAL,
+    AUX_ECOMODE,
+    AUX_ERROR_FLAG,
+    AC_MILDEW_PROOF,
+    AC_POWER,
+    AC_SCREEN_DISPLAY,
+    AC_TEMPERATURE_TARGET,
+    AC_TEMPERATURE_AMBIENT,
+    AC_POWER_LIMIT,
+    AC_POWER_LIMIT_SWITCH,
+    AC_CHILD_LOCK,
+    AC_COMFORTABLE_WIND,
+    "new_type",
+    AC_TEMPERATURE_CONVERSION,
+    AC_TEMPERATURE_DECIMAL,
+    "sleepdiy",
+    "ac_errcode1",
+    AC_TEMPERATURE_UNIT,
+    "tenelec",
+)
+AC_SPECIAL_PARAMS = (AC_MODE_SPECIAL,)
+
+HP_PARAMS = (
+    "ac_errcode1",
+    AUX_MODE,
+    HP_HEATER_POWER,
+    HP_HEATER_TEMPERATURE_TARGET,
+    AUX_ECOMODE,
+    AUX_ERROR_FLAG,
+    HP_HEATER_AUTO_WATER_TEMP,
+    HP_WATER_FAST_HOTWATER,
+    HP_HOT_WATER_TEMPERATURE_TARGET,
+    HP_WATER_POWER,
+    HP_QUIET_MODE,
+)
+HP_SPECIAL_PARAMS = (HP_HOT_WATER_TANK_TEMPERATURE,)
+
+MULTI_SPLIT_PARAMS = tuple(
+    param for param in AC_PARAMS if param not in {AC_POWER_LIMIT, AC_POWER_LIMIT_SWITCH}
+)
+SUBDEVICE_PARAMS = (
+    AC_FAN_SPEED,
+    AUX_MODE,
+    AC_POWER,
+    AC_SCREEN_DISPLAY,
+    AC_SWING_HORIZONTAL,
+    AC_SWING_VERTICAL,
+    AC_TEMPERATURE_AMBIENT,
+    AC_TEMPERATURE_TARGET,
+    AC_TEMPERATURE_UNIT,
+    AC_TEMPERATURE_DECIMAL,
+    AC_TEMPERATURE_CONVERSION,
+)
+
+AC_WRITABLE_PARAMS = (
+    AC_AUXILIARY_HEAT,
+    AC_CHILD_LOCK,
+    AC_CLEAN,
+    AC_COMFORTABLE_WIND,
+    AC_FAN_SPEED,
+    AC_HEALTH,
+    AC_MILDEW_PROOF,
+    AC_POWER,
+    AC_POWER_LIMIT,
+    AC_POWER_LIMIT_SWITCH,
+    AC_SCREEN_DISPLAY,
+    AC_SLEEP,
+    AC_SWING_HORIZONTAL,
+    AC_SWING_VERTICAL,
+    AC_TEMPERATURE_CONVERSION,
+    AC_TEMPERATURE_DECIMAL,
+    AC_TEMPERATURE_TARGET,
+    AC_TEMPERATURE_UNIT,
+    AUX_ECOMODE,
+    AUX_MODE,
+)
+HP_WRITABLE_PARAMS = (
+    AUX_ECOMODE,
+    AUX_MODE,
+    HP_HEATER_AUTO_WATER_TEMP,
+    HP_HEATER_POWER,
+    HP_HEATER_TEMPERATURE_TARGET,
+    HP_HOT_WATER_TEMPERATURE_TARGET,
+    HP_QUIET_MODE,
+    HP_WATER_FAST_HOTWATER,
+    HP_WATER_POWER,
+)
+
+STANDARD_AC_MODES = (0, 1, 2, 3, 4)
+NO_AUTO_AC_MODES = (0, 1, 2, 3)
+STANDARD_FAN_SPEEDS = (0, 1, 2, 3, 4, 5)
+EXTENDED_FAN_SPEEDS = (0, 1, 6, 2, 7, 3, 4, 5)
+VRV_FAN_SPEEDS = (1, 2, 3)
+
+V3_HEAT_PUMP_QUERIES = (
+    ("ver",),
+    ("ver", "key_states", "common_states"),
+    ("ver", "hp_auto_wtemp", "water_tank_dif", "eco"),
+    ("ver", "mute"),
+)
+
+
+class DeviceType(StrEnum):
+    """Device families exposed by the public AUX client contract."""
+
+    AIR_CONDITIONER = "ac"
+    HEAT_PUMP = "heat_pump"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ProductProfile:
+    """Capabilities and quirks for an AUX product family."""
+
+    product_ids: tuple[str, ...]
+    model_name: str
+    params: tuple[str, ...]
+    special_params: tuple[str, ...] = ()
+    device_type: DeviceType = DeviceType.UNKNOWN
+    writable_params: tuple[str, ...] = ()
+    hvac_modes: tuple[int, ...] = ()
+    fan_speeds: tuple[int, ...] = ()
+    horizontal_swing: bool = False
+    vertical_swing: bool = False
+    half_degree_via_flag: bool = False
+
+    def initial_param_queries(self, _device: AuxDevice) -> list[list[str]]:
+        """Return HTTP parameter query batches used during device bootstrap."""
+        if self.device_type is DeviceType.UNKNOWN:
+            return []
+        if self.device_type is DeviceType.HEAT_PUMP and is_v3_heat_pump(_device):
+            return [list(query) for query in V3_HEAT_PUMP_QUERIES]
+        if self.special_params:
+            return [[], list(self.special_params)]
+        return [[]]
+
+    def prepare_command(
+        self,
+        _device: AuxDevice,
+        params: list[str],
+        vals: list[Any],
+    ) -> tuple[list[str], list[Any]]:
+        """Apply product-specific command adjustments before transport serialization."""
+        prepared_params = list(params)
+        prepared_vals = list(vals)
+        if self.device_type is DeviceType.HEAT_PUMP:
+            version = get_protocol_version(_device)
+            if version is not None and version >= 3 and "ver" not in prepared_params:
+                prepared_params.append("ver")
+                prepared_vals.append([{"idx": 1, "val": version}])
+        return prepared_params, prepared_vals
+
+    def fallback_param_queries(self, _device: AuxDevice) -> list[list[str]]:
+        """Return alternate bootstrap queries after an unsupported primary GET."""
+        if self.device_type is DeviceType.HEAT_PUMP and not is_v3_heat_pump(_device):
+            return [list(query) for query in V3_HEAT_PUMP_QUERIES]
+        return []
+
+    def invalid_command_parameter(self, values: Mapping[str, Any]) -> str | None:
+        """Return the first command parameter or value this profile rejects."""
+        for param in values:
+            if param not in self.writable_params:
+                return param
+        if self.device_type is DeviceType.AIR_CONDITIONER:
+            return _invalid_ac_command_parameter(self, values)
+        return None
+
+
+def _ac_profile(
+    product_ids: tuple[str, ...],
+    *,
+    model_name: str = "AUX Air Conditioner",
+    params: tuple[str, ...] = AC_PARAMS,
+    hvac_modes: tuple[int, ...] = STANDARD_AC_MODES,
+    fan_speeds: tuple[int, ...] = STANDARD_FAN_SPEEDS,
+    horizontal_swing: bool = True,
+    vertical_swing: bool = True,
+    half_degree_via_flag: bool = False,
+) -> ProductProfile:
+    """Build an AC profile from shared capabilities and explicit deviations."""
+    return ProductProfile(
+        product_ids=product_ids,
+        model_name=model_name,
+        params=params,
+        special_params=AC_SPECIAL_PARAMS,
+        device_type=DeviceType.AIR_CONDITIONER,
+        writable_params=tuple(param for param in AC_WRITABLE_PARAMS if param in params),
+        hvac_modes=hvac_modes,
+        fan_speeds=fan_speeds,
+        horizontal_swing=horizontal_swing,
+        vertical_swing=vertical_swing,
+        half_degree_via_flag=half_degree_via_flag,
+    )
+
+
+STANDARD_AC_PROFILE = _ac_profile(STANDARD_AC_PRODUCT_IDS)
+TEMPDEC_AC_PROFILE = _ac_profile(
+    TEMPDEC_AC_PRODUCT_IDS,
+    half_degree_via_flag=True,
+)
+EXTENDED_FAN_AC_PROFILE = _ac_profile(
+    EXTENDED_FAN_AC_PRODUCT_IDS,
+    hvac_modes=NO_AUTO_AC_MODES,
+    fan_speeds=EXTENDED_FAN_SPEEDS,
+)
+VRV_AC_PROFILE = _ac_profile(
+    VRV_AC_PRODUCT_IDS,
+    model_name="AUX VRV Air Conditioner",
+    fan_speeds=VRV_FAN_SPEEDS,
+    horizontal_swing=False,
+)
+MULTI_SPLIT_AC_PROFILE = _ac_profile(
+    MULTI_SPLIT_AC_PRODUCT_IDS,
+    model_name="AUX Multi-split Air Conditioner",
+    params=MULTI_SPLIT_PARAMS,
+    hvac_modes=NO_AUTO_AC_MODES,
+    fan_speeds=EXTENDED_FAN_SPEEDS,
+    half_degree_via_flag=True,
+)
+SUBDEVICE_AC_PROFILE = _ac_profile(
+    SUBDEVICE_AC_PRODUCT_IDS,
+    model_name="AUX Air Conditioner Sub-device",
+    params=SUBDEVICE_PARAMS,
+    hvac_modes=NO_AUTO_AC_MODES,
+    fan_speeds=EXTENDED_FAN_SPEEDS,
+    half_degree_via_flag=True,
+)
+HEAT_PUMP_PROFILE = ProductProfile(
+    product_ids=HEAT_PUMP_PRODUCT_IDS,
+    model_name="AUX Heat Pump",
+    params=HP_PARAMS,
+    special_params=HP_SPECIAL_PARAMS,
+    device_type=DeviceType.HEAT_PUMP,
+    writable_params=HP_WRITABLE_PARAMS,
+)
+DEFAULT_PROFILE = ProductProfile(
+    product_ids=(),
+    model_name="Unknown",
+    params=(),
+)
+
+PRODUCT_PROFILES = (
+    STANDARD_AC_PROFILE,
+    TEMPDEC_AC_PROFILE,
+    EXTENDED_FAN_AC_PROFILE,
+    VRV_AC_PROFILE,
+    MULTI_SPLIT_AC_PROFILE,
+    SUBDEVICE_AC_PROFILE,
+    HEAT_PUMP_PROFILE,
+)
+PROFILE_BY_PRODUCT_ID = {
+    product_id: profile
+    for profile in PRODUCT_PROFILES
+    for product_id in profile.product_ids
+}
+
+
+def get_product_profile(product_id: str | None) -> ProductProfile:
+    """Return the product profile for a product ID."""
+    if product_id is None:
+        return DEFAULT_PROFILE
+    return PROFILE_BY_PRODUCT_ID.get(product_id, DEFAULT_PROFILE)
+
+
+def get_device_profile(device: Mapping[str, Any]) -> ProductProfile:
+    """Return the profile attached by the client, with a safe lookup fallback."""
+    profile = device.get("profile")
+    if isinstance(profile, ProductProfile):
+        return profile
+    product_id = device.get("productId")
+    return get_product_profile(product_id if isinstance(product_id, str) else None)
+
+
+def _invalid_ac_command_parameter(
+    profile: ProductProfile, values: Mapping[str, Any]
+) -> str | None:
+    """Return the first invalid AC-specific command value."""
+    mode = values.get(AUX_MODE)
+    if mode is not None and mode not in profile.hvac_modes:
+        return AUX_MODE
+    fan_speed = values.get(AC_FAN_SPEED)
+    if fan_speed is not None and fan_speed not in profile.fan_speeds:
+        return AC_FAN_SPEED
+    if AC_SWING_HORIZONTAL in values and not profile.horizontal_swing:
+        return AC_SWING_HORIZONTAL
+    if AC_SWING_VERTICAL in values and not profile.vertical_swing:
+        return AC_SWING_VERTICAL
+    return None
+
+
+def encode_ac_temperature_command(
+    device: AuxDevice, temperature_c: float
+) -> dict[str, int]:
+    """Encode a logical Celsius target using the AC Freedom wire format."""
+    profile = get_device_profile(device)
+    current_params = device.get("params", {})
+    if current_params.get(AC_TEMPERATURE_UNIT) == 2:
+        # AC Freedom truncates the Celsius conversion of Fahrenheit targets.
+        target_x10 = int(temperature_c * 10)
+        base = (target_x10 // 10) * 10
+        return {
+            AC_TEMPERATURE_TARGET: base,
+            AC_TEMPERATURE_UNIT: 2,
+            AC_TEMPERATURE_DECIMAL: 0,
+            AC_TEMPERATURE_CONVERSION: target_x10 - base,
+        }
+
+    target_x10 = round(temperature_c * 10)
+    if profile.half_degree_via_flag:
+        base = (target_x10 // 10) * 10
+        return {
+            AC_TEMPERATURE_TARGET: base,
+            AC_TEMPERATURE_DECIMAL: int(target_x10 - base >= 5),
+        }
+
+    return {AC_TEMPERATURE_TARGET: target_x10}
+
+
+def is_v3_heat_pump(device: Mapping[str, Any]) -> bool:
+    """Determine if a device is a v3 or later heat pump based on its metadata."""
+    version = get_protocol_version(device)
+    return bool(
+        version is not None
+        and version >= 3
+        and device.get("productId") in HEAT_PUMP_PRODUCT_IDS
+    )
+
+
+def decode_v3_hp_tank_temp_from_key_states(key_states_hex: str) -> int | None:
+    """Decode v3 heat-pump tank temperature from key_states into x10 Celsius."""
+    if not key_states_hex or not isinstance(key_states_hex, str):
+        return None
+
+    try:
+        raw = bytes.fromhex(key_states_hex)
+        if len(raw) < 3:
+            return None
+
+        temp_c = raw[2] - 32
+        if temp_c < -20 or temp_c > 120:
+            return None
+
+        return int(temp_c) * 10
+    except ValueError:
+        return None
+
+
+def normalize_device_params(device: AuxDevice) -> None:
+    """Normalize decoded parameters in-place."""
+    params = device.get("params", {})
+    profile = get_device_profile(device)
+    _normalize_ac_temperature(params, profile.half_degree_via_flag, profile.device_type)
+    _normalize_heat_pump_tank_temperature(device, params)
+
+
+def _normalize_ac_temperature(
+    params: dict[str, object], half_degree_via_flag: bool, device_type: DeviceType
+) -> None:
+    """Normalize product-specific AC target-temperature encodings."""
+    target = params.get(AC_TEMPERATURE_TARGET)
+    if device_type is DeviceType.AIR_CONDITIONER and isinstance(target, (int, float)):
+        base = (int(target) // 10) * 10
+        conversion = params.get(AC_TEMPERATURE_CONVERSION)
+        if (
+            params.get(AC_TEMPERATURE_UNIT) == 2
+            and isinstance(conversion, (int, float))
+            and 0 <= int(conversion) <= 9
+        ):
+            params[AC_TEMPERATURE_TARGET] = base + int(conversion)
+        elif half_degree_via_flag and params.get(AC_TEMPERATURE_DECIMAL) == 1:
+            params[AC_TEMPERATURE_TARGET] = base + 5
+
+
+def _normalize_heat_pump_tank_temperature(
+    device: AuxDevice, params: dict[str, object]
+) -> None:
+    """Decode the v3 heat-pump tank temperature when available."""
+    if not is_v3_heat_pump(device):
+        return
+    key_states = params.get("key_states")
+    decoded = (
+        decode_v3_hp_tank_temp_from_key_states(key_states)
+        if isinstance(key_states, str)
+        else None
+    )
+    if decoded is not None:
+        params[HP_HOT_WATER_TANK_TEMPERATURE] = decoded

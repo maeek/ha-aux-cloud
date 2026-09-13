@@ -1,179 +1,239 @@
-"""Test AUX Cloud coordinator functionality."""
+"""Behavior-focused AUX Cloud coordinator tests."""
 
-from unittest.mock import MagicMock, AsyncMock
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.aux_cloud import AuxCloudCoordinator
+import custom_components.aux_cloud.state as state_module
+from custom_components.aux_cloud import FALLBACK_SCAN_INTERVAL, AuxCloudCoordinator
+from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
+from custom_components.aux_cloud.api.models import DeviceUpdate, InventorySnapshot
+from custom_components.aux_cloud.const import DOMAIN
+from custom_components.aux_cloud.coordinator import TOPOLOGY_SCAN_INTERVAL
+from custom_components.aux_cloud.devices import (
+    HP_HOT_WATER_TEMPERATURE_TARGET,
+)
+from custom_components.aux_cloud.entity import BaseEntity
 
-# This enables all the Home Assistant pytest fixtures
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
 @pytest.fixture
 def mock_aux_cloud_api():
-    """Create a mock AuxCloudAPI instance."""
+    """Create a minimal API double."""
     api = MagicMock()
-    api.is_logged_in = MagicMock(return_value=True)
-    api.login = AsyncMock(return_value=True)
-    api.get_families = AsyncMock(
-        return_value=[{"familyid": "family1", "name": "Family 1"}]
+    api.is_logged_in.return_value = True
+    api.login = AsyncMock()
+    api.scan_devices = AsyncMock(
+        return_value=InventorySnapshot((_device(),), complete=True)
     )
-    api.families = {"family1": {"id": "family1", "name": "Family 1", "devices": []}}
-
-    # Make get_devices return different results based on the 'shared' parameter
-    async def mock_get_devices(familyid, shared=False, selected_devices=None):
-        if shared:
-            return []  # No shared devices
-        else:
-            return [
-                {
-                    "endpointId": "device1",
-                    "friendlyName": "AC Unit 1",
-                    "productId": "000000000000000000000000c0620000",
-                    "state": 1,
-                    "params": {"pwr": 1},
-                }
-            ]
-
-    api.get_devices = AsyncMock(side_effect=mock_get_devices)
+    api.run_realtime = AsyncMock()
+    api.close = AsyncMock()
+    api.update_realtime_devices = AsyncMock()
+    api.set_device_params = AsyncMock(return_value={"pwr": 1})
+    api.user_id = None
     return api
 
 
 @pytest.fixture
 def coordinator(hass, mock_aux_cloud_api):
-    """Create an AuxCloudCoordinator instance."""
-    return AuxCloudCoordinator(
-        hass=hass,
-        api=mock_aux_cloud_api,
-        email="test@example.com",
-        password="password123",
-        selected_device_ids=["device1"],
+    """Create a coordinator with canonical account credentials."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EMAIL: "test@example.com",
+            CONF_PASSWORD: "password123",
+            CONF_REGION: "eu",
+        },
     )
+    entry.add_to_hass(hass)
+    return AuxCloudCoordinator(hass, mock_aux_cloud_api, config_entry=entry)
 
 
-async def test_coordinator_update(coordinator, mock_aux_cloud_api):
-    """Test the coordinator update method."""
-    # Test normal update
-    data = await coordinator._async_update_data()
-    assert "devices" in data
-    assert len(data["devices"]) == 1
-    assert data["devices"][0]["endpointId"] == "device1"
-
-    # Verify API calls
-    mock_aux_cloud_api.is_logged_in.assert_called()
-    mock_aux_cloud_api.get_devices.assert_called()
-
-
-async def test_coordinator_update_not_logged_in(coordinator, mock_aux_cloud_api):
-    """Test coordinator update when not logged in."""
-    # Simulate not logged in
-    mock_aux_cloud_api.is_logged_in.return_value = False
-
-    # Update should attempt login
-    await coordinator._async_update_data()
-    mock_aux_cloud_api.login.assert_called_once()
-
-
-async def test_coordinator_update_login_failure(coordinator, mock_aux_cloud_api):
-    """Test coordinator update when login fails."""
-    # Simulate not logged in and login failure
-    mock_aux_cloud_api.is_logged_in.return_value = False
-    mock_aux_cloud_api.login.return_value = False
-
-    # Update should fail with UpdateFailed
-    with pytest.raises(UpdateFailed):
-        await coordinator._async_update_data()
-    mock_aux_cloud_api.login.assert_called_once()
-
-
-async def test_coordinator_update_no_families(coordinator, mock_aux_cloud_api):
-    """Test coordinator update with no families."""
-    # Set families to None
-    mock_aux_cloud_api.families = None
-
-    # Make sure get_families returns something valid after being called
-    async def get_families_and_update():
-        mock_aux_cloud_api.families = {"family1": {"id": "family1", "name": "Family 1"}}
-        return [{"familyid": "family1", "name": "Family 1"}]
-
-    mock_aux_cloud_api.get_families = AsyncMock(side_effect=get_families_and_update)
-
-    # Update should fetch families and then proceed
-    data = await coordinator._async_update_data()
-
-    # Test passes if we get here without exception
-    assert "devices" in data
-    mock_aux_cloud_api.get_families.assert_called_once()
-
-
-async def test_coordinator_get_device_by_endpoint_id(coordinator):
-    """Test get_device_by_endpoint_id method."""
-    # First set some data
-    coordinator.data = {
-        "devices": [
-            {"endpointId": "device1", "name": "Device 1"},
-            {"endpointId": "device2", "name": "Device 2"},
-        ]
+def _device(**changes):
+    return {
+        "endpointId": "device1",
+        "friendlyName": "AC Unit 1",
+        "productId": "000000000000000000000000c0620000",
+        "state": 1,
+        "params": {"pwr": 1},
+        **changes,
     }
 
-    # Test retrieving an existing device
-    device = coordinator.get_device_by_endpoint_id("device1")
-    assert device is not None
-    assert device["name"] == "Device 1"
 
-    # Test retrieving non-existent device
-    device = coordinator.get_device_by_endpoint_id("non-existent")
-    assert device is None
+def _seed(coordinator, devices) -> None:
+    coordinator._state.reconcile(
+        devices,
+        complete=True,
+        scan_revision=coordinator._state.revision,
+    )
+    coordinator._publish_devices()
 
 
-async def test_coordinator_update_with_exception(coordinator, mock_aux_cloud_api):
-    """Test coordinator update with exceptions during device fetch."""
-    # Simulate exception during get_devices
-    mock_aux_cloud_api.get_devices.side_effect = Exception("API error")
+async def test_refresh_isolates_partial_failures_and_auth_errors(
+    coordinator, mock_aux_cloud_api
+):
+    """A usable account result wins; authentication failures still trigger reauth."""
+    mock_aux_cloud_api.scan_devices.return_value = InventorySnapshot(
+        (_device(),), complete=True
+    )
+    assert list(await coordinator._async_update_data()) == ["device1"]
 
-    # Update should raise UpdateFailed
-    with pytest.raises(UpdateFailed):
+    mock_aux_cloud_api.scan_devices.return_value = InventorySnapshot(
+        (_device(),), complete=False
+    )
+    assert (await coordinator._async_update_data())["device1"]["params"] == {"pwr": 1}
+
+    mock_aux_cloud_api.scan_devices.side_effect = AuxAuthError(code=-1006)
+    with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
-    mock_aux_cloud_api.get_devices.assert_called()
 
 
-async def test_coordinator_handle_exception_results(coordinator, mock_aux_cloud_api):
-    """Test coordinator handling exception results from asyncio.gather."""
-    # Set up mixed results with normal data and a list containing exceptions
-    mock_aux_cloud_api.get_devices.side_effect = [
-        [{"endpointId": "device1"}],  # Normal result
-        [Exception("API error")],  # A list containing an Exception
-    ]
+def test_push_updates_merge_and_explicit_offline_clears_state(
+    coordinator, mock_aux_cloud_api
+):
+    """Push data merges normally, while an explicit offline event drops stale params."""
+    _seed(coordinator, [_device(params={"pwr": 0, "temp": 245})])
+    coordinator._async_unsub_refresh = MagicMock()
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {"pwr": 1}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"]["pwr"] == 1
+    coordinator._async_unsub_refresh.assert_not_called()
 
-    # Update should still succeed with partial data
-    data = await coordinator._async_update_data()
-    assert "devices" in data
-    assert len(data["devices"]) == 1
-    assert data["devices"][0]["endpointId"] == "device1"
+    entity = BaseEntity(coordinator, "device1", SimpleNamespace(key="pwr"))
+    entity.async_write_ha_state = MagicMock()
+    coordinator._handle_websocket_updates(
+        (DeviceUpdate("device1", {}, available=False),)
+    )
+    entity._handle_coordinator_update()
 
-
-def test_coordinator_reuses_state_helper_per_device(coordinator):
-    """Test coordinator returns the same helper instance per endpoint ID."""
-    helper_a = coordinator.get_state_helper("device1", {"pwr": 1})
-    helper_b = coordinator.get_state_helper("device1", {"pwr": 0, "temp": 230})
-
-    assert helper_a is helper_b
-    assert helper_a.current_params == {"pwr": 1}
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {}
+    assert entity.available is False
 
 
-def test_state_helper_deduplicates_same_update_id(coordinator):
-    """Test helper processes a single coordinator update only once."""
-    helper = coordinator.get_state_helper("device1", {"pwr": 1})
+async def test_realtime_client_health_controls_fallback_polling(
+    coordinator, mock_aux_cloud_api
+):
+    """The coordinator maps client relay health onto its polling interval."""
+    ready = asyncio.Event()
 
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
-    helper.process_new_payload({}, "AC Unit 1", update_id=1)
+    async def run_realtime(*_args, **kwargs):
+        kwargs["connection_listener"](True)
+        ready.set()
+        await asyncio.Event().wait()
 
-    assert helper.is_available() is True
+    mock_aux_cloud_api.run_realtime.side_effect = run_realtime
+    coordinator.async_request_refresh = AsyncMock()
+    coordinator.start_realtime()
+    task = coordinator._websocket_task
+    coordinator.start_realtime()
+    await asyncio.wait_for(ready.wait(), timeout=1)
 
-    for update_id in range(2, 7):
-        helper.process_new_payload({}, "AC Unit 1", update_id=update_id)
+    assert coordinator._websocket_task is task
+    mock_aux_cloud_api.run_realtime.assert_awaited_once()
+    assert coordinator.update_interval == TOPOLOGY_SCAN_INTERVAL
+    assert coordinator.websocket_degraded is False
 
-    assert helper.is_available() is False
+    coordinator._set_websocket_connected(False)
+    await asyncio.sleep(0)
+    assert coordinator.update_interval == FALLBACK_SCAN_INTERVAL
+    await coordinator.async_close()
+    assert coordinator._websocket_task is None
+    mock_aux_cloud_api.close.assert_awaited_once()
+
+
+async def test_command_transactions_rollback_without_overwriting_newer_push(
+    coordinator, mock_aux_cloud_api
+):
+    """Stale ACKs do not flicker; failures roll back and pushes remain authoritative."""
+    target = HP_HOT_WATER_TEMPERATURE_TARGET
+    _seed(coordinator, [_device(params={target: 410})])
+    entity = BaseEntity(coordinator, "device1", SimpleNamespace(key=target))
+    entity.async_write_ha_state = MagicMock()
+
+    mock_aux_cloud_api.set_device_params.side_effect = None
+    mock_aux_cloud_api.set_device_params.return_value = {target: 410}
+    await entity._set_device_params({target: 420})
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
+
+    mock_aux_cloud_api.set_device_params.side_effect = AuxServerError("failed")
+    with pytest.raises(HomeAssistantError):
+        await entity._set_device_params({target: 430, "new": 1})
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 420}
+
+    started = asyncio.Event()
+
+    async def wait_for_cancel(_device, _params):
+        started.set()
+        await asyncio.Event().wait()
+
+    mock_aux_cloud_api.set_device_params.side_effect = wait_for_cancel
+    command = asyncio.create_task(
+        coordinator.async_set_device_params("device1", {target: 430, "new": 1})
+    )
+    await started.wait()
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    command.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await command
+    assert coordinator.get_device_by_endpoint_id("device1")["params"] == {target: 440}
+
+
+async def test_rapid_commands_ignore_only_recent_superseded_pushes(
+    coordinator, mock_aux_cloud_api, monkeypatch
+):
+    """Delayed command pushes cannot replace the latest optimistic value."""
+    now = 0.0
+    monkeypatch.setattr(state_module, "monotonic", lambda: now)
+    target = HP_HOT_WATER_TEMPERATURE_TARGET
+    _seed(coordinator, [_device(params={target: 410})])
+
+    await coordinator.async_set_device_params("device1", {target: 420})
+    await coordinator.async_set_device_params("device1", {target: 430})
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 430
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440
+
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 430}),))
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 420}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 420
+
+    await coordinator.async_set_device_params("device1", {target: 430})
+    await coordinator.async_set_device_params("device1", {target: 440})
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 430}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440
+
+    now = 11.0
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 430}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 430
+
+    async def delayed_success(_device, _params):
+        nonlocal now
+        now += 11
+        return {}
+
+    mock_aux_cloud_api.set_device_params.side_effect = delayed_success
+    await coordinator.async_set_device_params("device1", {target: 440})
+    mock_aux_cloud_api.set_device_params.side_effect = None
+    await coordinator.async_set_device_params("device1", {target: 450})
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 450
+
+    now = 31.0
+    await coordinator.async_set_device_params("device1", {target: 460})
+    now = 33.0
+    coordinator._handle_websocket_updates((DeviceUpdate("device1", {target: 440}),))
+    assert coordinator.get_device_by_endpoint_id("device1")["params"][target] == 440

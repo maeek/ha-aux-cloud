@@ -1,0 +1,310 @@
+"""Test AUX Cloud entity behavior and dynamic platform setup."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from homeassistant.components.climate import ClimateEntityDescription, HVACMode
+from homeassistant.components.climate.const import PRESET_ECO, PRESET_NONE, HVACAction
+from homeassistant.components.switch import SwitchEntityDescription
+from homeassistant.components.water_heater import (
+    STATE_HEAT_PUMP,
+    STATE_OFF,
+    STATE_PERFORMANCE,
+)
+from homeassistant.exceptions import HomeAssistantError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+import custom_components.aux_cloud.climate as climate_platform
+import custom_components.aux_cloud.switch as switch_platform
+import custom_components.aux_cloud.water_heater as water_heater_platform
+from custom_components.aux_cloud.climate import (
+    AuxACClimateEntity,
+    AuxHeatPumpClimateEntity,
+)
+from custom_components.aux_cloud.coordinator import AuxCloudCoordinator
+from custom_components.aux_cloud.devices import (
+    AC_FAN_SPEED,
+    AC_POWER,
+    AC_POWER_OFF,
+    AC_SWING_HORIZONTAL,
+    AC_SWING_VERTICAL,
+    AC_TEMPERATURE_AMBIENT,
+    AC_TEMPERATURE_TARGET,
+    AUX_MODE,
+    HP_HEATER_POWER,
+    HP_HEATER_TEMPERATURE_TARGET,
+    HP_HOT_WATER_TANK_TEMPERATURE,
+    HP_HOT_WATER_TEMPERATURE_TARGET,
+    HP_MODE_HEATING,
+    HP_QUIET_MODE,
+    HP_WATER_FAST_HOTWATER,
+    HP_WATER_POWER,
+)
+from custom_components.aux_cloud.number import POWER_LIMIT_DESCRIPTION, AuxNumberEntity
+from custom_components.aux_cloud.select import SELECTS, AuxSelectEntity
+from custom_components.aux_cloud.switch import AuxSwitchEntity
+from custom_components.aux_cloud.water_heater import (
+    WATER_HEATER_DESCRIPTION,
+    AuxWaterHeaterEntity,
+)
+
+pytest_plugins = "pytest_homeassistant_custom_component"
+
+AC_PRODUCT_ID = "000000000000000000000000c0620000"
+HP_PRODUCT_ID = "000000000000000000000000c3aa0000"
+
+
+def _coordinator(hass, device):
+    api = MagicMock()
+    api.normalize_device_params = MagicMock()
+    api.set_device_params = AsyncMock(side_effect=lambda _device, params: params)
+    api.close_websocket = AsyncMock()
+    entry = MockConfigEntry(
+        domain="aux_cloud",
+        data={"email": "user@example.com", "password": "secret", "region": "eu"},
+    )
+    entry.add_to_hass(hass)
+    coordinator = AuxCloudCoordinator(
+        hass,
+        api,
+        config_entry=entry,
+    )
+    coordinator._state.reconcile(
+        [device],
+        complete=True,
+        scan_revision=coordinator._state.revision,
+    )
+    coordinator._publish_devices()
+    return coordinator
+
+
+def _ac_device(endpoint_id="00001234"):
+    return {
+        "endpointId": endpoint_id,
+        "friendlyName": "Bedroom",
+        "productId": AC_PRODUCT_ID,
+        "state": 1,
+        "params": {
+            AC_POWER: 1,
+            AUX_MODE: 0,
+            AC_FAN_SPEED: 0,
+            AC_SWING_HORIZONTAL: 1,
+            AC_SWING_VERTICAL: 0,
+            AC_TEMPERATURE_AMBIENT: 215,
+            AC_TEMPERATURE_TARGET: 230,
+        },
+    }
+
+
+async def test_heat_pump_partial_state_and_commands(hass):
+    """Test heat-pump omissions stay unknown and every supported command is bounded."""
+    device = {
+        "endpointId": "hp1",
+        "friendlyName": "Heat Pump",
+        "productId": HP_PRODUCT_ID,
+        "state": 1,
+        "params": {},
+    }
+    coordinator = _coordinator(hass, device)
+    entity = AuxHeatPumpClimateEntity(
+        coordinator,
+        "hp1",
+        ClimateEntityDescription(
+            key="heat_pump_central_heating", translation_key="aux_heater"
+        ),
+    )
+    params = entity._device["params"]
+
+    assert entity.preset_mode is None
+    assert entity.target_temperature is None
+    assert entity.hvac_mode is None
+    assert entity.hvac_action is None
+
+    params[HP_HEATER_POWER] = 0
+    assert entity.hvac_mode == HVACMode.OFF
+    assert entity.hvac_action == HVACAction.OFF
+    params.update({HP_HEATER_POWER: 1, AUX_MODE: HP_MODE_HEATING, "ecomode": 0})
+    assert entity.hvac_mode == HVACMode.HEAT
+    assert entity.preset_mode == PRESET_NONE
+    params["ecomode"] = 1
+    assert entity.preset_mode == PRESET_ECO
+    params[AUX_MODE] = 99
+    assert entity.hvac_mode is None
+
+    await entity.async_set_hvac_mode(HVACMode.HEAT)
+    await entity.async_set_hvac_mode(HVACMode.OFF)
+    await entity.async_set_preset_mode(PRESET_ECO)
+    await entity.async_set_temperature(temperature=80)
+    assert coordinator.api.set_device_params.await_args.args[1] == {
+        HP_HEATER_TEMPERATURE_TARGET: 640
+    }
+
+
+async def test_ac_partial_state_and_commands(hass):
+    """Test partial AC state stays unknown while supported controls remain usable."""
+    device = _ac_device()
+    coordinator = _coordinator(hass, device)
+    entity = AuxACClimateEntity(
+        coordinator,
+        "00001234",
+        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
+    )
+    params = entity._device["params"]
+
+    params.pop(AC_POWER)
+    params.pop(AC_FAN_SPEED)
+    params.pop(AC_SWING_HORIZONTAL)
+    params.pop(AC_SWING_VERTICAL)
+    assert entity.hvac_mode is None
+    assert entity.hvac_action is None
+    assert entity.fan_mode is None
+    assert entity.swing_mode is None
+
+    params[AC_POWER] = 0
+    assert entity.hvac_mode == HVACMode.OFF
+    params.update({AC_POWER: 1, AUX_MODE: 99, AC_FAN_SPEED: 99})
+    assert entity.hvac_mode is None
+    assert entity.fan_mode is None
+    params.update({AC_SWING_HORIZONTAL: 1, AC_SWING_VERTICAL: 1})
+    assert entity.swing_mode == "both"
+    params[AC_SWING_HORIZONTAL] = 0
+    assert entity.swing_mode == "vertical"
+
+    await entity.async_set_hvac_mode(HVACMode.OFF)
+    await entity.async_set_hvac_mode(HVACMode.HEAT)
+    await entity.async_set_fan_mode("high")
+    await entity.async_set_swing_mode("both")
+    await entity.async_turn_off()
+    assert coordinator.api.set_device_params.await_args.args[1] == AC_POWER_OFF
+
+
+def test_partial_scalar_entities_are_unknown(hass):
+    """Partial data stays unknown and failed coordinator updates are unavailable."""
+    device = _ac_device("device1")
+    coordinator = _coordinator(hass, device)
+    climate = AuxACClimateEntity(
+        coordinator,
+        "device1",
+        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
+    )
+    switch = AuxSwitchEntity(
+        coordinator, "device1", SwitchEntityDescription(key=AC_POWER)
+    )
+    number = AuxNumberEntity(coordinator, "device1", POWER_LIMIT_DESCRIPTION)
+    switch._device["params"].pop(AC_POWER)
+    assert switch.is_on is None
+    assert number.native_value is None
+    coordinator.last_update_success = False
+    assert not climate.available
+
+    hp_device = {
+        "endpointId": "hp1",
+        "productId": HP_PRODUCT_ID,
+        "state": 1,
+        "params": {},
+    }
+    hp_coordinator = _coordinator(hass, hp_device)
+    select = AuxSelectEntity(
+        hp_coordinator,
+        "hp1",
+        next(
+            description for description in SELECTS if description.key == HP_QUIET_MODE
+        ),
+    )
+    water = AuxWaterHeaterEntity(hp_coordinator, "hp1", WATER_HEATER_DESCRIPTION)
+    assert select.current_option is None
+    assert water.current_temperature is None
+    assert water.target_temperature is None
+    assert water.current_operation is None
+    water._device["params"][HP_WATER_POWER] = 1
+    assert water.current_operation is None
+    water._device["params"].update({HP_WATER_POWER: 2, HP_WATER_FAST_HOTWATER: 0})
+    assert water.current_operation is None
+
+
+async def test_water_heater_state_and_commands(hass):
+    """Test water-heater temperatures, operations, and invalid actions."""
+    device = {
+        "endpointId": "hp1",
+        "friendlyName": "Heat Pump",
+        "productId": HP_PRODUCT_ID,
+        "state": 1,
+        "params": {
+            HP_HOT_WATER_TANK_TEMPERATURE: 45,
+            HP_HOT_WATER_TEMPERATURE_TARGET: 500,
+            HP_WATER_POWER: 1,
+            HP_WATER_FAST_HOTWATER: 0,
+        },
+    }
+    coordinator = _coordinator(hass, device)
+    entity = AuxWaterHeaterEntity(
+        coordinator,
+        "hp1",
+        WATER_HEATER_DESCRIPTION,
+    )
+    entity.async_write_ha_state = MagicMock()
+
+    assert entity.current_temperature == 45
+    assert entity.target_temperature == 50
+    assert entity.current_operation == STATE_HEAT_PUMP
+    assert entity.operation_list == [STATE_OFF, STATE_HEAT_PUMP, STATE_PERFORMANCE]
+
+    await entity.async_set_operation_mode(STATE_PERFORMANCE)
+    entity._handle_coordinator_update()
+    assert entity.current_operation == STATE_PERFORMANCE
+    await entity.async_set_operation_mode(STATE_OFF)
+    entity._handle_coordinator_update()
+    assert entity.current_operation == STATE_OFF
+    await entity.async_set_temperature(temperature=52)
+    entity._handle_coordinator_update()
+    assert entity.target_temperature == 52
+
+    with pytest.raises(HomeAssistantError):
+        await entity.async_set_operation_mode("invalid")
+
+
+async def test_climate_and_switch_platform_factories(hass):
+    """Test platform factories use published runtime data and static descriptions."""
+    coordinator = _coordinator(hass, _ac_device("device1"))
+    entry = SimpleNamespace(runtime_data=coordinator, async_on_unload=MagicMock())
+    climates = MagicMock()
+    switches = MagicMock()
+
+    await climate_platform.async_setup_entry(hass, entry, climates)
+    climate_unload = entry.async_on_unload.call_args.args[0]
+    await switch_platform.async_setup_entry(hass, entry, switches)
+    switch_unload = entry.async_on_unload.call_args.args[0]
+
+    assert isinstance(climates.call_args.args[0][0], AuxACClimateEntity)
+    assert all(
+        isinstance(entity, AuxSwitchEntity) for entity in switches.call_args.args[0]
+    )
+    power_switch = next(
+        entity
+        for entity in switches.call_args.args[0]
+        if entity.entity_description.key == AC_POWER
+    )
+    power_switch.async_write_ha_state = MagicMock()
+    assert power_switch.is_on
+    await power_switch.async_turn_off()
+    power_switch._handle_coordinator_update()
+    assert not power_switch.is_on
+    await power_switch.async_turn_on()
+
+    climate_unload()
+    switch_unload()
+
+    heat_pump = {
+        "endpointId": "hp1",
+        "friendlyName": "Heat Pump",
+        "productId": HP_PRODUCT_ID,
+        "state": 1,
+        "params": {HP_WATER_POWER: 1},
+    }
+    hp_coordinator = _coordinator(hass, heat_pump)
+    hp_entry = SimpleNamespace(runtime_data=hp_coordinator, async_on_unload=MagicMock())
+    water_heaters = MagicMock()
+    await water_heater_platform.async_setup_entry(hass, hp_entry, water_heaters)
+    assert isinstance(water_heaters.call_args.args[0][0], AuxWaterHeaterEntity)
+    hp_entry.async_on_unload.call_args.args[0]()

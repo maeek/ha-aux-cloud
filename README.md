@@ -1,16 +1,69 @@
 # AUX Cloud Integration for Home Assistant
 
-Unofficial integration for Aux Cloud connected appliances like air conditioners and heat pumps. Aux Cloud is a service
-based on the Broadlink platform that allows you to control your appliances from anywhere. This is a cloud alternative
-to [replacing wifi module in your AC](https://github.com/GrKoR/esphome_aux_ac_component). This integration will also allow you
-to control AUX heat pumps. The implementation of API requests is based on public resources from [Broadlink documentation](https://docs.ibroadlink.com/public/appsdk/sdk_others/dnacontrol/) and reverse engineering.
+Unofficial Home Assistant integration for AUX Cloud appliances, including AUX air conditioners and AUX heat pumps. AUX Cloud is based on the BroadLink cloud platform, so this integration communicates with the cloud service used by the mobile app instead of replacing the device Wi-Fi module.
+
+The implementation is based on BroadLink public SDK documentation and reverse engineering of the AUX/AC Freedom Android app.
 
 ## Features
 
-- Control AUX air conditioners and heat pumps from Home Assistant
-- View device status and sensor readings
-- Support for both personal and shared devices
-- Secure credential storage (when configured through UI)
+- Cloud push integration using AUX/BroadLink websocket relay as the primary update path.
+- Websocket-first device control with HTTP command fallback when the websocket is unavailable or an acknowledgement fails.
+- Degraded HTTP polling fallback while websocket push is unhealthy.
+- Automatic one-shot session recovery when the cloud reports an expired or invalid login session.
+- Verified TLS, bounded request timeouts, rate-limit backoff, and serialized device commands.
+- Email-first config flow with Europe selected by default, optional phone login, and multiple accounts.
+- Native reauthentication, reconfiguration, and redacted diagnostics.
+- Support for personal and shared AUX Cloud devices.
+- Dynamic device discovery: devices added in AUX Cloud appear without reloading Home Assistant.
+- Product profiles for AUX air conditioners and heat pumps, including v3 heat-pump quirks.
+- Localized config, entity, and exception text in English, Polish, and Greek.
+
+## Supported Entities
+
+Audited product profiles define which entities exist and which parameters are safe to control. Cloud response keys are live state only: a partial response cannot remove entities or grant additional controls.
+
+- `climate`
+  - AUX air conditioner
+  - AUX heat-pump central heating
+- `water_heater`
+  - Heat-pump domestic hot water
+- `sensor`
+  - Ambient temperature
+  - Target temperature
+  - Hot water target temperature
+  - Hot water tank temperature
+  - AUX error flag
+- `switch`
+  - Power controls
+  - Eco mode
+  - Fast hot water
+  - Auxiliary heat
+  - Self cleaning
+  - Child lock
+  - Comfortable wind
+  - Health mode
+  - Mildew proof
+  - Sleep mode
+  - Screen display
+  - Power limit
+- `select`
+  - Quiet mode
+  - Automatic water temperature
+- `number`
+  - Power limit percentage
+
+## How It Works
+
+Normal operation is push-based. After login and device bootstrap, the coordinator starts one supervised websocket runner. Websocket messages are merged directly into Home Assistant coordinator data.
+
+HTTP is still used for:
+
+- Login and initial device bootstrap.
+- Authoritative inventory scans every 30 minutes, or five-minute fallback scans while push is unavailable.
+- Device command fallback when websocket control is unavailable or rejected.
+- Slow degraded polling while websocket push is unhealthy.
+
+When websocket health is restored, degraded polling is disabled again. The integration keeps `iot_class` as `cloud_push` because normal operation is push-based.
 
 ## Installation
 
@@ -21,7 +74,7 @@ to control AUX heat pumps. The implementation of API requests is based on public
 
 1. Make sure you have [HACS](https://hacs.xyz/) installed
 2. Go to HACS > Integrations
-3. Search for "AUX Cloud"
+3. Search for "AUX Cloud", or add `maeek/ha-aux-cloud` as a custom HACS integration repository
 4. Install the integration
 5. Restart Home Assistant
 
@@ -37,93 +90,157 @@ to control AUX heat pumps. The implementation of API requests is based on public
 
 The recommended way to set up this integration is through the Home Assistant UI:
 
-1. Go to **Settings** > **Devices & Services**
+1. Go to **Settings** > **Devices & services**.
 2. Click the **+ Add Integration** button
 3. Search for "AUX Cloud" and select it
-4. Enter your AUX Cloud email and password
-5. Select your region (e.g., Europe, USA or China - based on your AUX Cloud account)
-6. Select which devices you want to add to Home Assistant
+4. Choose email login (recommended for European accounts) or phone-number login
+5. Enter your AUX Cloud credentials and region (Europe is the default)
+6. Finish setup and use Home Assistant's native **Name and assign** screen to set device names and areas
 
-  > [!TIP]
-  > Make sure that your devices are online when setting up the integration. If you add a device that is offline, it will not add all the entities. You will need to reload the integration manually.
+Supported regions are Europe, Other Areas / USA, China, and Russia. Europe is
+preselected for the email-first setup flow; the stored `usa` region value and
+existing config entries remain backward compatible.
+For phone-number login, enter the phone number as you use it with AUX Cloud.
 
-Your credentials will be stored securely in Home Assistant's `.storage/core.config_entries` storage.
+All cloud devices are added automatically. Devices added to the account later are discovered during the next inventory scan. Disable individual entities in Home Assistant's entity registry when they are not useful.
+
+> [!TIP]
+> Known devices retain their profile-defined entities while offline. Their entities report unavailable until the cloud provides a usable live snapshot; no reload is needed.
+
+Credentials are stored in Home Assistant config entry storage. Existing email entries keep using the original email login path; phone-number login is used only for entries configured with a phone number. Existing config-entry, device, and entity unique IDs are preserved during migration. If silent session recovery fails, Home Assistant starts its native reauthentication flow.
 
 ## Usage
 
-After setting up the integration, your AUX devices will be available as climate entities in Home Assistant. You can
-control them through:
+After setting up the integration, audited AUX device profiles expose climate, water heater, sensor, switch, select, and number entities as applicable. Unknown product IDs remain visible in diagnostics but do not receive controls until their protocol has been reviewed.
+
+You can control them through:
 
 - The Home Assistant UI
 - Automations
 - Scripts
 - Voice assistants integrated with Home Assistant
 
+### Example use cases
+
+- Pre-heat or cool a room on a schedule while retaining AUX Cloud app access.
+- Coordinate domestic hot water with electricity tariffs or photovoltaic production.
+- Alert when the diagnostic error flag becomes available and non-zero.
+
+### Automation example
+
+The entity ID is assigned by Home Assistant and may differ from this example:
+
+```yaml
+automation:
+  - alias: Cool bedroom before evening
+    triggers:
+      - trigger: time
+        at: "19:00:00"
+    actions:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.bedroom_air_conditioner
+        data:
+          hvac_mode: cool
+          temperature: 23
+```
+
+## Removal
+
+Remove the AUX Cloud entry from **Settings > Devices & services**. Home Assistant unloads the websocket and all platforms and removes the entry's devices and entities. Removing the integration does not delete devices or data from AUX Cloud.
+
+## Error Handling
+
+The integration maps known AUX/BroadLink error codes into typed failures:
+
+- Invalid credentials or expired sessions.
+- Network and DNS failures.
+- Cloud server errors such as HTTP `503`.
+- Rate limiting.
+- Device command failures.
+
+Transient API outages use Home Assistant's coordinator retry behavior and are logged once per outage. When an account-wide refresh fails because AUX/BroadLink returns HTTP `5xx`, Home Assistant also shows a self-clearing notification explaining that the vendor service is down and will be retried automatically. HTTP `Retry-After` is honored for rate limits. Authentication failures start Home Assistant's reauthentication flow because they require user action.
+
 ## Troubleshooting
 
 If you encounter issues:
 
 1. Check the Home Assistant logs for error messages
-2. Verify your AUX Cloud credentials and selected region is correct
-3. Ensure your devices are online and accessible through the AUX Cloud app
-4. If you've recently changed your password, you'll need to reconfigure the integration
+2. Open the integration entry and download diagnostics; credentials and device identifiers are redacted
+3. Verify your AUX Cloud credentials and selected region are correct
+4. Ensure your devices are online and accessible through the AUX Cloud app
+5. If you've recently changed your password, reconfigure or reload the integration
+6. If AUX Cloud is temporarily unavailable, wait for the API to recover; the integration keeps retrying automatically
+
+If you log in through the mobile app and the cloud invalidates the previous session, the integration attempts a single-flight silent re-login. If the stored credentials are no longer valid, Home Assistant prompts for reauthentication.
 
 ## Known Issues
 
-- **Logging in the App**: The login process in the app will log out any existing sessions (at least on Android). If you log in the app, reload the integration.
+- **Logging in the App**: The login process in the app may invalidate existing sessions (at least on Android). The integration attempts automatic re-login when the cloud reports an expired session. If recovery fails, reload or reconfigure the integration.
+- **AUX Cloud API unavailable**: If an account-wide refresh fails with an HTTP `5xx` response, the integration reports entities unavailable, retries automatically, and shows a notification that clears after recovery. It intentionally does not create a Repairs issue because a vendor outage requires no user action.
+- **Shared device identity**: AUX endpoint IDs are used unchanged for device identifiers. A cloud account exposing the same endpoint more than once is deduplicated.
+- **Offline devices**: Audited product profiles keep entity membership stable while a device is offline; its entities report unavailable until live state returns.
+- This is cloud control only. Local LAN control is not implemented.
+- Device support is profile-based. Unknown product IDs may appear without entities until a profile is added.
 
-> [!NOTE]
-> There are plans to implement automatic relogging if the request fails due to session expiry.
+## Tested Devices
 
-- **Shared devices**: If your account has shared devices, you might encounter an issue that `Platform aux_cloud does not generate unique ids`, check your HA logs and transfer ownership of the device to your account.
+- AUX Freedom air conditioner, model `AUX-12F2H/I`
+- AUX heat pump, model `ACHP-HO8/4R3HA-I`
+
+Known product IDs:
+
+- Standard air conditioners: `c0620000`, `2a4e0000`, `7faf0000`, `82af0000`
+- Half-degree air conditioner: `1f620000`
+- Air conditioners without auto mode and with extended fan levels: `28620000`,
+  `c5510000`
+- Multi-split air conditioner: `45620000` (no auto mode or power-limit controls)
+- VRV air conditioners: `56ac0000`, `a44e0000` (vertical swing and conservative
+  low/medium/high fan controls)
+- Air-conditioner sub-device: `c9100100` (limited safe parameter set)
+- Heat pumps: `c3aa0000`
+
+The product profiles expose only controls verified from the AC Freedom app.
+Unsupported modes, fan values, swing axes, and parameters are rejected before a
+cloud command is sent. Existing unique IDs and device identifiers are unchanged.
 
 ## Development
 
-This integration is still in development. Current status:
+Minimum Home Assistant version is `2026.4.0`.
 
-- [x] Reverse engineer the AUX Cloud API
-- [x] [API] Implement login
-- [x] [API] Implement getting devices' information
-- [x] [Home Assistant] Config flow with device selection
-- [x] [API] Implement updating device state
-- [x] [Home Assistant] Cloud data fetcher
-- [x] [Home Assistant] Data coordinator
-- [x] [Home Assistant] climate entity
-- [x] [Home Assistant] sensor entity
-- [x] [Home Assistant] water heater entity
-- [x] [Home Assistant] basic sensor entities
-- [x] [Home Assistant] switch entity
-- [x] [Home Assistant] Fix reconfigure - adding new devices requires reload of integration
-- [x] [Home Assistant] Parallelize data fetching for devices - don't wait for one device to finish before starting another
-- [x] [Home Assistant] Add an icon to https://github.com/home-assistant/brands
-- [ ] [API] Implement session check and re-login
-- [ ] [Home Assistant] services
-- [ ] [Home Assistant] Manual tests
-- [ ] [Home Assistant] Unit tests
-- [ ] [API] WebSocket connection for instant updates
-- [x] Documentation
-- [ ] Add to HACS
-- [ ] Translations
+Current architecture:
 
-## Privacy
+- `custom_components/aux_cloud/api`
+  - The small, replaceable client contract, public DTOs, and public errors used by
+    the Home Assistant adapter. This package has no Home Assistant dependency.
+- `custom_components/aux_cloud/dna`
+  - The BroadLink DNA/AUX API implementation. `client.py` is the single facade
+    that bundles HTTP, websocket-first commands, HTTP fallback, relay retries,
+    and inventory discovery.
+  - `http.py` and `websocket.py` contain transport primitives. `codec.py` contains
+    only wire-format encoding and decoding. `inventory.py` preserves device
+    bootstrap and protocol-version quirks.
+- `custom_components/aux_cloud/devices.py`
+  - The public device types, product capabilities, command rules, parameter
+    normalization, and known AUX product quirks.
+- `custom_components/aux_cloud/device_metadata.py`
+  - Bounded cookie decoding and protocol-version metadata resolution. These
+    vendor payload details stay out of the device capability definitions.
+- `custom_components/aux_cloud/coordinator.py`
+  - The Home Assistant adapter: update cadence, command transactions, and state
+    publication through the public client contract.
+- `custom_components/aux_cloud/state.py`
+  - Session-only account snapshots and race-safe scan, push, and optimistic command transitions. No capability or protocol state is persisted to a Home Assistant store.
+- `custom_components/aux_cloud/entity.py` and `identifiers.py`
+  - Shared typed entity lifecycle and compatibility-stable account/device/entity identities.
 
-This integration communicates with the AUX Cloud servers but stores your credentials locally in Home Assistant's internal storage (when configured through the UI). No data is shared with third parties beyond what's necessary to communicate with AUX Cloud services.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+Only the integration setup and config flow construct `DnaClient`. All other Home
+Assistant code talks to `AuxCloudClient`, so the DNA implementation can be
+replaced without changing the coordinator or entity platforms.
 
 ## Testing
 
 This document describes how to run tests and perform code quality checks for the AUX Cloud Integration.
-
-## Devices
-
-Integration support and was tested on devices:
-- AC:
-  1. AUX Freedom model AUX-12F2H/I
-- Heat pump:
-  1. AUX ACHP-HO8/4R3HA-I
 
 ## Prerequisites
 
@@ -143,6 +260,12 @@ Run all tests:
 pytest
 ```
 
+The current verification command used by maintainers enforces at least 60% overall coverage:
+
+```bash
+pytest -q
+```
+
 ### Test with Coverage Reporting
 
 Run tests and show coverage information:
@@ -151,20 +274,26 @@ Run tests and show coverage information:
 pytest --cov=custom_components
 ```
 
-## Code Quality Checks with pylint
-
-### Basic pylint Check
-
-Run pylint on the entire component:
+### Diff whitespace check
 
 ```bash
-pylint custom_components/aux_cloud
+git diff --check
 ```
 
 ### Code formatting
 
-The project uses [Black](https://pypi.org/project/black/) for code formatting. To format the code, run:
+The project uses Ruff for formatting and linting. To format and validate the code, run:
 
 ```bash
-black custom_components/aux_cloud
+ruff format custom_components/aux_cloud tests
+ruff check custom_components/aux_cloud tests
+mypy custom_components/aux_cloud
 ```
+
+## Privacy
+
+This integration communicates with AUX Cloud servers. Credentials are stored locally by Home Assistant when configured through the UI. Device state and commands are sent to AUX Cloud because the integration uses the vendor cloud API.
+
+## Contributing
+
+Contributions are welcome. Please include tests for new product profiles, protocol parsing, websocket behavior, and error handling changes.

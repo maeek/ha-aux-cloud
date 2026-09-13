@@ -2,52 +2,114 @@
   "config": {
     "flow_title": "AUX Cloud: {name}",
     "abort": {
-      "single_instance_allowed": "Już skonfigurowano. Możliwa tylko jedna konfiguracja.",
-      "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
-      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud.",
-      "login_required": "Wymagane logowanie przed wyborem urządzenia."
+      "already_configured": "To konto AUX Cloud jest już skonfigurowane.",
+      "missing_credentials": "Wymagany jest adres e-mail i hasło.",
+      "wrong_account": "Dane logowania należą do innego konta AUX Cloud.",
+      "reauth_successful": "Dane logowania AUX Cloud zostały zaktualizowane.",
+      "reconfigure_successful": "Konfiguracja AUX Cloud została zaktualizowana.",
+      "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
+      "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
+      "api_unavailable": "API AUX Cloud jest obecnie niedostępne.",
+      "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań.",
+      "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
+      "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
+      "unknown": "Nieoczekiwany błąd"
     },
     "error": {
-      "user_login_failed": "Logowanie nie powiodło się. Sprawdź swoje dane logowania.",
+      "bad_credentials": "Konto lub hasło AUX Cloud jest nieprawidłowe.",
+      "session_expired": "Sesja AUX Cloud wygasła. Sprawdź dane logowania.",
+      "api_unavailable": "API AUX Cloud jest obecnie niedostępne. Spróbuj ponownie później.",
+      "rate_limited": "AUX Cloud tymczasowo ogranicza liczbę żądań. Spróbuj ponownie później.",
       "cannot_connect": "Nie można połączyć się z serwerem AUX Cloud.",
       "invalid_auth": "Nieprawidłowa autoryzacja",
+      "phone_number_required": "Numer telefonu jest wymagany do logowania telefonem.",
       "unknown": "Nieoczekiwany błąd"
     },
     "step": {
       "user": {
         "title": "Logowanie do AUX Cloud",
-        "description": "Wprowadź dane logowania do konta AUX Cloud",
+        "description": "Wybierz sposób logowania. Adres e-mail jest zalecany dla kont europejskich.",
+        "menu_options": {
+          "email": "Adres e-mail",
+          "phone": "Numer telefonu"
+        }
+      },
+      "email": {
+        "title": "Logowanie adresem e-mail",
+        "description": "Europa jest wybrana domyślnie. Wybierz region używany przez konto AUX Cloud.",
         "data": {
-          "email": "Email",
+          "email": "Adres e-mail",
           "password": "Hasło",
           "region": "Region"
         }
       },
-      "select_devices": {
-        "title": "Wybierz urządzenia AUX Cloud",
-        "description": "Znaleziono {devices_count} urządzeń w {families_count} domach. Wybierz urządzenia, które chcesz dodać do Home Assistant.",
+      "phone": {
+        "title": "Logowanie numerem telefonu",
+        "description": "Wprowadź numer telefonu używany w AUX Cloud i wybierz region konta.",
         "data": {
-          "selected_devices": "Wybierz urządzenia"
+          "phone_number": "Numer telefonu",
+          "password": "Hasło",
+          "region": "Region"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Zaktualizuj logowanie AUX Cloud",
+        "description": "Wprowadź aktualne dane logowania do tego konta AUX Cloud.",
+        "data": {
+          "email": "Adres e-mail",
+          "phone_number": "Numer telefonu",
+          "password": "Hasło",
+          "region": "Region"
+        }
+      },
+      "reconfigure": {
+        "title": "Ponowna konfiguracja AUX Cloud",
+        "description": "Zmień dane logowania lub region. Konto AUX Cloud musi pozostać takie samo.",
+        "data": {
+          "email": "Adres e-mail",
+          "phone_number": "Numer telefonu",
+          "password": "Hasło",
+          "region": "Region"
         }
       }
-    },
-    "progress": {
-      "fetching_devices": "Pobieranie urządzeń... To może chwilę potrwać."
     }
   },
-  "options": {
-    "abort": {
-      "missing_credentials": "Brak danych logowania. Skonfiguruj ponownie integrację.",
-      "no_devices_found": "Nie znaleziono urządzeń AUX Cloud. Sprawdź swoje konto.",
-      "fetch_devices_failed": "Nie udało się pobrać urządzeń z AUX Cloud."
+  "exceptions": {
+    "api_unavailable": {
+      "message": "AUX Cloud jest niedostępny: {error}"
     },
-    "step": {
-      "init": {
-        "title": "Aktualizuj urządzenia AUX Cloud",
-        "description": "Wybierz, które urządzenia chcesz monitorować i kontrolować za pomocą Home Assistant.",
-        "data": {
-          "selected_devices": "Wybierz urządzenia"
-        }
+    "cannot_connect": {
+      "message": "Nie można połączyć się z AUX Cloud: {error}"
+    },
+    "device_error": {
+      "message": "AUX Cloud nie mógł sterować urządzeniem: {error}"
+    },
+    "invalid_auth": {
+      "message": "Uwierzytelnianie AUX Cloud nie powiodło się: {error}"
+    },
+    "rate_limited": {
+      "message": "Osiągnięto limit żądań AUX Cloud: {error}"
+    },
+    "session_expired": {
+      "message": "Sesja AUX Cloud wygasła: {error}"
+    },
+    "unknown": {
+      "message": "Nieoczekiwany błąd AUX Cloud: {error}"
+    },
+    "invalid_option": {
+      "message": "{option} nie jest prawidłową opcją AUX Cloud"
+    },
+    "invalid_operation": {
+      "message": "{operation} nie jest prawidłowym trybem AUX Cloud"
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europa",
+        "usa": "Inne regiony / USA",
+        "cn": "Chiny",
+        "rus": "Rosja"
       }
     }
   },
