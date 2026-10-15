@@ -24,13 +24,13 @@ from .api import (
     AuxServerError,
     AuxSessionExpired,
 )
-from .api.models import AuxCredentials, AuxDevice, DeviceUpdate
+from .api.models import AuxCredentials, AuxDevice, DeviceUpdate, EnergyStatistics
 from .const import (
     CONF_PHONE_NUMBER,
     DOMAIN,
     TOPOLOGY_SCAN_INTERVAL_MINUTES,
 )
-from .devices import normalize_device_params
+from .devices import DeviceType, get_device_profile, normalize_device_params
 from .identifiers import device_identifier
 from .state import (
     AccountState,
@@ -68,6 +68,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.config_entry: ConfigEntry = config_entry
         self.api = api
         self._state = AccountState(normalize_device_params)
+        self._energy: dict[str, EnergyStatistics] = {}
         self._command_locks: dict[str, asyncio.Lock] = {}
         self._reserved_entity_unique_ids: dict[tuple[str, str], str] = {}
         self._websocket_task: asyncio.Task[None] | None = None
@@ -118,6 +119,10 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def get_device_by_endpoint_id(self, endpoint_id: str) -> AuxDevice | None:
         """Return a device by its raw cloud endpoint ID."""
         return (self.data or self._state.data).get(endpoint_id)
+
+    def get_energy_statistics(self, endpoint_id: str) -> EnergyStatistics | None:
+        """Return the last energy history fetched for a device, if it has one."""
+        return self._energy.get(endpoint_id)
 
     @property
     def websocket_degraded(self) -> bool:
@@ -218,7 +223,33 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             registry_ids=self._registered_endpoint_ids(),
         )
         self._handle_inventory_changes(delta)
+        await self._async_refresh_energy()
         return self._state.data
+
+    async def _async_refresh_energy(self) -> None:
+        """Refresh energy history for air conditioners after each inventory scan."""
+        devices = self._state.devices
+        endpoint_ids = {device["endpointId"] for device in devices}
+        self._energy = {
+            endpoint_id: statistics
+            for endpoint_id, statistics in self._energy.items()
+            if endpoint_id in endpoint_ids
+        }
+        for device in devices:
+            profile = get_device_profile(device)
+            if profile.device_type is not DeviceType.AIR_CONDITIONER:
+                continue
+            endpoint_id = device["endpointId"]
+            try:
+                statistics = await self.api.get_energy_statistics(device)
+            except AuxApiError as exc:
+                _LOGGER.debug(
+                    "AUX energy statistics unavailable for %s: %s", endpoint_id, exc
+                )
+                continue
+            # Products without energy reporting answer with an empty table.
+            if statistics.readings:
+                self._energy[endpoint_id] = statistics
 
     def _handle_inventory_changes(self, delta: InventoryDelta) -> None:
         """Clean up removals and refresh relay membership."""

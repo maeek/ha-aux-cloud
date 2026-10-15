@@ -12,11 +12,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
-from .api.models import AuxDevice
+from .api.models import AuxDevice, EnergyStatistics
 from .coordinator import AuxCloudConfigEntry
 from .devices import (
     AC_TEMPERATURE_AMBIENT,
@@ -43,6 +44,13 @@ class AuxSensorEntityDescription(SensorEntityDescription):
     """Describe an AUX sensor and how to derive its native value."""
 
     value_fn: Callable[[AuxDevice], Any]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AuxEnergySensorEntityDescription(SensorEntityDescription):
+    """Describe an AUX energy sensor and how to derive it from cloud history."""
+
+    value_fn: Callable[[EnergyStatistics], float]
 
 
 SENSORS = {
@@ -103,6 +111,28 @@ SENSORS = {
 }
 
 
+ENERGY_SENSORS = (
+    AuxEnergySensorEntityDescription(
+        key="energy_total",
+        translation_key="energy_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda statistics: statistics.total_kwh,
+    ),
+    AuxEnergySensorEntityDescription(
+        key="energy_today",
+        translation_key="energy_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda statistics: statistics.energy_for_day(dt_util.now().date()),
+    ),
+)
+
+
 async def async_setup_entry(
     _hass: HomeAssistant,
     entry: AuxCloudConfigEntry,
@@ -121,7 +151,23 @@ async def async_setup_entry(
             for entity in supported_entity_descriptions(device, SENSORS.values())
         ]
 
+    def energy_entities_for_device(device: AuxDevice) -> list[AuxEnergySensor]:
+        return [
+            AuxEnergySensor(coordinator, device["endpointId"], entity)
+            for entity in ENERGY_SENSORS
+        ]
+
+    def has_energy_history(device: AuxDevice) -> bool:
+        return coordinator.get_energy_statistics(device["endpointId"]) is not None
+
     setup_dynamic_entities(entry, coordinator, async_add_entities, entities_for_device)
+    setup_dynamic_entities(
+        entry,
+        coordinator,
+        async_add_entities,
+        energy_entities_for_device,
+        device_ready=has_energy_history,
+    )
 
 
 class AuxCloudSensor(BaseEntity, SensorEntity):
@@ -133,3 +179,25 @@ class AuxCloudSensor(BaseEntity, SensorEntity):
     def native_value(self) -> Any:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self._device)
+
+
+class AuxEnergySensor(BaseEntity, SensorEntity):
+    """Energy consumption reported by the AUX Cloud statistics service."""
+
+    entity_description: AuxEnergySensorEntityDescription
+
+    @property
+    def available(self) -> bool:
+        """Return whether the cloud still holds energy history for the device."""
+        return (
+            super().available
+            and self.coordinator.get_energy_statistics(self._device_id) is not None
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the consumption derived from the cloud history."""
+        statistics = self.coordinator.get_energy_statistics(self._device_id)
+        if statistics is None:
+            return None
+        return self.entity_description.value_fn(statistics)

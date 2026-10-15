@@ -126,6 +126,12 @@
       },
       "ac_temperature": {
         "name": "Θερμοκρασία Κλιματιστικού"
+      },
+      "energy_total": {
+        "name": "Συνολική ενέργεια"
+      },
+      "energy_today": {
+        "name": "Ενέργεια σήμερα"
       }
     },
     "water_heater": {

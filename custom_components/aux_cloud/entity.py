@@ -121,8 +121,13 @@ def setup_dynamic_entities(
     coordinator: AuxCloudCoordinator,
     async_add_entities: AddConfigEntryEntitiesCallback,
     entity_factory: Callable[[AuxDevice], Iterable[Entity]],
+    *,
+    device_ready: Callable[[AuxDevice], bool] | None = None,
 ) -> None:
-    """Add entities after coordinator data publication without duplicates."""
+    """Add entities after coordinator data publication without duplicates.
+
+    Devices that are not ready yet are retried on later publications.
+    """
     known_endpoint_ids: set[str] = set()
 
     @callback
@@ -131,7 +136,10 @@ def setup_dynamic_entities(
         known_endpoint_ids.intersection_update(current_ids)
         entities: list[Entity] = []
         for endpoint_id in current_ids - known_endpoint_ids:
-            entities.extend(entity_factory(coordinator.data[endpoint_id]))
+            device = coordinator.data[endpoint_id]
+            if device_ready is not None and not device_ready(device):
+                continue
+            entities.extend(entity_factory(device))
             known_endpoint_ids.add(endpoint_id)
         if entities:
             async_add_entities(entities)

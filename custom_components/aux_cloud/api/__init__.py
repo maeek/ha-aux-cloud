@@ -13,7 +13,14 @@ from .errors import (
     AuxSessionExpired,
     AuxUnknownApiError,
 )
-from .models import AuxCredentials, AuxDevice, DeviceUpdate, InventorySnapshot
+from .models import (
+    AuxCredentials,
+    AuxDevice,
+    DeviceUpdate,
+    EnergyReading,
+    EnergyStatistics,
+    InventorySnapshot,
+)
 
 
 class AuxCloudClient(Protocol):
@@ -36,6 +43,9 @@ class AuxCloudClient(Protocol):
         self, device: AuxDevice, values: dict[str, Any]
     ) -> dict[str, Any]:
         """Set device parameters using the best available transport."""
+
+    async def get_energy_statistics(self, device: AuxDevice) -> EnergyStatistics:
+        """Return the daily energy consumption history of one device."""
 
     async def run_realtime(
         self,
@@ -65,5 +75,7 @@ __all__ = [
     "AuxSessionExpired",
     "AuxUnknownApiError",
     "DeviceUpdate",
+    "EnergyReading",
+    "EnergyStatistics",
     "InventorySnapshot",
 ]
