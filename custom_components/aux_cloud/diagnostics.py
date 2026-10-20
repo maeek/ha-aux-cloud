@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 
 from .api.models import AuxDevice
 from .const import CONF_PHONE_NUMBER
-from .coordinator import AuxCloudConfigEntry
+from .coordinator import AuxCloudConfigEntry, AuxCloudCoordinator
 from .device_metadata import (
     AUX_QUERY_FAILURES,
     get_cookie_profile_params,
@@ -78,5 +78,22 @@ async def async_get_config_entry_diagnostics(
             ),
             "websocket_degraded": coordinator.websocket_degraded,
         },
-        "devices": [_device_diagnostics(device) for device in devices],
+        "devices": [
+            {
+                **_device_diagnostics(device),
+                "energy_reading_count": _energy_reading_count(coordinator, device),
+            }
+            for device in devices
+        ],
     }
+
+
+def _energy_reading_count(
+    coordinator: AuxCloudCoordinator, device: Mapping[str, Any]
+) -> int:
+    """Return how many daily energy readings the cloud returned for a device."""
+    endpoint_id = device.get("endpointId")
+    if not isinstance(endpoint_id, str):
+        return 0
+    statistics = coordinator.get_energy_statistics(endpoint_id)
+    return len(statistics.readings) if statistics is not None else 0

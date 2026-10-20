@@ -16,6 +16,7 @@ The implementation is based on BroadLink public SDK documentation and reverse en
 - Support for personal and shared AUX Cloud devices.
 - Dynamic device discovery: devices added in AUX Cloud appear without reloading Home Assistant.
 - Product profiles for AUX air conditioners and heat pumps, including v3 heat-pump quirks.
+- Daily and lifetime energy consumption sensors for air conditioners, read from the cloud statistics service behind the AC Freedom energy screen.
 - Localized config, entity, and exception text in English, Polish, and Greek.
 
 ## Supported Entities
@@ -33,6 +34,8 @@ Audited product profiles define which entities exist and which parameters are sa
   - Hot water target temperature
   - Hot water tank temperature
   - AUX error flag
+  - Total energy (kWh)
+  - Energy today (kWh)
 - `switch`
   - Power controls
   - Eco mode
@@ -60,6 +63,7 @@ HTTP is still used for:
 
 - Login and initial device bootstrap.
 - Authoritative inventory scans every 30 minutes, or five-minute fallback scans while push is unavailable.
+- Energy consumption history, refreshed after each inventory scan for air conditioners that report it.
 - Device command fallback when websocket control is unavailable or rejected.
 - Slow degraded polling while websocket push is unhealthy.
 
