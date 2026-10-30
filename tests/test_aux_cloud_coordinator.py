@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud.state as state_module
@@ -92,6 +93,96 @@ async def test_refresh_isolates_partial_failures_and_auth_errors(
     mock_aux_cloud_api.scan_devices.side_effect = AuxAuthError(code=-1006)
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
+
+
+def test_registered_endpoints_are_scoped_to_the_config_entry(coordinator, hass):
+    """Inventory reconciliation only considers this entry's AUX devices."""
+    registry = dr.async_get(hass)
+    other_entry = MockConfigEntry(domain=DOMAIN)
+    other_entry.add_to_hass(hass)
+    registry.async_get_or_create(
+        config_entry_id=coordinator.config_entry.entry_id,
+        identifiers={(DOMAIN, "owned"), ("other_domain", "unrelated")},
+    )
+    registry.async_get_or_create(
+        config_entry_id=other_entry.entry_id,
+        identifiers={(DOMAIN, "other-account")},
+    )
+
+    assert coordinator._registered_endpoint_ids() == {"owned"}
+
+
+def test_modern_registry_cleanup_avoids_deprecated_apis(coordinator, monkeypatch):
+    """Modern devices need no mapping access, config-entry shim or global lookup."""
+    registry = MagicMock(spec=["async_remove_device", "async_update_device"])
+    devices = [
+        SimpleNamespace(
+            id="stale",
+            config_entry_id=coordinator.config_entry.entry_id,
+            identifiers={(DOMAIN, "removed")},
+        ),
+        SimpleNamespace(
+            id="active",
+            config_entry_id=coordinator.config_entry.entry_id,
+            identifiers={(DOMAIN, "active")},
+        ),
+        SimpleNamespace(
+            id="unrelated",
+            config_entry_id=coordinator.config_entry.entry_id,
+            identifiers={("other_domain", "removed")},
+        ),
+    ]
+    entries = MagicMock(return_value=devices)
+    monkeypatch.setattr(dr, "async_get", lambda _hass: registry)
+    monkeypatch.setattr(dr, "async_entries_for_config_entry", entries)
+
+    assert coordinator._registered_endpoint_ids() == {"removed", "active"}
+    coordinator._async_remove_stale_devices({"removed"})
+
+    entries.assert_called_with(registry, coordinator.config_entry.entry_id)
+    registry.async_remove_device.assert_called_once_with("stale")
+    registry.async_update_device.assert_not_called()
+
+
+def test_stale_registry_cleanup_preserves_other_accounts(coordinator, hass):
+    """Removing a cloud device must not remove another entry's registry device."""
+    registry = dr.async_get(hass)
+    other_entry = MockConfigEntry(domain=DOMAIN)
+    other_entry.add_to_hass(hass)
+    stale = registry.async_get_or_create(
+        config_entry_id=coordinator.config_entry.entry_id,
+        identifiers={(DOMAIN, "removed")},
+    )
+    other = registry.async_get_or_create(
+        config_entry_id=other_entry.entry_id,
+        identifiers={(DOMAIN, "other-account")},
+    )
+
+    coordinator._async_remove_stale_devices({"removed", "other-account"})
+
+    assert registry.async_get(stale.id) is None
+    assert registry.async_get(other.id) is not None
+
+
+def test_legacy_shared_device_cleanup_only_detaches_our_entry(coordinator, monkeypatch):
+    """Before HA 2026.8, preserve registry devices shared with other entries."""
+    registry = MagicMock(spec=["async_remove_device", "async_update_device"])
+    shared = SimpleNamespace(
+        id="shared",
+        config_entries={coordinator.config_entry.entry_id, "other-entry"},
+        identifiers={(DOMAIN, "removed")},
+    )
+    monkeypatch.setattr(dr, "async_get", lambda _hass: registry)
+    monkeypatch.setattr(
+        dr, "async_entries_for_config_entry", lambda _registry, _entry_id: [shared]
+    )
+
+    coordinator._async_remove_stale_devices({"removed"})
+
+    registry.async_update_device.assert_called_once_with(
+        device_id="shared", remove_config_entry_id=coordinator.config_entry.entry_id
+    )
+    registry.async_remove_device.assert_not_called()
 
 
 def test_push_updates_merge_and_explicit_offline_clears_state(
