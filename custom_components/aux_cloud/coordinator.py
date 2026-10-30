@@ -31,7 +31,6 @@ from .const import (
     TOPOLOGY_SCAN_INTERVAL_MINUTES,
 )
 from .devices import normalize_device_params
-from .identifiers import device_identifier
 from .state import (
     AccountState,
     CoordinatorData,
@@ -277,8 +276,9 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         registry = dr.async_get(self.hass)
         return {
             identifier[1]
-            for device in registry.devices.values()
-            if self.config_entry.entry_id in device.config_entries
+            for device in dr.async_entries_for_config_entry(
+                registry, self.config_entry.entry_id
+            )
             for identifier in device.identifiers
             if identifier[0] == DOMAIN
         }
@@ -289,15 +289,25 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if not endpoint_ids:
             return
         registry = dr.async_get(self.hass)
-        for endpoint_id in endpoint_ids:
-            device = registry.async_get_device(
-                identifiers={device_identifier(endpoint_id)}
-            )
-            if device is not None:
+        for device in dr.async_entries_for_config_entry(
+            registry, self.config_entry.entry_id
+        ):
+            if not any(
+                domain == DOMAIN and endpoint_id in endpoint_ids
+                for domain, endpoint_id in device.identifiers
+            ):
+                continue
+            # Before HA 2026.8, one registry device could belong to multiple
+            # entries. Detach only our entry in that legacy shared-device case.
+            if not hasattr(device, "config_entry_id") and device.config_entries != {
+                self.config_entry.entry_id
+            }:
                 registry.async_update_device(
                     device_id=device.id,
                     remove_config_entry_id=self.config_entry.entry_id,
                 )
+            else:
+                registry.async_remove_device(device.id)
 
 
 type AuxCloudConfigEntry = ConfigEntry[AuxCloudCoordinator]

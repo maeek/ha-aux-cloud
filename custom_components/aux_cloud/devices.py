@@ -282,7 +282,7 @@ class ProductProfile:
         prepared_vals = list(vals)
         if self.device_type is DeviceType.HEAT_PUMP:
             version = get_protocol_version(_device)
-            if version is not None and version >= 3 and "ver" not in prepared_params:
+            if version is not None and "ver" not in prepared_params:
                 prepared_params.append("ver")
                 prepared_vals.append([{"idx": 1, "val": version}])
         return prepared_params, prepared_vals

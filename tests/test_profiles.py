@@ -1,5 +1,7 @@
 """Device-profile and normalization regression tests."""
 
+import pytest
+
 from custom_components.aux_cloud.devices import (
     AC_MODE_SPECIAL,
     AC_POWER,
@@ -102,6 +104,43 @@ def test_ac_temperature_wire_formats_round_trip():
     }
     normalize_device_params(half_degree)
     assert half_degree["params"][AC_TEMPERATURE_TARGET] == 165
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+@pytest.mark.parametrize(
+    "parameter,value", [("ac_temp", 410), ("ac_mode", 4), ("ac_pwr", 1)]
+)
+def test_heat_pump_commands_include_known_protocol_versions(version, parameter, value):
+    """H16 protocol-v1 writes require ver just like newer heat pumps (#84)."""
+    device = mock_heat_pump(ver=version)
+    params = [parameter]
+    vals = [[{"idx": 1, "val": value}]]
+
+    prepared_params, prepared_vals = get_product_profile(
+        device["productId"]
+    ).prepare_command(device, params, vals)
+
+    assert prepared_params == [parameter, "ver"]
+    assert prepared_vals == [*vals, [{"idx": 1, "val": version}]]
+    assert params == [parameter]
+    assert vals == [[{"idx": 1, "val": value}]]
+
+
+def test_command_protocol_version_is_not_guessed_or_duplicated():
+    """Preserve explicit versions and leave AC/unknown-version commands unchanged."""
+    unknown = mock_heat_pump()
+    del unknown["extern"]
+    for device in (mock_device(), unknown):
+        assert get_product_profile(device["productId"]).prepare_command(
+            device, ["pwr"], [[{"idx": 1, "val": 1}]]
+        ) == (["pwr"], [[{"idx": 1, "val": 1}]])
+
+    device = mock_heat_pump(ver=1)
+    params = ["ac_pwr", "ver"]
+    vals = [[{"idx": 1, "val": 1}], [{"idx": 1, "val": 1}]]
+    assert get_product_profile(device["productId"]).prepare_command(
+        device, params, vals
+    ) == (params, vals)
 
 
 def test_v3_heat_pump_tank_temperature_decoder_fails_closed():
