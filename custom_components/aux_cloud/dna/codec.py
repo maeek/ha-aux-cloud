@@ -391,6 +391,7 @@ def _build_update(
         endpoint_id=endpoint_id,
         params={} if available is False else values,
         available=available,
+        cached=not live,
     )
 
 

@@ -78,6 +78,7 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._energy: dict[str, EnergyStatistics] = {}
         self._command_locks: dict[str, asyncio.Lock] = {}
         self._pending_recoveries: set[tuple[str, int]] = set()
+        self._recoveries_in_scan: set[tuple[str, int]] | None = None
         self._reserved_entity_unique_ids: dict[tuple[str, str], str] = {}
         self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
@@ -165,37 +166,28 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     @callback
     def _handle_websocket_updates(self, updates: tuple[DeviceUpdate, ...]) -> None:
         """Merge one validated relay frame in one coordinator write."""
-        needs_snapshot = {
-            update.endpoint_id
-            for update in updates
-            if update.available is True
-            and (device := self._state.get(update.endpoint_id)) is not None
-            and (device.get("state") == 0 or not device.get("params"))
-        }
-        if self._state.apply_updates(updates):
+        changed, recoveries = self._state.apply_updates(updates)
+        if changed:
             self._publish_devices()
-        # A status-only report can repeat without changing the stored snapshot.
-        recover = {
-            (endpoint_id, self._state.availability_revision(endpoint_id))
-            for endpoint_id in needs_snapshot
-            if (device := self._state.get(endpoint_id)) and device.get("state") == 1
-        } - self._pending_recoveries
-        if recover:
-            self._pending_recoveries.update(recover)
-            self.config_entry.async_create_task(
-                self.hass,
-                self._refresh_recovered_devices(recover),
-                "aux_cloud_device_online_refresh",
-            )
+        already_queued = bool(self._pending_recoveries)
+        for endpoint_id, revision in recoveries:
+            device = self._state.get(endpoint_id)
+            if device and get_device_profile(device).initial_param_queries(device):
+                self._pending_recoveries.add((endpoint_id, revision))
+        if self._recoveries_in_scan is not None:
+            self._pending_recoveries.difference_update(self._recoveries_in_scan)
+        elif self._pending_recoveries and not already_queued:
+            self._request_recovery_refresh()
 
-    async def _refresh_recovered_devices(
-        self, recoveries: set[tuple[str, int]]
-    ) -> None:
-        """Request one inventory refresh for this batch of returning devices."""
-        try:
-            await self.async_request_refresh()
-        finally:
-            self._pending_recoveries.difference_update(recoveries)
+    @callback
+    def _request_recovery_refresh(self) -> None:
+        """Queue a batched refresh after the current coordinator callback returns."""
+        self.config_entry.async_create_task(
+            self.hass,
+            self.async_request_refresh(),
+            "aux_cloud_device_online_refresh",
+            eager_start=False,
+        )
 
     @callback
     def _publish_devices(self) -> None:
@@ -207,6 +199,8 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _async_update_data(self) -> CoordinatorData:
         """Run an authoritative account topology and state scan."""
+        self._recoveries_in_scan = self._pending_recoveries
+        self._pending_recoveries = set()
         try:
             data = await self._async_scan_devices()
         except (AuxAuthError, AuxSessionExpired) as exc:
@@ -223,6 +217,11 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             raise UpdateFailed(str(exc)) from exc
         except AuxApiError as exc:
             raise UpdateFailed(str(exc)) from exc
+        finally:
+            self._recoveries_in_scan = None
+            # A scan started before these reconnects cannot supply their readings.
+            if self._pending_recoveries:
+                self._request_recovery_refresh()
         persistent_notification.async_dismiss(
             self.hass,
             _API_OUTAGE_NOTIFICATION_ID,

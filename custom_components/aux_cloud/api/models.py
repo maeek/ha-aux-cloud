@@ -66,6 +66,7 @@ class DeviceUpdate:
     endpoint_id: str
     params: Mapping[str, Any]
     available: bool | None = None
+    cached: bool = False
 
 
 @dataclass(frozen=True, slots=True)

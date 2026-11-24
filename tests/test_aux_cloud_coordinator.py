@@ -321,16 +321,107 @@ async def test_online_status_retries_empty_snapshot_once(
     mock_aux_cloud_api.scan_devices.assert_awaited_once()
 
 
+@pytest.mark.parametrize("cached_online", [{}, {"online": 1}])
+@pytest.mark.parametrize("live_params", [{}, {"pwr": 1}])
+async def test_cached_subscription_cannot_supply_reconnect_readings(
+    coordinator, mock_aux_cloud_api, hass, cached_online, live_params
+):
+    """A cached ACK may confirm availability but cannot restore stale power."""
+    _seed(coordinator, [_device(state=0, params={})])
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def scan_devices():
+        started.set()
+        await finish.wait()
+        return InventorySnapshot((_device(),), complete=True)
+
+    mock_aux_cloud_api.scan_devices.side_effect = scan_devices
+    coordinator._handle_websocket_updates(
+        (DeviceUpdate("device1", live_params, available=True),)
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    coordinator._handle_websocket_updates(
+        extract_websocket_updates(
+            {
+                "msgtype": "subresetk",
+                "status": 0,
+                "data": {
+                    "devList": [
+                        {"endpointId": "device1", "data": {"pwr": 0, **cached_online}}
+                    ]
+                },
+            }
+        )
+    )
+    entity = BaseEntity(coordinator, "device1", SimpleNamespace(key="pwr"))
+    assert entity.available == bool(live_params)
+    assert coordinator.data["device1"]["params"] == live_params
+    finish.set()
+    await hass.async_block_till_done()
+    assert coordinator.data["device1"]["params"] == {"pwr": 1}
+    mock_aux_cloud_api.scan_devices.assert_awaited_once()
+    await coordinator.async_shutdown()
+
+
+@pytest.mark.parametrize("final_online", [False, True])
+async def test_recovery_follows_order_within_one_frame(
+    coordinator, mock_aux_cloud_api, hass, final_online
+):
+    """Only a device that ends the frame online should trigger a recovery scan."""
+    _seed(coordinator, [_device()])
+    coordinator._handle_websocket_updates(
+        extract_websocket_updates(
+            {
+                "msgtype": "push",
+                "topic": "devpush",
+                "data": {
+                    "devList": [{"endpointId": "device1", "data": {"online": 0}}],
+                    "endpointId": "device1",
+                    "data": {"online": 1},
+                    "payload": {"data": {"online": int(final_online)}},
+                },
+            }
+        )
+    )
+    assert coordinator.data["device1"]["params"] == {}
+    await hass.async_block_till_done()
+    assert coordinator.data["device1"]["state"] == int(final_online)
+    assert mock_aux_cloud_api.scan_devices.await_count == int(final_online)
+    assert coordinator.data["device1"]["params"] == ({"pwr": 1} if final_online else {})
+    await coordinator.async_shutdown()
+
+
+async def test_unsupported_product_never_requests_snapshot(
+    coordinator, mock_aux_cloud_api, hass
+):
+    """Repeated online reports for an unknown product need no account scans."""
+    _seed(coordinator, [_device(productId="unknown", state=0, params={})])
+    for _ in range(2):
+        coordinator._handle_websocket_updates(
+            (DeviceUpdate("device1", {}, available=True),)
+        )
+        await hass.async_block_till_done()
+    assert coordinator.data["device1"]["state"] == 1
+    mock_aux_cloud_api.scan_devices.assert_not_awaited()
+
+
 @pytest.mark.parametrize("reconnected", [False, True])
 async def test_disconnect_invalidates_an_in_flight_scan(
-    coordinator, mock_aux_cloud_api, reconnected
+    coordinator, mock_aux_cloud_api, hass, reconnected
 ):
     """A delayed snapshot cannot bring back readings from before a disconnect."""
     _seed(coordinator, [_device()])
     scan_started = asyncio.Event()
     finish_scan = asyncio.Event()
+    finish_recovery = asyncio.Event()
 
     async def scan_devices():
+        if scan_started.is_set():
+            await finish_recovery.wait()
+            return InventorySnapshot(
+                (_device(params={"pwr": 0, "envtemp": 245}),), complete=True
+            )
         scan_started.set()
         await finish_scan.wait()
         return InventorySnapshot(
@@ -338,7 +429,7 @@ async def test_disconnect_invalidates_an_in_flight_scan(
         )
 
     mock_aux_cloud_api.scan_devices.side_effect = scan_devices
-    coordinator.async_request_refresh = AsyncMock()
+    coordinator._debounced_refresh.cooldown = 0
     scan = asyncio.create_task(coordinator.async_refresh())
     await asyncio.wait_for(scan_started.wait(), timeout=1)
     coordinator._handle_websocket_updates(
@@ -348,26 +439,47 @@ async def test_disconnect_invalidates_an_in_flight_scan(
         coordinator._handle_websocket_updates(
             (DeviceUpdate("device1", {"pwr": 0}, available=True),)
         )
+    # Keep the scan locked beyond the debounce interval.
+    await asyncio.sleep(0.01)
     finish_scan.set()
     await scan
     assert coordinator.data["device1"]["state"] == int(reconnected)
     assert coordinator.data["device1"]["params"] == ({"pwr": 0} if reconnected else {})
+    finish_recovery.set()
+    await hass.async_block_till_done()
+    assert mock_aux_cloud_api.scan_devices.await_count == (2 if reconnected else 1)
+    if reconnected:
+        assert coordinator.data["device1"]["params"] == {"pwr": 0, "envtemp": 245}
+    await coordinator.async_shutdown()
 
 
-async def test_new_reconnect_can_request_refresh_during_recovery(coordinator, hass):
+async def test_new_reconnect_can_request_refresh_during_recovery(
+    coordinator, mock_aux_cloud_api, hass
+):
     """Coalesce duplicate signals, but let a subsequent disconnect start a new recovery."""
     _seed(coordinator, [_device(state=0, params={})])
+    started = asyncio.Event()
     finish = asyncio.Event()
-    coordinator.async_request_refresh = AsyncMock(side_effect=finish.wait)
+
+    async def scan_devices():
+        started.set()
+        await finish.wait()
+        return InventorySnapshot((_device(),), complete=True)
+
+    mock_aux_cloud_api.scan_devices.side_effect = scan_devices
+    coordinator._debounced_refresh.cooldown = 0
     online = (DeviceUpdate("device1", {}, available=True),)
     offline = (DeviceUpdate("device1", {}, available=False),)
     coordinator._handle_websocket_updates(online)
+    await asyncio.wait_for(started.wait(), timeout=1)
     coordinator._handle_websocket_updates(online)
     coordinator._handle_websocket_updates(offline)
     coordinator._handle_websocket_updates(online)
     finish.set()
     await hass.async_block_till_done()
-    assert coordinator.async_request_refresh.await_count == 2
+    assert mock_aux_cloud_api.scan_devices.await_count == 2
+    assert coordinator.data["device1"]["params"] == {"pwr": 1}
+    await coordinator.async_shutdown()
 
 
 async def test_realtime_client_health_controls_fallback_polling(
