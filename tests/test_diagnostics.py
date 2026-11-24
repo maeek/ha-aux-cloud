@@ -48,6 +48,7 @@ async def test_diagnostics_sanitize_cookie_profile_and_version_source(hass):
         last_update_success=True,
         update_interval=None,
         websocket_degraded=False,
+        get_energy_statistics=lambda _endpoint_id: None,
     )
     entry = SimpleNamespace(
         data={

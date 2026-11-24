@@ -25,6 +25,8 @@ from custom_components.aux_cloud.climate import (
 from custom_components.aux_cloud.coordinator import AuxCloudCoordinator
 from custom_components.aux_cloud.devices import (
     AC_FAN_SPEED,
+    AC_MODE_COOLING,
+    AC_MODE_HEATING,
     AC_POWER,
     AC_POWER_OFF,
     AC_SWING_HORIZONTAL,
@@ -177,6 +179,30 @@ async def test_ac_partial_state_and_commands(hass):
     await entity.async_set_swing_mode("both")
     await entity.async_turn_off()
     assert coordinator.api.set_device_params.await_args.args[1] == AC_POWER_OFF
+
+
+def test_ac_configured_hvac_mode_attribute(hass):
+    """Test the configured mode stays visible while the AC is off."""
+    device = _ac_device()
+    coordinator = _coordinator(hass, device)
+    entity = AuxACClimateEntity(
+        coordinator,
+        "00001234",
+        ClimateEntityDescription(key="ac", translation_key="aux_ac"),
+    )
+    params = entity._device["params"]
+
+    params.update({AC_POWER: 0, AUX_MODE: AC_MODE_HEATING})
+    assert entity.hvac_mode == HVACMode.OFF
+    assert entity.extra_state_attributes == {"configured_hvac_mode": HVACMode.HEAT}
+
+    params[AUX_MODE] = AC_MODE_COOLING
+    assert entity.extra_state_attributes == {"configured_hvac_mode": HVACMode.COOL}
+
+    params[AUX_MODE] = 99
+    assert entity.extra_state_attributes == {"configured_hvac_mode": None}
+    params.pop(AUX_MODE)
+    assert entity.extra_state_attributes == {"configured_hvac_mode": None}
 
 
 def test_partial_scalar_entities_are_unknown(hass):

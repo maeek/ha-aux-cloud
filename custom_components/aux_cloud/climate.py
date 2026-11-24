@@ -345,6 +345,18 @@ class AuxACClimateEntity(BaseEntity, ClimateEntity):
         return HVAC_ACTION_BY_MODE.get(mode) if mode is not None else None
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the mode the unit is configured for, even while it is off.
+
+        hvac_mode reports "off" whenever the unit is powered down, which hides
+        the mode it will resume in (e.g. one chosen on the wall controller).
+        Exposing it lets automations that toggle power pick the right logic.
+        """
+        mode = self._get_device_params().get(AUX_MODE)
+        ha_mode = MODE_MAP_AUX_AC_TO_HA.get(mode) if isinstance(mode, int) else None
+        return {"configured_hvac_mode": ha_mode}
+
+    @property
     def fan_mode(self) -> str | None:
         """Return the fan mode."""
         value = self._get_device_params().get(AC_FAN_SPEED)

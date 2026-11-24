@@ -8,6 +8,7 @@ import contextlib
 import json
 import time
 from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from ..api.errors import (
@@ -16,10 +17,15 @@ from ..api.errors import (
     AuxServerError,
     raise_for_cloud_response,
 )
-from ..api.models import AuxDevice, DeviceUpdate
+from ..api.models import AuxDevice, DeviceUpdate, EnergyReading
 from ..device_metadata import decode_device_cookie
 
 _CONTROL_ENDPOINT = "device/control/v2/sdkcontrol"
+ENERGY_STATISTICS_ENDPOINT = "dataservice/v1/device/stats"
+ENERGY_VALUE_KEY = "tenelec"
+_ENERGY_TIMESTAMP_FORMAT = "%Y-%m-%d_%H:%M:%S"
+_ENERGY_RANGE_FORMAT = "%Y-%m-%dT%H:%M:%S"
+_ENERGY_HISTORY_START = "2000-01-01T00:00:00"
 
 
 def build_directive_header(
@@ -209,6 +215,66 @@ def parse_control_event(event: dict[str, Any]) -> dict[str, Any]:
             "Invalid AUX device control data",
             endpoint="device/control/v2/sdkcontrol",
         ) from exc
+
+
+def build_energy_statistics_request(
+    device: AuxDevice, report: str, *, offset: int = 0
+) -> dict[str, Any]:
+    """Build one statistics report query page as sent by the AC Freedom app."""
+    history_end = datetime.now(tz=UTC) + timedelta(days=1)
+    return {
+        "report": report,
+        "device": [
+            {
+                "did": device["endpointId"],
+                "offset": offset,
+                "step": 0,
+                "param": [],
+                "start": _ENERGY_HISTORY_START,
+                "end": history_end.strftime(_ENERGY_RANGE_FORMAT),
+            }
+        ],
+    }
+
+
+def parse_energy_statistics_page(
+    json_data: dict[str, Any], *, endpoint_id: str
+) -> tuple[list[EnergyReading], int]:
+    """Parse one statistics report page into readings and the row total."""
+    tables = json_data.get("table")
+    if not isinstance(tables, list):
+        raise AuxServerError(
+            "Invalid AUX energy statistics response",
+            endpoint=ENERGY_STATISTICS_ENDPOINT,
+        )
+
+    readings: list[EnergyReading] = []
+    total = 0
+    for table in tables:
+        if not isinstance(table, dict) or table.get("did") != endpoint_id:
+            continue
+        if isinstance(table.get("total"), int):
+            total = table["total"]
+        parsed = (_parse_energy_row(row) for row in table.get("values") or [])
+        readings.extend(reading for reading in parsed if reading is not None)
+    return readings, total
+
+
+def _parse_energy_row(row: Any) -> EnergyReading | None:
+    """Parse one statistics row, ignoring rows without a usable day or value."""
+    if not isinstance(row, dict):
+        return None
+    occurtime = row.get("occurtime")
+    value = row.get(ENERGY_VALUE_KEY)
+    if not isinstance(occurtime, str) or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    try:
+        day = datetime.strptime(occurtime, _ENERGY_TIMESTAMP_FORMAT).date()
+    except ValueError:
+        return None
+    return EnergyReading(day=day, energy_kwh=float(value))
 
 
 def build_device_subscriptions(devices: Iterable[AuxDevice]) -> list[dict[str, Any]]:

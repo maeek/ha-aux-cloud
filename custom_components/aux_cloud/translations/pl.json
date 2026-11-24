@@ -126,6 +126,12 @@
       },
       "ac_temperature": {
         "name": "Temperatura klimatyzatora"
+      },
+      "energy_total": {
+        "name": "Energia całkowita"
+      },
+      "energy_today": {
+        "name": "Energia dzisiaj"
       }
     },
     "water_heater": {
