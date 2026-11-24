@@ -1,7 +1,6 @@
 """Behavior-level tests for the AUX Cloud config flow."""
 
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud.config_flow as config_flow_module
 from custom_components.aux_cloud.api.models import AuxCredentials
@@ -10,8 +9,7 @@ from custom_components.aux_cloud.const import (
     CONF_PHONE_NUMBER,
     DOMAIN,
 )
-
-pytest_plugins = "pytest_homeassistant_custom_component"
+from tests.ha_helpers import MockConfigEntry
 
 
 class FakeDnaClient:

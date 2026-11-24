@@ -8,8 +8,6 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 
 from custom_components.aux_cloud.diagnostics import async_get_config_entry_diagnostics
 
-pytest_plugins = "pytest_homeassistant_custom_component"
-
 
 async def test_diagnostics_sanitize_cookie_profile_and_version_source(hass):
     """Diagnostics expose useful protocol evidence without account/device secrets."""

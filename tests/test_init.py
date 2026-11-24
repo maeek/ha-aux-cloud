@@ -4,11 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud as integration
 from custom_components.aux_cloud import async_setup
 from custom_components.aux_cloud.const import CONF_SELECTED_DEVICES, DOMAIN
+from tests.ha_helpers import MockConfigEntry
 
 
 async def test_yaml_credentials_start_one_ui_import(hass, monkeypatch):

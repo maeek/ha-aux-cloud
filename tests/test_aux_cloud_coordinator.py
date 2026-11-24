@@ -8,11 +8,15 @@ import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers import update_coordinator
 
 import custom_components.aux_cloud.state as state_module
 from custom_components.aux_cloud import FALLBACK_SCAN_INTERVAL, AuxCloudCoordinator
-from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
+from custom_components.aux_cloud.api.errors import (
+    AuxAuthError,
+    AuxNetworkError,
+    AuxServerError,
+)
 from custom_components.aux_cloud.api.models import (
     DeviceUpdate,
     EnergyStatistics,
@@ -24,8 +28,7 @@ from custom_components.aux_cloud.devices import (
     HP_HOT_WATER_TEMPERATURE_TARGET,
 )
 from custom_components.aux_cloud.entity import BaseEntity
-
-pytest_plugins = "pytest_homeassistant_custom_component"
+from tests.ha_helpers import MockConfigEntry
 
 
 @pytest.fixture
@@ -98,6 +101,30 @@ async def test_refresh_isolates_partial_failures_and_auth_errors(
     mock_aux_cloud_api.scan_devices.side_effect = AuxAuthError(code=-1006)
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            AuxNetworkError,
+            getattr(
+                update_coordinator,
+                "UpdateFailedUnreachable",
+                update_coordinator.UpdateFailed,
+            ),
+        ),
+        (AuxServerError, update_coordinator.UpdateFailed),
+    ],
+)
+async def test_refresh_failure_type(coordinator, mock_aux_cloud_api, error, expected):
+    """Only connectivity failures use the specialized error when core supports it."""
+    cause = error("cloud failure")
+    mock_aux_cloud_api.scan_devices.side_effect = cause
+    with pytest.raises(expected, match="cloud failure") as raised:
+        await coordinator._async_update_data()
+    assert type(raised.value) is expected
+    assert raised.value.__cause__ is cause
 
 
 def test_registered_endpoints_are_scoped_to_the_config_entry(coordinator, hass):

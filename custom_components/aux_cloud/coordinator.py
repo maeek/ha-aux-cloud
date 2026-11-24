@@ -14,12 +14,14 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import update_coordinator
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
     AuxApiError,
     AuxAuthError,
     AuxCloudClient,
+    AuxNetworkError,
     AuxRateLimitError,
     AuxServerError,
     AuxSessionExpired,
@@ -38,6 +40,11 @@ from .state import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Home Assistant 2026.12 distinguishes an unreachable service from other failures.
+_UpdateFailedUnreachable = getattr(
+    update_coordinator, "UpdateFailedUnreachable", UpdateFailed
+)
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=TOPOLOGY_SCAN_INTERVAL_MINUTES)
@@ -175,6 +182,8 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             raise ConfigEntryAuthFailed(
                 "AUX Cloud credentials must be updated"
             ) from exc
+        except AuxNetworkError as exc:
+            raise _UpdateFailedUnreachable(str(exc)) from exc
         except AuxRateLimitError as exc:
             raise UpdateFailed(str(exc), retry_after=exc.retry_after) from exc
         except AuxServerError as exc:

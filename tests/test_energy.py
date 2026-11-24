@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud.sensor as sensor_platform
 from custom_components.aux_cloud.api.errors import AuxServerError
@@ -25,10 +24,9 @@ from custom_components.aux_cloud.dna.codec import (
     parse_energy_statistics_page,
 )
 from custom_components.aux_cloud.sensor import AuxCloudSensor, AuxEnergySensor
+from tests.ha_helpers import MockConfigEntry
 
 from .api_helpers import mock_device, mock_heat_pump
-
-pytest_plugins = "pytest_homeassistant_custom_component"
 
 
 def _row(day: str, value: object) -> dict:
