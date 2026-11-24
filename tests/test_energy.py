@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, CONF_REGION
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.aux_cloud.sensor as sensor_platform
 from custom_components.aux_cloud.api.errors import AuxServerError
@@ -25,10 +24,9 @@ from custom_components.aux_cloud.dna.codec import (
     parse_energy_statistics_page,
 )
 from custom_components.aux_cloud.sensor import AuxCloudSensor, AuxEnergySensor
+from tests.ha_helpers import MockConfigEntry
 
 from .api_helpers import mock_device, mock_heat_pump
-
-pytest_plugins = "pytest_homeassistant_custom_component"
 
 
 def _row(day: str, value: object) -> dict:
@@ -74,9 +72,12 @@ def test_energy_request_and_page_parsing():
     page["table"].append(
         {"did": "other", "total": 1, "values": [_row("2026-01-01", 9)]}
     )
-    readings, total = parse_energy_statistics_page(page, endpoint_id="device1")
+    readings, row_count, total = parse_energy_statistics_page(
+        page, endpoint_id="device1"
+    )
 
     assert total == 83
+    assert row_count == 6
     assert readings == [
         EnergyReading(date(2026, 10, 14), 1.0625),
         EnergyReading(date(2026, 10, 15), 3.0),
@@ -88,26 +89,61 @@ def test_energy_request_and_page_parsing():
 async def test_client_pages_through_history_and_selects_regional_report():
     """The client follows the row total across pages and uses the CN report there."""
     requests: list[dict] = []
-    pages = [
-        _page([_row("2026-10-13", 0.125), _row("2026-10-14", 1.0625)], total=3),
-        _page([_row("2026-10-15", 3.0625)], total=3),
+    rows = [
+        _row("bad-date", 1),
+        _row("2026-10-13", 0.125),
+        _row("2026-10-13", None),
+        _row("2026-10-13", True),
+        _row("2026-10-14", 1.0625),
+        _row("2026-10-15", 3.0625),
     ]
 
     async def make_request(endpoint, *, data, **_kwargs):
         assert endpoint == ENERGY_STATISTICS_ENDPOINT
         requests.append(data)
-        return pages.pop(0)
+        offset = data["device"][0]["offset"]
+        return _page(rows[offset : offset + 2], total=len(rows))
 
     client = DnaClient(region="cn", session=MagicMock(closed=False))
     client._session.make_request = make_request
 
     statistics = await client.get_energy_statistics(mock_device())
 
-    assert [request["report"] for request in requests] == ["serv_auxmonthelec_v1"] * 2
-    assert [request["device"][0]["offset"] for request in requests] == [0, 2]
+    assert [request["report"] for request in requests] == ["serv_auxmonthelec_v1"] * 3
+    assert [request["device"][0]["offset"] for request in requests] == [0, 2, 4]
     assert statistics.endpoint_id == "device1"
     assert statistics.total_kwh == pytest.approx(4.25)
     assert statistics.energy_for_day(date(2026, 10, 15)) == pytest.approx(3.0625)
+
+
+async def test_client_reads_more_than_twenty_pages():
+    """The lifetime total includes the last day even on a long report."""
+    first_day = date(2020, 1, 1)
+    rows = [_row((first_day + timedelta(days=i)).isoformat(), 1) for i in range(401)]
+    client = DnaClient(region="eu", session=MagicMock(closed=False))
+
+    async def make_request(endpoint, *, data):
+        offset = data["device"][0]["offset"]
+        return _page(rows[offset : offset + 20], total=len(rows))
+
+    client._session.make_request = make_request
+    statistics = await client.get_energy_statistics(mock_device())
+    assert statistics.total_kwh == 401
+    assert statistics.energy_for_day(first_day + timedelta(days=400)) == 1
+
+
+@pytest.mark.parametrize("last_page", [_page([], total=2), _page([], total=0)])
+async def test_client_rejects_incomplete_energy_reports(last_page):
+    """An interrupted or changing report cannot replace a known lifetime total."""
+    client = DnaClient(region="eu", session=MagicMock(closed=False))
+    client._session.make_request = AsyncMock(
+        side_effect=[
+            _page([_row("2026-10-13", 1)], total=2),
+            last_page,
+        ]
+    )
+    with pytest.raises(AuxServerError, match="Incomplete AUX energy history"):
+        await client.get_energy_statistics(mock_device())
 
 
 async def test_coordinator_refreshes_energy_only_for_reporting_air_conditioners(hass):
@@ -160,7 +196,7 @@ async def test_coordinator_refreshes_energy_only_for_reporting_air_conditioners(
     assert coordinator.get_energy_statistics("device1") is None
 
 
-async def test_energy_sensors_appear_once_history_exists(hass):
+async def test_energy_sensors_appear_once_history_exists(hass, request):
     """Energy sensors are added when history arrives and expose daily totals."""
     api = MagicMock()
     api.close = AsyncMock()
@@ -175,12 +211,14 @@ async def test_energy_sensors_appear_once_history_exists(hass):
     entry.add_to_hass(hass)
     coordinator = AuxCloudCoordinator(hass, api, config_entry=entry)
     device = {**mock_device(), "state": 1, "params": {"envtemp": 215}}
-    coordinator._state.reconcile(
-        [device], complete=True, scan_revision=coordinator._state.revision
+    api.scan_devices = AsyncMock(
+        return_value=InventorySnapshot((device,), complete=True)
     )
-    coordinator._publish_devices()
+    api.update_realtime_devices = AsyncMock()
+    api.get_energy_statistics = AsyncMock(return_value=EnergyStatistics("device1", ()))
+    await coordinator.async_refresh()
     platform_entry = SimpleNamespace(
-        runtime_data=coordinator, async_on_unload=MagicMock()
+        runtime_data=coordinator, async_on_unload=request.addfinalizer
     )
     added = MagicMock()
 
@@ -190,14 +228,14 @@ async def test_energy_sensors_appear_once_history_exists(hass):
     added.reset_mock()
 
     today = dt_util.now().date()
-    coordinator._energy["device1"] = EnergyStatistics(
+    api.get_energy_statistics.return_value = EnergyStatistics(
         "device1",
         (
             EnergyReading(today - timedelta(days=1), 1.5),
             EnergyReading(today, 0.25),
         ),
     )
-    coordinator._publish_devices()
+    await coordinator.async_refresh()
 
     sensors = {
         entity.entity_description.key: entity for entity in added.call_args.args[0]
@@ -209,7 +247,17 @@ async def test_energy_sensors_appear_once_history_exists(hass):
     assert sensors["energy_today"].native_value == pytest.approx(0.25)
     assert sensors["energy_total"].unique_id == "aux_cloud_device1_energy_total"
 
-    coordinator._publish_devices()
+    published = []
+    request.addfinalizer(
+        coordinator.async_add_listener(
+            lambda: published.append(sensors["energy_total"].native_value)
+        )
+    )
+    api.get_energy_statistics.return_value = EnergyStatistics(
+        "device1", (EnergyReading(today, 2.5),)
+    )
+    await coordinator.async_refresh()
+    assert published == [2.5]
     assert added.call_count == 1
 
     coordinator._energy.clear()

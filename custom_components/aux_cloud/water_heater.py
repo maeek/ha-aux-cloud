@@ -65,6 +65,8 @@ async def async_setup_entry(
 class AuxWaterHeaterEntity(BaseEntity, WaterHeaterEntity):
     """AUX Cloud water heater entity."""
 
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+
     def __init__(
         self,
         coordinator: AuxCloudCoordinator,
@@ -73,7 +75,6 @@ class AuxWaterHeaterEntity(BaseEntity, WaterHeaterEntity):
     ) -> None:
         super().__init__(coordinator, device_id, entity_description)
 
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_min_temp = 0  # Minimum temperature in Celsius
         self._attr_max_temp = 75  # Maximum temperature in Celsius
         self._attr_target_temperature_step = 1
@@ -85,7 +86,7 @@ class AuxWaterHeaterEntity(BaseEntity, WaterHeaterEntity):
         )
 
     @property
-    def current_temperature(self) -> float | int | None:
+    def native_current_temperature(self) -> float | int | None:
         """Return the current water temperature."""
         value = self._get_device_params().get(HP_HOT_WATER_TANK_TEMPERATURE)
         if not isinstance(value, (int, float)):
@@ -93,10 +94,16 @@ class AuxWaterHeaterEntity(BaseEntity, WaterHeaterEntity):
         return value / 10 if is_v3_heat_pump(self._device) else value
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the target water temperature (C)."""
         value = self._get_device_params().get(HP_HOT_WATER_TEMPERATURE_TARGET)
         return value / 10 if isinstance(value, (int, float)) else None
+
+    # Home Assistant before 2026.11 reads the original temperature properties.
+    if not hasattr(WaterHeaterEntity, "native_temperature_unit"):
+        _attr_temperature_unit = _attr_native_temperature_unit
+        target_temperature = native_target_temperature
+        current_temperature = native_current_temperature
 
     @property
     def current_operation(self) -> str | None:

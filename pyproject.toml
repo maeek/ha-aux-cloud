@@ -29,7 +29,9 @@ exclude_lines = [
 testpaths = ["tests"]
 norecursedirs = [".git"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = [
+  "-p", "no:respx",  # Let Home Assistant install its httpx alias first.
   "--strict-markers",
   "--cov=custom_components/aux_cloud",
   "--cov-report=term-missing",

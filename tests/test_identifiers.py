@@ -2,7 +2,6 @@
 
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.aux_cloud.identifiers import (
     account_unique_id_from_user_id,
@@ -10,8 +9,7 @@ from custom_components.aux_cloud.identifiers import (
     device_identifier,
     legacy_entity_unique_id,
 )
-
-pytest_plugins = "pytest_homeassistant_custom_component"
+from tests.ha_helpers import MockConfigEntry
 
 
 def test_registry_identifiers_remain_stable():

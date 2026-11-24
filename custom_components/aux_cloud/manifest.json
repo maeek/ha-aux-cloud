@@ -1,6 +1,7 @@
 {
   "domain": "aux_cloud",
   "name": "AUX Cloud",
+  "categories": ["climate.heat_pumps_air_conditioning"],
   "codeowners": ["@maeek"],
   "config_flow": true,
   "documentation": "https://github.com/maeek/ha-aux-cloud",

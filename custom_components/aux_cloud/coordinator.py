@@ -14,12 +14,14 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import update_coordinator
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
     AuxApiError,
     AuxAuthError,
     AuxCloudClient,
+    AuxNetworkError,
     AuxRateLimitError,
     AuxServerError,
     AuxSessionExpired,
@@ -31,7 +33,6 @@ from .const import (
     TOPOLOGY_SCAN_INTERVAL_MINUTES,
 )
 from .devices import DeviceType, get_device_profile, normalize_device_params
-from .identifiers import device_identifier
 from .state import (
     AccountState,
     CoordinatorData,
@@ -39,6 +40,11 @@ from .state import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Home Assistant 2026.12 distinguishes an unreachable service from other failures.
+_UpdateFailedUnreachable = getattr(
+    update_coordinator, "UpdateFailedUnreachable", UpdateFailed
+)
 
 FALLBACK_SCAN_INTERVAL = timedelta(minutes=5)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=TOPOLOGY_SCAN_INTERVAL_MINUTES)
@@ -63,13 +69,16 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             config_entry=config_entry,
             name="AUX Cloud",
             update_interval=TOPOLOGY_SCAN_INTERVAL,
-            always_update=False,
+            # Energy history and the local day can change between identical inventories.
+            always_update=True,
         )
         self.config_entry: ConfigEntry = config_entry
         self.api = api
         self._state = AccountState(normalize_device_params)
         self._energy: dict[str, EnergyStatistics] = {}
         self._command_locks: dict[str, asyncio.Lock] = {}
+        self._pending_recoveries: set[tuple[str, int]] = set()
+        self._recoveries_in_scan: set[tuple[str, int]] | None = None
         self._reserved_entity_unique_ids: dict[tuple[str, str], str] = {}
         self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
@@ -157,8 +166,28 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     @callback
     def _handle_websocket_updates(self, updates: tuple[DeviceUpdate, ...]) -> None:
         """Merge one validated relay frame in one coordinator write."""
-        if self._state.apply_updates(updates):
+        changed, recoveries = self._state.apply_updates(updates)
+        if changed:
             self._publish_devices()
+        already_queued = bool(self._pending_recoveries)
+        for endpoint_id, revision in recoveries:
+            device = self._state.get(endpoint_id)
+            if device and get_device_profile(device).initial_param_queries(device):
+                self._pending_recoveries.add((endpoint_id, revision))
+        if self._recoveries_in_scan is not None:
+            self._pending_recoveries.difference_update(self._recoveries_in_scan)
+        elif self._pending_recoveries and not already_queued:
+            self._request_recovery_refresh()
+
+    @callback
+    def _request_recovery_refresh(self) -> None:
+        """Queue a batched refresh after the current coordinator callback returns."""
+        self.config_entry.async_create_task(
+            self.hass,
+            self.async_request_refresh(),
+            "aux_cloud_device_online_refresh",
+            eager_start=False,
+        )
 
     @callback
     def _publish_devices(self) -> None:
@@ -170,12 +199,16 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _async_update_data(self) -> CoordinatorData:
         """Run an authoritative account topology and state scan."""
+        self._recoveries_in_scan = self._pending_recoveries
+        self._pending_recoveries = set()
         try:
             data = await self._async_scan_devices()
         except (AuxAuthError, AuxSessionExpired) as exc:
             raise ConfigEntryAuthFailed(
                 "AUX Cloud credentials must be updated"
             ) from exc
+        except AuxNetworkError as exc:
+            raise _UpdateFailedUnreachable(str(exc)) from exc
         except AuxRateLimitError as exc:
             raise UpdateFailed(str(exc), retry_after=exc.retry_after) from exc
         except AuxServerError as exc:
@@ -184,6 +217,11 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             raise UpdateFailed(str(exc)) from exc
         except AuxApiError as exc:
             raise UpdateFailed(str(exc)) from exc
+        finally:
+            self._recoveries_in_scan = None
+            # A scan started before these reconnects cannot supply their readings.
+            if self._pending_recoveries:
+                self._request_recovery_refresh()
         persistent_notification.async_dismiss(
             self.hass,
             _API_OUTAGE_NOTIFICATION_ID,
@@ -308,8 +346,9 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         registry = dr.async_get(self.hass)
         return {
             identifier[1]
-            for device in registry.devices.values()
-            if self.config_entry.entry_id in device.config_entries
+            for device in dr.async_entries_for_config_entry(
+                registry, self.config_entry.entry_id
+            )
             for identifier in device.identifiers
             if identifier[0] == DOMAIN
         }
@@ -320,15 +359,25 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if not endpoint_ids:
             return
         registry = dr.async_get(self.hass)
-        for endpoint_id in endpoint_ids:
-            device = registry.async_get_device(
-                identifiers={device_identifier(endpoint_id)}
-            )
-            if device is not None:
+        for device in dr.async_entries_for_config_entry(
+            registry, self.config_entry.entry_id
+        ):
+            if not any(
+                domain == DOMAIN and endpoint_id in endpoint_ids
+                for domain, endpoint_id in device.identifiers
+            ):
+                continue
+            # Before HA 2026.8, one registry device could belong to multiple
+            # entries. Detach only our entry in that legacy shared-device case.
+            if not hasattr(device, "config_entry_id") and device.config_entries != {
+                self.config_entry.entry_id
+            }:
                 registry.async_update_device(
                     device_id=device.id,
                     remove_config_entry_id=self.config_entry.entry_id,
                 )
+            else:
+                registry.async_remove_device(device.id)
 
 
 type AuxCloudConfigEntry = ConfigEntry[AuxCloudCoordinator]

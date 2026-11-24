@@ -239,8 +239,8 @@ def build_energy_statistics_request(
 
 def parse_energy_statistics_page(
     json_data: dict[str, Any], *, endpoint_id: str
-) -> tuple[list[EnergyReading], int]:
-    """Parse one statistics report page into readings and the row total."""
+) -> tuple[list[EnergyReading], int, int]:
+    """Return usable readings, raw rows consumed, and the report's row total."""
     tables = json_data.get("table")
     if not isinstance(tables, list):
         raise AuxServerError(
@@ -249,15 +249,20 @@ def parse_energy_statistics_page(
         )
 
     readings: list[EnergyReading] = []
+    row_count = 0
     total = 0
     for table in tables:
         if not isinstance(table, dict) or table.get("did") != endpoint_id:
             continue
         if isinstance(table.get("total"), int):
             total = table["total"]
-        parsed = (_parse_energy_row(row) for row in table.get("values") or [])
+        rows = table.get("values")
+        if not isinstance(rows, list):
+            continue
+        row_count += len(rows)
+        parsed = (_parse_energy_row(row) for row in rows)
         readings.extend(reading for reading in parsed if reading is not None)
-    return readings, total
+    return readings, row_count, total
 
 
 def _parse_energy_row(row: Any) -> EnergyReading | None:
@@ -322,21 +327,21 @@ def extract_websocket_updates(
     updates: list[DeviceUpdate] = []
 
     if msgtype in {"subk", "subresetk"} and message.get("status") in SUCCESS_STATUSES:
-        updates.extend(_extract_devlist_updates(data))
+        updates.extend(_extract_devlist_updates(data, live=False))
 
     if msgtype == "push" and message.get("topic") == "devpush":
-        updates.extend(_extract_devlist_updates(data))
+        updates.extend(_extract_devlist_updates(data, live=True))
         updates.extend(_extract_push_payload_update(data))
 
     if msgtype == "transit.opencontrolk":
         updates.extend(_extract_opencontrol_updates(data))
 
     return tuple(
-        update for update in updates if update.params or update.available is False
+        update for update in updates if update.params or update.available is not None
     )
 
 
-def _extract_devlist_updates(data: dict[str, Any]) -> list[DeviceUpdate]:
+def _extract_devlist_updates(data: dict[str, Any], *, live: bool) -> list[DeviceUpdate]:
     updates: list[DeviceUpdate] = []
     device_list = data.get("devList")
     if not isinstance(device_list, list):
@@ -352,7 +357,7 @@ def _extract_devlist_updates(data: dict[str, Any]) -> list[DeviceUpdate]:
             and params
             and item.get("status") in SUCCESS_STATUSES
         ):
-            updates.append(_build_update(endpoint_id, params))
+            updates.append(_build_update(endpoint_id, params, live=live))
     return updates
 
 
@@ -367,28 +372,36 @@ def _extract_push_payload_update(data: dict[str, Any]) -> list[DeviceUpdate]:
         params = decode_json_payload(payload)
         update_endpoint_id = endpoint_id or params.get("did")
         if isinstance(update_endpoint_id, str) and update_endpoint_id and params:
-            updates.append(_build_update(update_endpoint_id, params))
+            updates.append(_build_update(update_endpoint_id, params, live=True))
     return updates
 
 
-def _build_update(endpoint_id: str, params: dict[str, Any]) -> DeviceUpdate:
+def _build_update(
+    endpoint_id: str, params: dict[str, Any], *, live: bool
+) -> DeviceUpdate:
     available = _extract_availability(params)
+    values = {
+        key: value
+        for key, value in params.items()
+        if key not in {"did", "pid", "online", "state"}
+    }
+    if available is None and live and values:
+        available = True
     return DeviceUpdate(
         endpoint_id=endpoint_id,
-        params={} if available is False else params,
+        params={} if available is False else values,
         available=available,
+        cached=not live,
     )
 
 
 def _extract_availability(params: dict[str, Any]) -> bool | None:
-    online = params.get("online")
-    if isinstance(online, bool):
-        return online
-    state = params.get("state")
-    if state in (0, "0", False):
-        return False
-    if state in (1, "1", True):
-        return True
+    for key in ("online", "state"):
+        value = params.get(key)
+        if value in (0, "0"):
+            return False
+        if value in (1, "1"):
+            return True
     return None
 
 

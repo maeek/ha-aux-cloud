@@ -52,6 +52,7 @@ class _DeviceTracking:
 
     missing_complete_scans: int = 0
     empty_param_scans: int = 0
+    awaiting_inventory_params: bool = True
     pending_writes: dict[str, _PendingWrite] = field(default_factory=dict)
 
 
@@ -85,22 +86,40 @@ class AccountState:
         """Return a device by endpoint ID."""
         return self._devices.get(endpoint_id)
 
-    def apply_updates(self, updates: Iterable[DeviceUpdate]) -> bool:
-        """Apply validated push updates, skipping semantic no-ops."""
-        changed = False
-        for update in updates:
-            changed = self._apply_update(update) or changed
-        return changed
+    def availability_revision(self, endpoint_id: str) -> int:
+        """Return the revision of the last relay availability transition."""
+        return self._field_revisions.get(endpoint_id, {}).get(_AVAILABILITY, 0)
 
-    def _apply_update(self, update: DeviceUpdate) -> bool:
+    def apply_updates(
+        self, updates: Iterable[DeviceUpdate]
+    ) -> tuple[bool, set[tuple[str, int]]]:
+        """Apply a frame in wire order and identify devices needing a fresh scan."""
+        changed = False
+        recoveries: dict[str, int] = {}
+        for update in updates:
+            endpoint_id = update.endpoint_id
+            previous = self.get(endpoint_id)
+            if previous is None:
+                continue
+            changed = self._apply_update(update, previous) or changed
+            if update.available is False:
+                recoveries.pop(endpoint_id, None)
+            elif update.available is True and (
+                previous.get("state") == 0 or not previous.get("params")
+            ):
+                recoveries[endpoint_id] = self.availability_revision(endpoint_id)
+        return changed, set(recoveries.items())
+
+    def _apply_update(self, update: DeviceUpdate, current: AuxDevice) -> bool:
         """Apply one push update and report a semantic change."""
-        current = self._devices.get(update.endpoint_id)
-        if current is None:
-            return False
         tracking = self._tracking.setdefault(update.endpoint_id, _DeviceTracking())
         if update.available is False:
             tracking.pending_writes.clear()
+            tracking.awaiting_inventory_params = True
             candidate, fields = self._offline_update(current)
+        elif current.get("state") == 0 and update.available is None:
+            # Subscription acknowledgements can contain cached device values.
+            return False
         else:
             candidate, fields = self._online_update(current, update, tracking)
         if not fields or current == candidate:
@@ -127,12 +146,14 @@ class AccountState:
     ) -> tuple[AuxDevice, set[str]]:
         """Build a merged online snapshot and its changed fields."""
         candidate = _copy_device(current)
+        # A late subscription ACK can predate even the first live reconnect reading.
+        params = (
+            {}
+            if update.cached and tracking.awaiting_inventory_params
+            else update.params
+        )
         cleaned = self._filter_stale_push_values(
-            {
-                key: value
-                for key, value in update.params.items()
-                if key not in {"did", "pid"}
-            },
+            {key: value for key, value in params.items() if key not in {"did", "pid"}},
             tracking.pending_writes,
         )
         previous = current.get("params", {})
@@ -306,27 +327,35 @@ class AccountState:
     ) -> AuxDevice:
         """Reconcile one scan record against the latest state."""
         current = self._devices.get(endpoint_id)
+        tracking = self._tracking[endpoint_id]
         if current is None:
             if incoming.get("params"):
                 self._normalizer(incoming)
+                tracking.awaiting_inventory_params = False
             return incoming
 
-        tracking = self._tracking[endpoint_id]
         field_revisions = self._field_revisions.get(endpoint_id, {})
-        availability_changed = field_revisions.get(_AVAILABILITY, 0) > scan_revision
+        if self.availability_revision(endpoint_id) > scan_revision:
+            # Inventory metadata is useful, but the readings may predate a disconnect.
+            return {
+                **incoming,
+                "state": current.get("state", 1),
+                "params": dict(current.get("params", {})),
+            }
         incoming_params = incoming.get("params", {})
 
-        if incoming.get("state") == 0 and not availability_changed:
+        if incoming.get("state") == 0:
             tracking.empty_param_scans = 0
             tracking.pending_writes.clear()
+            tracking.awaiting_inventory_params = True
             candidate = cast(AuxDevice, {**incoming, "params": {}})
         elif incoming_params:
+            tracking.awaiting_inventory_params = False
             candidate = self._merge_scan_params(
                 current,
                 incoming,
                 field_revisions=field_revisions,
                 scan_revision=scan_revision,
-                availability_changed=availability_changed,
             )
             tracking.empty_param_scans = 0
         else:
@@ -335,8 +364,9 @@ class AccountState:
                 incoming,
                 tracking=tracking,
                 complete=complete,
-                availability_changed=availability_changed,
             )
+            if not candidate.get("params"):
+                tracking.awaiting_inventory_params = True
 
         if current == candidate:
             return current
@@ -349,7 +379,6 @@ class AccountState:
         *,
         field_revisions: Mapping[str, int],
         scan_revision: int,
-        availability_changed: bool,
     ) -> AuxDevice:
         """Merge scan params while preserving fields changed after scan start."""
         current_params = current.get("params", {})
@@ -358,8 +387,6 @@ class AccountState:
             if field_revisions.get(key, 0) > scan_revision:
                 merged[key] = value
         candidate: AuxDevice = {**incoming, "params": merged}
-        if availability_changed:
-            candidate["state"] = current.get("state", 1)
         self._normalizer(candidate)
         return candidate
 
@@ -370,7 +397,6 @@ class AccountState:
         *,
         tracking: _DeviceTracking,
         complete: bool,
-        availability_changed: bool,
     ) -> AuxDevice:
         """Retain safe params across bounded empty authoritative scans."""
         if complete:
@@ -379,13 +405,10 @@ class AccountState:
         retain = bool(current_params) and (
             not complete or tracking.empty_param_scans <= MAX_FAILED_POLLS
         )
-        candidate: AuxDevice = {
+        return {
             **incoming,
             "params": dict(current_params) if retain else {},
         }
-        if availability_changed:
-            candidate["state"] = current.get("state", 1)
-        return candidate
 
     def _finish_command(
         self,

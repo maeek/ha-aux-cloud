@@ -12,8 +12,10 @@ from homeassistant.components.water_heater import (
     STATE_OFF,
     STATE_PERFORMANCE,
 )
+from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.exceptions import HomeAssistantError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
+from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 import custom_components.aux_cloud.climate as climate_platform
 import custom_components.aux_cloud.switch as switch_platform
@@ -50,8 +52,7 @@ from custom_components.aux_cloud.water_heater import (
     WATER_HEATER_DESCRIPTION,
     AuxWaterHeaterEntity,
 )
-
-pytest_plugins = "pytest_homeassistant_custom_component"
+from tests.ha_helpers import MockConfigEntry
 
 AC_PRODUCT_ID = "000000000000000000000000c0620000"
 HP_PRODUCT_ID = "000000000000000000000000c3aa0000"
@@ -99,6 +100,70 @@ def _ac_device(endpoint_id="00001234"):
     }
 
 
+@pytest.mark.parametrize(
+    ("units", "current", "target"),
+    [(METRIC_SYSTEM, 20, 25), (US_CUSTOMARY_SYSTEM, 68, 77)],
+)
+def test_temperature_state_attributes(hass, units, current, target):
+    """Home Assistant publishes native Celsius readings in the configured units."""
+    hass.config.units = units
+    ac = _ac_device()
+    ac["params"].update({AC_TEMPERATURE_AMBIENT: 200, AC_TEMPERATURE_TARGET: 250})
+    hp = {
+        "endpointId": "hp1",
+        "productId": HP_PRODUCT_ID,
+        "params": {
+            HP_HEATER_TEMPERATURE_TARGET: 250,
+            HP_HOT_WATER_TANK_TEMPERATURE: 20,
+            HP_HOT_WATER_TEMPERATURE_TARGET: 250,
+        },
+    }
+    coordinator = _coordinator(hass, hp)
+    entities = (
+        (
+            AuxACClimateEntity(
+                _coordinator(hass, ac),
+                ac["endpointId"],
+                ClimateEntityDescription(key="ac"),
+            ),
+            current,
+        ),
+        (
+            AuxHeatPumpClimateEntity(
+                coordinator,
+                "hp1",
+                ClimateEntityDescription(key="heat_pump_central_heating"),
+            ),
+            None,
+        ),
+        (AuxWaterHeaterEntity(coordinator, "hp1", WATER_HEATER_DESCRIPTION), current),
+    )
+    for entity, expected_current in entities:
+        entity.hass = hass
+        attributes = entity.state_attributes
+        assert attributes["current_temperature"] == expected_current
+        assert attributes[ATTR_TEMPERATURE] == target
+
+
+@pytest.mark.parametrize("mac", ["AABBCCDDEEFF", None, "invalid"])
+def test_device_info_connections(hass, mac):
+    """Only a valid MAC adds a normalized device-registry connection."""
+    device = _ac_device()
+    if mac is not None:
+        device["mac"] = mac
+    entity = AuxACClimateEntity(
+        _coordinator(hass, device),
+        device["endpointId"],
+        ClimateEntityDescription(key="ac"),
+    )
+    info = entity.device_info
+    fields = info.as_dict() if hasattr(info, "as_dict") else info
+    if mac == "AABBCCDDEEFF":
+        assert fields["connections"] == {(CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:ff")}
+    else:
+        assert "connections" not in fields
+
+
 async def test_heat_pump_partial_state_and_commands(hass):
     """Test heat-pump omissions stay unknown and every supported command is bounded."""
     device = {
@@ -119,7 +184,7 @@ async def test_heat_pump_partial_state_and_commands(hass):
     params = entity._device["params"]
 
     assert entity.preset_mode is None
-    assert entity.target_temperature is None
+    assert entity.native_target_temperature is None
     assert entity.hvac_mode is None
     assert entity.hvac_action is None
 
@@ -240,8 +305,8 @@ def test_partial_scalar_entities_are_unknown(hass):
     )
     water = AuxWaterHeaterEntity(hp_coordinator, "hp1", WATER_HEATER_DESCRIPTION)
     assert select.current_option is None
-    assert water.current_temperature is None
-    assert water.target_temperature is None
+    assert water.native_current_temperature is None
+    assert water.native_target_temperature is None
     assert water.current_operation is None
     water._device["params"][HP_WATER_POWER] = 1
     assert water.current_operation is None
@@ -271,8 +336,8 @@ async def test_water_heater_state_and_commands(hass):
     )
     entity.async_write_ha_state = MagicMock()
 
-    assert entity.current_temperature == 45
-    assert entity.target_temperature == 50
+    assert entity.native_current_temperature == 45
+    assert entity.native_target_temperature == 50
     assert entity.current_operation == STATE_HEAT_PUMP
     assert entity.operation_list == [STATE_OFF, STATE_HEAT_PUMP, STATE_PERFORMANCE]
 
@@ -284,7 +349,7 @@ async def test_water_heater_state_and_commands(hass):
     assert entity.current_operation == STATE_OFF
     await entity.async_set_temperature(temperature=52)
     entity._handle_coordinator_update()
-    assert entity.target_temperature == 52
+    assert entity.native_target_temperature == 52
 
     with pytest.raises(HomeAssistantError):
         await entity.async_set_operation_mode("invalid")

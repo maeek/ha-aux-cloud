@@ -1,0 +1,38 @@
+name: Home Assistant dev
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: home-assistant/core
+          ref: dev
+          path: .ha-core
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install Home Assistant dev and its matching test helpers
+        run: pip install ./.ha-core ./.ha-core/packages/pytest-homeassistant pytest-cov pycryptodome==3.23.0
+      - name: Run tests
+        run: python -m pytest -q --log-file=ha-dev.log --log-file-level=WARNING
+      - name: Check for AUX Cloud deprecations
+        if: ${{ !cancelled() }}
+        run: |
+          test -f ha-dev.log
+          if grep -Ei '(aux_cloud|aux cloud).*(deprecat|will (be removed|stop working))|(deprecat|will (be removed|stop working)).*(aux_cloud|aux cloud)' ha-dev.log; then
+            exit 1
+          fi

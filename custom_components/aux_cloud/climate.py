@@ -162,6 +162,8 @@ async def async_setup_entry(
 class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
     """AUX Cloud heat pump climate entity."""
 
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+
     def __init__(
         self,
         coordinator: AuxCloudCoordinator,
@@ -180,7 +182,6 @@ class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
         self._attr_min_temp = 0  # Minimum temperature in Celsius
         self._attr_max_temp = 64  # Maximum temperature in Celsius
         self._attr_target_temperature_step = 1
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_preset_modes = [PRESET_NONE, PRESET_ECO]
 
     @property
@@ -194,10 +195,15 @@ class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
         return PRESET_NONE
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the target water temperature."""
         value = self._get_device_params().get(HP_HEATER_TEMPERATURE_TARGET)
         return value / 10 if isinstance(value, (int, float)) else None
+
+    # Home Assistant before 2026.11 reads the original temperature properties.
+    if not hasattr(ClimateEntity, "native_temperature_unit"):
+        _attr_temperature_unit = _attr_native_temperature_unit
+        target_temperature = native_target_temperature
 
     @property
     def hvac_mode(self) -> HVACMode | None:
@@ -269,6 +275,8 @@ class AuxHeatPumpClimateEntity(BaseEntity, ClimateEntity):
 class AuxACClimateEntity(BaseEntity, ClimateEntity):
     """AUX Cloud climate entity."""
 
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+
     def __init__(
         self,
         coordinator: AuxCloudCoordinator,
@@ -278,7 +286,6 @@ class AuxACClimateEntity(BaseEntity, ClimateEntity):
         """Initialize the climate entity."""
         super().__init__(coordinator, device_id, entity_description)
         self._profile = get_device_profile(self._device)
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_supported_features = _ac_supported_features(self._profile)
         self._attr_hvac_modes = _ac_hvac_modes(self._profile)
         self._attr_fan_modes = _ac_fan_modes(self._profile)
@@ -288,16 +295,22 @@ class AuxACClimateEntity(BaseEntity, ClimateEntity):
         self._attr_target_temperature_step = 0.5
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the current temperature."""
         value = self._get_device_params().get(AC_TEMPERATURE_AMBIENT)
         return value / 10 if isinstance(value, (int, float)) else None
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the target temperature."""
         value = self._get_device_params().get(AC_TEMPERATURE_TARGET)
         return value / 10 if isinstance(value, (int, float)) else None
+
+    # Home Assistant before 2026.11 reads the original temperature properties.
+    if not hasattr(ClimateEntity, "native_temperature_unit"):
+        _attr_temperature_unit = _attr_native_temperature_unit
+        target_temperature = native_target_temperature
+        current_temperature = native_current_temperature
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""

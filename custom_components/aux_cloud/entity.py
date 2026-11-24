@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import re
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -70,18 +70,18 @@ class BaseEntity(CoordinatorEntity["AuxCloudCoordinator"]):
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
-        info = DeviceInfo(
+        mac = format_mac(str(self._device.get("mac", "")))
+        return DeviceInfo(
             identifiers={device_identifier(self._device_id)},
             name=str(self._device.get("friendlyName", "AUX")),
             manufacturer=MANUFACTURER,
             model=get_device_profile(self._device).model_name,
+            **(
+                {"connections": {(CONNECTION_NETWORK_MAC, mac)}}
+                if re.fullmatch(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}", mac)
+                else {}
+            ),
         )
-        if self._device.get("mac"):
-            with contextlib.suppress(ValueError):
-                info["connections"] = {
-                    (CONNECTION_NETWORK_MAC, format_mac(str(self._device["mac"])))
-                }
-        return info
 
     @property
     def available(self) -> bool:
