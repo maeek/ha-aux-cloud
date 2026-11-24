@@ -146,7 +146,19 @@
         }
       },
       "aux_ac": {
-        "name": "Air Conditioner"
+        "name": "Air Conditioner",
+        "state_attributes": {
+          "configured_hvac_mode": {
+            "name": "Configured mode",
+            "state": {
+              "auto": "Auto",
+              "cool": "Cool",
+              "dry": "Dry",
+              "fan_only": "Fan only",
+              "heat": "Heat"
+            }
+          }
+        }
       }
     },
     "select": {
