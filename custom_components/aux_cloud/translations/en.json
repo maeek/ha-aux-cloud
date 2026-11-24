@@ -129,6 +129,12 @@
       },
       "err_flag": {
         "name": "Error Flag"
+      },
+      "energy_total": {
+        "name": "Total Energy"
+      },
+      "energy_today": {
+        "name": "Energy Today"
       }
     },
     "water_heater": {

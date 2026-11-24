@@ -20,13 +20,23 @@ from ..api.errors import (
     AuxSessionExpired,
     AuxUnknownApiError,
 )
-from ..api.models import AuxCredentials, AuxDevice, DeviceUpdate, InventorySnapshot
+from ..api.models import (
+    AuxCredentials,
+    AuxDevice,
+    DeviceUpdate,
+    EnergyReading,
+    EnergyStatistics,
+    InventorySnapshot,
+)
 from ..devices import get_device_profile
 from .codec import (
+    ENERGY_STATISTICS_ENDPOINT,
     build_device_params_directive,
+    build_energy_statistics_request,
     device_values_to_params,
     extract_websocket_updates,
     parse_control_event,
+    parse_energy_statistics_page,
     validate_websocket_response,
 )
 from .http import (
@@ -43,6 +53,11 @@ from .websocket import (
 
 _LOGGER = logging.getLogger(__name__)
 _CONTROL_ENDPOINT = "device/control/v2/sdkcontrol"
+# AC Freedom names statistics reports after the app screen that shows them, so
+# the "month" report is the one that returns one row per day.
+_DAILY_ENERGY_REPORT = "fw_auxoverseamonthconsum_v1"
+_DAILY_ENERGY_REPORT_BY_REGION = {"cn": "serv_auxmonthelec_v1"}
+_ENERGY_MAX_PAGES = 20
 _RETRY_INITIAL_DELAY = 5
 _RETRY_MAX_DELAY = 60
 
@@ -155,6 +170,28 @@ class DnaClient:
     ) -> dict[str, Any]:
         """Query device parameters over HTTP."""
         return await self._act_http(device, "get", params or [])
+
+    async def get_energy_statistics(self, device: AuxDevice) -> EnergyStatistics:
+        """Fetch the daily energy consumption history of one device."""
+        endpoint_id = device["endpointId"]
+        report = _DAILY_ENERGY_REPORT_BY_REGION.get(
+            self._session.region, _DAILY_ENERGY_REPORT
+        )
+        readings: list[EnergyReading] = []
+        for _ in range(_ENERGY_MAX_PAGES):
+            json_data = await self._session.make_request(
+                ENERGY_STATISTICS_ENDPOINT,
+                data=build_energy_statistics_request(
+                    device, report, offset=len(readings)
+                ),
+            )
+            page, total = parse_energy_statistics_page(
+                json_data, endpoint_id=endpoint_id
+            )
+            readings.extend(page)
+            if not page or len(readings) >= total:
+                break
+        return EnergyStatistics(endpoint_id, tuple(readings))
 
     async def set_device_params_http(
         self,

@@ -12,7 +12,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 import custom_components.aux_cloud.state as state_module
 from custom_components.aux_cloud import FALLBACK_SCAN_INTERVAL, AuxCloudCoordinator
 from custom_components.aux_cloud.api.errors import AuxAuthError, AuxServerError
-from custom_components.aux_cloud.api.models import DeviceUpdate, InventorySnapshot
+from custom_components.aux_cloud.api.models import (
+    DeviceUpdate,
+    EnergyStatistics,
+    InventorySnapshot,
+)
 from custom_components.aux_cloud.const import DOMAIN
 from custom_components.aux_cloud.coordinator import TOPOLOGY_SCAN_INTERVAL
 from custom_components.aux_cloud.devices import (
@@ -36,6 +40,7 @@ def mock_aux_cloud_api():
     api.close = AsyncMock()
     api.update_realtime_devices = AsyncMock()
     api.set_device_params = AsyncMock(return_value={"pwr": 1})
+    api.get_energy_statistics = AsyncMock(return_value=EnergyStatistics("device1", ()))
     api.user_id = None
     return api
 

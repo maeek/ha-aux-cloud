@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 if TYPE_CHECKING:
@@ -65,3 +66,30 @@ class DeviceUpdate:
     endpoint_id: str
     params: Mapping[str, Any]
     available: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EnergyReading:
+    """Energy consumed by a device during one calendar day."""
+
+    day: date
+    energy_kwh: float
+
+
+@dataclass(frozen=True, slots=True)
+class EnergyStatistics:
+    """Daily energy consumption history the cloud holds for one device."""
+
+    endpoint_id: str
+    readings: tuple[EnergyReading, ...]
+
+    @property
+    def total_kwh(self) -> float:
+        """Return the lifetime consumption known to the cloud."""
+        return sum(reading.energy_kwh for reading in self.readings)
+
+    def energy_for_day(self, day: date) -> float:
+        """Return the consumption reported for one calendar day."""
+        return sum(
+            reading.energy_kwh for reading in self.readings if reading.day == day
+        )
