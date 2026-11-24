@@ -57,7 +57,6 @@ _CONTROL_ENDPOINT = "device/control/v2/sdkcontrol"
 # the "month" report is the one that returns one row per day.
 _DAILY_ENERGY_REPORT = "fw_auxoverseamonthconsum_v1"
 _DAILY_ENERGY_REPORT_BY_REGION = {"cn": "serv_auxmonthelec_v1"}
-_ENERGY_MAX_PAGES = 20
 _RETRY_INITIAL_DELAY = 5
 _RETRY_MAX_DELAY = 60
 
@@ -178,18 +177,29 @@ class DnaClient:
             self._session.region, _DAILY_ENERGY_REPORT
         )
         readings: list[EnergyReading] = []
-        for _ in range(_ENERGY_MAX_PAGES):
+        offset = 0
+        expected_total: int | None = None
+        while True:
             json_data = await self._session.make_request(
                 ENERGY_STATISTICS_ENDPOINT,
-                data=build_energy_statistics_request(
-                    device, report, offset=len(readings)
-                ),
+                data=build_energy_statistics_request(device, report, offset=offset),
             )
-            page, total = parse_energy_statistics_page(
+            page, row_count, total = parse_energy_statistics_page(
                 json_data, endpoint_id=endpoint_id
             )
+            if expected_total is None:
+                expected_total = total
+            offset += row_count
+            if (
+                total != expected_total
+                or offset > total
+                or (not row_count and offset < total)
+            ):
+                raise AuxServerError(
+                    "Incomplete AUX energy history", endpoint=ENERGY_STATISTICS_ENDPOINT
+                )
             readings.extend(page)
-            if not page or len(readings) >= total:
+            if offset == total:
                 break
         return EnergyStatistics(endpoint_id, tuple(readings))
 

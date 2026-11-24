@@ -69,13 +69,15 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
             config_entry=config_entry,
             name="AUX Cloud",
             update_interval=TOPOLOGY_SCAN_INTERVAL,
-            always_update=False,
+            # Energy history and the local day can change between identical inventories.
+            always_update=True,
         )
         self.config_entry: ConfigEntry = config_entry
         self.api = api
         self._state = AccountState(normalize_device_params)
         self._energy: dict[str, EnergyStatistics] = {}
         self._command_locks: dict[str, asyncio.Lock] = {}
+        self._pending_recoveries: set[tuple[str, int]] = set()
         self._reserved_entity_unique_ids: dict[tuple[str, str], str] = {}
         self._websocket_task: asyncio.Task[None] | None = None
         self._websocket_degraded = False
@@ -163,8 +165,37 @@ class AuxCloudCoordinator(DataUpdateCoordinator[CoordinatorData]):
     @callback
     def _handle_websocket_updates(self, updates: tuple[DeviceUpdate, ...]) -> None:
         """Merge one validated relay frame in one coordinator write."""
+        needs_snapshot = {
+            update.endpoint_id
+            for update in updates
+            if update.available is True
+            and (device := self._state.get(update.endpoint_id)) is not None
+            and (device.get("state") == 0 or not device.get("params"))
+        }
         if self._state.apply_updates(updates):
             self._publish_devices()
+        # A status-only report can repeat without changing the stored snapshot.
+        recover = {
+            (endpoint_id, self._state.availability_revision(endpoint_id))
+            for endpoint_id in needs_snapshot
+            if (device := self._state.get(endpoint_id)) and device.get("state") == 1
+        } - self._pending_recoveries
+        if recover:
+            self._pending_recoveries.update(recover)
+            self.config_entry.async_create_task(
+                self.hass,
+                self._refresh_recovered_devices(recover),
+                "aux_cloud_device_online_refresh",
+            )
+
+    async def _refresh_recovered_devices(
+        self, recoveries: set[tuple[str, int]]
+    ) -> None:
+        """Request one inventory refresh for this batch of returning devices."""
+        try:
+            await self.async_request_refresh()
+        finally:
+            self._pending_recoveries.difference_update(recoveries)
 
     @callback
     def _publish_devices(self) -> None:
